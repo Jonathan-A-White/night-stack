@@ -250,6 +250,9 @@ export function MorningLog() {
         <Link to="/tonight" className="btn btn-primary mt-16">
           Go to Tonight
         </Link>
+        <Link to={`/tonight/log?date=${yesterday}`} className="btn btn-secondary mt-8">
+          Log last night ({yesterday})
+        </Link>
       </div>
     );
   }

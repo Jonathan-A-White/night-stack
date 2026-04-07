@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
@@ -26,12 +26,27 @@ import type {
 
 const TOTAL_STEPS = 7;
 
+/**
+ * Get the day-of-week for the day after a given "YYYY-MM-DD" date string.
+ */
+function getDayAfterDow(dateStr: string): number {
+  const d = new Date(dateStr + 'T12:00:00'); // noon to avoid timezone edge cases
+  d.setDate(d.getDate() + 1);
+  return d.getDay();
+}
+
 export function EveningLog() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState(1);
 
-  // DB queries
-  const tomorrowDow = getTomorrowDayOfWeek();
+  // Support ?date=YYYY-MM-DD for backfilling a past evening log
+  const backfillDate = searchParams.get('date');
+  const logDate = backfillDate || getTodayDate();
+  const isBackfill = backfillDate !== null && backfillDate !== getTodayDate();
+
+  // DB queries — use the correct day-of-week for the alarm
+  const tomorrowDow = isBackfill ? getDayAfterDow(backfillDate!) : getTomorrowDayOfWeek();
   const alarmSchedule = useLiveQuery(
     () => db.alarmSchedules.where('dayOfWeek').equals(tomorrowDow).first(),
     [tomorrowDow]
@@ -161,7 +176,7 @@ export function EveningLog() {
   }
 
   async function handleSave() {
-    const date = getTodayDate();
+    const date = logDate;
     const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
 
     const nightLog = createBlankNightLog(date, {
@@ -216,8 +231,14 @@ export function EveningLog() {
     <div>
       <div className="page-header">
         <h1>Evening Log</h1>
-        <p className="subtitle">Step {step} of {TOTAL_STEPS}</p>
+        <p className="subtitle">Step {step} of {TOTAL_STEPS}{isBackfill ? ` \u2014 ${logDate}` : ''}</p>
       </div>
+
+      {isBackfill && (
+        <div className="banner banner-warning mb-8">
+          Backfilling evening log for {logDate}
+        </div>
+      )}
 
       {/* Step progress bar */}
       <div className="step-progress">
