@@ -391,6 +391,28 @@ export function MorningLog() {
                       <span className="summary-value">{sleepData.skinTempRange}</span>
                     </div>
                   )}
+                  {wakeUpEvents.length > 0 && (
+                    <>
+                      <div className="summary-row" style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8 }}>
+                        <span className="summary-label">Wake-Up Events</span>
+                        <span className="summary-value">{wakeUpEvents.length}</span>
+                      </div>
+                      {wakeUpEvents.map((ev) => {
+                        const causeMatch = (wakeUpCauses ?? []).find((c) => c.id === ev.cause);
+                        return (
+                          <div key={ev.id} className="summary-row">
+                            <span className="summary-label text-sm" style={{ paddingLeft: 8 }}>
+                              {ev.startTime ? formatTime12h(ev.startTime) : '?'}
+                              {ev.endTime ? ` \u2013 ${formatTime12h(ev.endTime)}` : ''}
+                            </span>
+                            <span className="summary-value text-sm">
+                              {causeMatch?.label || 'Cause not set'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
 
                 <div className="flex gap-8 mt-8">
