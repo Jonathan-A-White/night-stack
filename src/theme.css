@@ -352,8 +352,7 @@ textarea.form-input {
   display: flex;
   gap: 12px;
   padding: 16px 0;
-  position: sticky;
-  bottom: calc(var(--tab-height) + 8px);
+  margin-bottom: calc(var(--tab-height) + 8px);
 }
 
 .step-nav .btn {
