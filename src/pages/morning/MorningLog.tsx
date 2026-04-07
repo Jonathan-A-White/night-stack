@@ -90,6 +90,15 @@ export function MorningLog() {
 
   // --- Handlers ---
 
+  function calcMinutesBetween(start: string, end: string): number | null {
+    if (!start || !end) return null;
+    const [sh, sm] = start.split(':').map(Number);
+    const [eh, em] = end.split(':').map(Number);
+    let diff = (eh * 60 + em) - (sh * 60 + sm);
+    if (diff < 0) diff += 24 * 60; // handle midnight crossing
+    return diff;
+  }
+
   function resolveWakeUpEvents(parsed: ParsedWakeUpEvent[]): WakeUpEvent[] {
     return parsed.map((ev) => {
       const matchedCause = (wakeUpCauses ?? []).find(
@@ -101,7 +110,7 @@ export function MorningLog() {
         endTime: ev.endTime,
         cause: matchedCause?.id ?? '',
         fellBackAsleep: ev.endTime ? 'yes' : 'no',
-        minutesToFallBackAsleep: null,
+        minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime),
         notes: ev.notes,
       } satisfies WakeUpEvent;
     });
