@@ -779,28 +779,35 @@ export function MorningLog() {
             )}
           </div>
 
-          <button
-            className="btn btn-primary btn-full mt-16"
-            onClick={handleSave}
-          >
-            Save Morning Log
-          </button>
+          <div className="step-nav">
+            <button className="btn btn-secondary" onClick={goBack}>
+              Back
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleSave}
+            >
+              Save Morning Log
+            </button>
+          </div>
         </div>
       )}
 
       {/* Step navigation */}
-      <div className="step-nav">
-        {step > 1 && (
-          <button className="btn btn-secondary" onClick={goBack}>
-            Back
-          </button>
-        )}
-        {step < TOTAL_STEPS && !(step === 1 && sleepData) && (
-          <button className="btn btn-primary" onClick={goNext}>
-            {step === 2 && !roomTimeline ? 'Skip' : 'Next'}
-          </button>
-        )}
-      </div>
+      {step < TOTAL_STEPS && (
+        <div className="step-nav">
+          {step > 1 && (
+            <button className="btn btn-secondary" onClick={goBack}>
+              Back
+            </button>
+          )}
+          {!(step === 1 && sleepData) && (
+            <button className="btn btn-primary" onClick={goNext}>
+              {step === 2 && !roomTimeline ? 'Skip' : 'Next'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

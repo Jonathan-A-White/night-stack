@@ -670,34 +670,42 @@ export function EveningLog() {
             </div>
           </div>
 
-          <button
-            className="btn btn-primary btn-full mt-16"
-            onClick={handleSave}
-          >
-            Save Evening Log
-          </button>
+          <div className="step-nav">
+            <button
+              className="btn btn-secondary"
+              onClick={() => setStep((s) => s - 1)}
+            >
+              Back
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleSave}
+            >
+              Save Evening Log
+            </button>
+          </div>
         </div>
       )}
 
       {/* Step navigation */}
-      <div className="step-nav">
-        {step > 1 && (
-          <button
-            className="btn btn-secondary"
-            onClick={() => setStep((s) => s - 1)}
-          >
-            Back
-          </button>
-        )}
-        {step < TOTAL_STEPS && (
+      {step < TOTAL_STEPS && (
+        <div className="step-nav">
+          {step > 1 && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => setStep((s) => s - 1)}
+            >
+              Back
+            </button>
+          )}
           <button
             className="btn btn-primary"
             onClick={() => setStep((s) => s + 1)}
           >
             Next
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
