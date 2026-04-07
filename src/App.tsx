@@ -38,13 +38,13 @@ export function App() {
           <Route path="/insights/correlations" element={<Correlations />} />
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/settings" element={<SettingsHome />} />
-          <Route path="/settings/alarm" element={<AlarmSchedulePage />} />
+          <Route path="/settings/alarm-schedule" element={<AlarmSchedulePage />} />
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />
           <Route path="/settings/bedding" element={<BeddingItemsPage />} />
-          <Route path="/settings/wake-causes" element={<WakeUpCausesPage />} />
+          <Route path="/settings/wake-up-causes" element={<WakeUpCausesPage />} />
           <Route path="/settings/bedtime-reasons" element={<BedtimeReasonsPage />} />
-          <Route path="/settings/rules" element={<SleepRulesPage />} />
+          <Route path="/settings/sleep-rules" element={<SleepRulesPage />} />
           <Route path="/settings/location" element={<LocationPage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/about" element={<AboutPage />} />
