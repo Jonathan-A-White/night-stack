@@ -162,7 +162,10 @@ export function MorningReview() {
             const cause = (wakeUpCauses ?? []).find((c) => c.id === e.cause);
             return (
               <div key={e.id} className="summary-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-                <div className="fw-600">{formatTime12h(e.approximateTime)} — {cause?.label ?? 'Unknown'}</div>
+                <div className="fw-600">
+                  {formatTime12h(e.startTime)}
+                  {e.endTime ? ` \u2013 ${formatTime12h(e.endTime)}` : ''} — {cause?.label ?? 'Unknown'}
+                </div>
                 <div className="text-secondary text-sm">
                   Fell back asleep: {e.fellBackAsleep}
                   {e.minutesToFallBackAsleep ? ` (${e.minutesToFallBackAsleep} min)` : ''}

@@ -82,7 +82,7 @@ function evaluateCondition(rule: SleepRule, ctx: RuleEvalContext): boolean {
   if (cond.includes('recurrent') && cond.includes('wake-up')) {
     const recentWakeUps = ctx.recentLogs.filter((log) =>
       log.wakeUpEvents.some((e) => {
-        const [h] = e.approximateTime.split(':').map(Number);
+        const [h] = e.startTime.split(':').map(Number);
         return h >= 2 && h <= 4;
       })
     );

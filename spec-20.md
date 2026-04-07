@@ -182,7 +182,8 @@ interface RoomReading {
 ```ts
 interface WakeUpEvent {
   id: string;
-  approximateTime: string; // "HH:MM"
+  startTime: string; // "HH:MM" — when the wake-up began
+  endTime: string; // "HH:MM" — when fell back asleep (empty if didn't)
   cause: string; // ID of WakeUpCause
   fellBackAsleep: "yes" | "no" | "eventually";
   minutesToFallBackAsleep: number | null;
