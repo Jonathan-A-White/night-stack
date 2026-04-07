@@ -25,7 +25,15 @@ Return **only** a valid JSON object (no markdown fences, no commentary) with exa
   "sleepLatencyRating": "<rating>",
   "restfulnessRating": "<rating>",
   "deepSleepRating": "<rating>",
-  "remSleepRating": "<rating>"
+  "remSleepRating": "<rating>",
+  "wakeUpEvents": [
+    {
+      "startTime": "HH:MM",
+      "endTime": "HH:MM",
+      "cause": "",
+      "notes": ""
+    }
+  ]
 }
 ```
 
@@ -51,6 +59,26 @@ Return **only** a valid JSON object (no markdown fences, no commentary) with exa
 | `restfulnessRating` | rating | From **Sleep score factors** — the "Restfulness" row. |
 | `deepSleepRating` | rating | From **Sleep score factors** — the "Deep sleep" row. |
 | `remSleepRating` | rating | From **Sleep score factors** — the "REM sleep" row. |
+| `wakeUpEvents` | array | Optional. Extracted from the **Sleep stages** chart — see below. |
+
+## Wake-Up Events
+
+Examine the **Sleep stages** hypnogram chart for significant awake periods. These appear as gaps or "Awake" segments between sleep stage blocks.
+
+For each distinct awake period visible in the chart:
+
+| Field | Type | How to extract |
+|---|---|---|
+| `startTime` | `"HH:MM"` (24h) | Estimate from the chart's time axis when the awake period begins. |
+| `endTime` | `"HH:MM"` (24h) | Estimate from the chart's time axis when the awake period ends (user fell back asleep). Use `""` if unclear. |
+| `cause` | string | Leave as `""` — the user will select the cause in the app. |
+| `notes` | string | Leave as `""` — the user will add notes in the app. |
+
+**Rules:**
+- Only include awake periods that are clearly visible as distinct segments in the hypnogram — brief micro-arousals that aren't clearly distinguishable can be skipped.
+- Do **not** include the final morning wake-up as a wake-up event.
+- If no significant awake periods are visible, set `wakeUpEvents` to `[]`.
+- Use 24-hour time format, estimated to the nearest 5 minutes from the chart axis.
 
 ## Rating Values
 
@@ -80,6 +108,8 @@ Before returning the JSON, verify:
 4. `totalSleepDuration` ≈ `actualSleepDuration` + `awakeDuration`
 5. All times are in `"HH:MM"` 24-hour format
 6. All durations are integers (except `avgRespiratoryRate` which can be a float)
+7. Every entry in `wakeUpEvents` has a `startTime` in `"HH:MM"` 24-hour format
+8. `wakeUpEvents` does not include the final morning wake-up
 
 ## Example
 
@@ -87,6 +117,7 @@ Given a screenshot showing:
 - Sleep time: 10:53 PM – 4:44 AM, 5h 51m
 - Sleep score: 79, ▲ 3
 - Stages: Awake 17m, REM 1h 52m, Light 2h 39m, Deep 1h 3m
+- Sleep stages chart shows one visible awake period around 12:40–12:55 AM
 - Heart rate avg: 50 bpm
 - Respiratory rate avg: 14.6 breaths/min
 - Blood oxygen avg: 95%
@@ -113,7 +144,15 @@ Output:
   "sleepLatencyRating": "Excellent",
   "restfulnessRating": "Excellent",
   "deepSleepRating": "Excellent",
-  "remSleepRating": "Excellent"
+  "remSleepRating": "Excellent",
+  "wakeUpEvents": [
+    {
+      "startTime": "00:40",
+      "endTime": "00:55",
+      "cause": "",
+      "notes": ""
+    }
+  ]
 }
 ```
 

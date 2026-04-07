@@ -1,8 +1,15 @@
-import type { SleepData, SleepRating, RoomReading } from '../types';
+import type { SleepData, SleepRating, RoomReading, WakeUpEvent } from '../types';
 
 const VALID_RATINGS: SleepRating[] = ['Excellent', 'Good', 'Fair', 'Attention'];
 
-export function parseSamsungHealthJSON(jsonStr: string): { data: SleepData | null; error: string | null } {
+export interface ParsedWakeUpEvent {
+  startTime: string;
+  endTime: string;
+  cause: string; // label text from JSON (matched to WakeUpCause ID in component)
+  notes: string;
+}
+
+export function parseSamsungHealthJSON(jsonStr: string): { data: SleepData | null; wakeUpEvents: ParsedWakeUpEvent[]; error: string | null } {
   try {
     const raw = JSON.parse(jsonStr);
     const missing: string[] = [];
@@ -20,19 +27,19 @@ export function parseSamsungHealthJSON(jsonStr: string): { data: SleepData | nul
     }
 
     if (missing.length > 0) {
-      return { data: null, error: `Missing required fields: ${missing.join(', ')}` };
+      return { data: null, wakeUpEvents: [], error: `Missing required fields: ${missing.join(', ')}` };
     }
 
     // Validate ratings
     for (const field of ['sleepLatencyRating', 'restfulnessRating', 'deepSleepRating', 'remSleepRating'] as const) {
       if (raw[field] && !VALID_RATINGS.includes(raw[field])) {
-        return { data: null, error: `Invalid rating for ${field}: ${raw[field]}. Must be one of: ${VALID_RATINGS.join(', ')}` };
+        return { data: null, wakeUpEvents: [], error: `Invalid rating for ${field}: ${raw[field]}. Must be one of: ${VALID_RATINGS.join(', ')}` };
       }
     }
 
     // Validate numeric ranges
     if (raw.sleepScore < 0 || raw.sleepScore > 100) {
-      return { data: null, error: 'Sleep score must be between 0 and 100' };
+      return { data: null, wakeUpEvents: [], error: 'Sleep score must be between 0 and 100' };
     }
 
     const data: SleepData = {
@@ -57,9 +64,24 @@ export function parseSamsungHealthJSON(jsonStr: string): { data: SleepData | nul
       importedAt: Date.now(),
     };
 
-    return { data, error: null };
+    // Parse optional wake-up events
+    const wakeUpEvents: ParsedWakeUpEvent[] = [];
+    if (Array.isArray(raw.wakeUpEvents)) {
+      for (const ev of raw.wakeUpEvents) {
+        if (ev.startTime) {
+          wakeUpEvents.push({
+            startTime: String(ev.startTime),
+            endTime: String(ev.endTime ?? ''),
+            cause: String(ev.cause ?? ''),
+            notes: String(ev.notes ?? ''),
+          });
+        }
+      }
+    }
+
+    return { data, wakeUpEvents, error: null };
   } catch {
-    return { data: null, error: 'Invalid JSON format' };
+    return { data: null, wakeUpEvents: [], error: 'Invalid JSON format' };
   }
 }
 

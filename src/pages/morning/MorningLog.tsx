@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { getTodayDate, formatTime12h, isTimeAfter } from '../../utils';
-import { parseSamsungHealthJSON, parseGoveeCSV } from '../../services/importers';
+import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import type {
   SleepData,
   SleepRating,
@@ -90,6 +90,23 @@ export function MorningLog() {
 
   // --- Handlers ---
 
+  function resolveWakeUpEvents(parsed: ParsedWakeUpEvent[]): WakeUpEvent[] {
+    return parsed.map((ev) => {
+      const matchedCause = (wakeUpCauses ?? []).find(
+        (c) => c.label.toLowerCase() === ev.cause.toLowerCase()
+      );
+      return {
+        id: crypto.randomUUID(),
+        startTime: ev.startTime,
+        endTime: ev.endTime,
+        cause: matchedCause?.id ?? '',
+        fellBackAsleep: ev.endTime ? 'yes' : 'no',
+        minutesToFallBackAsleep: null,
+        notes: ev.notes,
+      } satisfies WakeUpEvent;
+    });
+  }
+
   function handleSleepFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -102,6 +119,12 @@ export function MorningLog() {
       } else {
         setSleepData(result.data);
         setImportError(null);
+        // Auto-populate wake-up events from JSON if present
+        if (result.wakeUpEvents.length > 0) {
+          const resolved = resolveWakeUpEvents(result.wakeUpEvents);
+          setWakeUpEvents(resolved);
+          setHadWakeUps(true);
+        }
       }
     };
     reader.readAsText(file);
@@ -162,7 +185,8 @@ export function MorningLog() {
       ...prev,
       {
         id: crypto.randomUUID(),
-        approximateTime: '',
+        startTime: '',
+        endTime: '',
         cause: '',
         fellBackAsleep: 'yes',
         minutesToFallBackAsleep: null,
@@ -582,7 +606,8 @@ export function MorningLog() {
                     <div className="flex items-center justify-between mb-8">
                       <div>
                         <span className="fw-600">
-                          {event.approximateTime ? formatTime12h(event.approximateTime) : 'No time set'}
+                          {event.startTime ? formatTime12h(event.startTime) : 'No time set'}
+                          {event.endTime ? ` \u2013 ${formatTime12h(event.endTime)}` : ''}
                         </span>
                         <span className="text-secondary text-sm"> &mdash; {causeLabel}</span>
                       </div>
@@ -593,14 +618,25 @@ export function MorningLog() {
                         Delete
                       </button>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Approximate time</label>
-                      <input
-                        type="time"
-                        className="form-input"
-                        value={event.approximateTime}
-                        onChange={(e) => updateWakeUpEvent(event.id, 'approximateTime', e.target.value)}
-                      />
+                    <div className="flex gap-8">
+                      <div className="form-group" style={{ flex: 1 }}>
+                        <label className="form-label">Woke up at</label>
+                        <input
+                          type="time"
+                          className="form-input"
+                          value={event.startTime}
+                          onChange={(e) => updateWakeUpEvent(event.id, 'startTime', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group" style={{ flex: 1 }}>
+                        <label className="form-label">Back to sleep at</label>
+                        <input
+                          type="time"
+                          className="form-input"
+                          value={event.endTime}
+                          onChange={(e) => updateWakeUpEvent(event.id, 'endTime', e.target.value)}
+                        />
+                      </div>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Cause</label>

@@ -31,6 +31,7 @@ describe('parseSamsungHealthJSON', () => {
     expect(result.data!.sleepTime).toBe('22:31');
     expect(result.data!.deepSleep).toBe(64);
     expect(result.data!.importedAt).toBeGreaterThan(0);
+    expect(result.wakeUpEvents).toEqual([]);
   });
 
   it('rejects JSON with missing required fields', () => {
@@ -68,6 +69,44 @@ describe('parseSamsungHealthJSON', () => {
     expect(result.error).toBeNull();
     expect(result.data!.skinTempRange).toBe('');
     expect(result.data!.sleepScoreDelta).toBe(0);
+  });
+
+  it('parses wake-up events from JSON', () => {
+    const withEvents = {
+      ...validJSON,
+      wakeUpEvents: [
+        { startTime: '00:40', endTime: '00:55', cause: 'Too cold', notes: 'Had to add blanket' },
+        { startTime: '03:15', endTime: '03:25', cause: 'Bathroom' },
+      ],
+    };
+    const result = parseSamsungHealthJSON(JSON.stringify(withEvents));
+    expect(result.error).toBeNull();
+    expect(result.wakeUpEvents).toHaveLength(2);
+    expect(result.wakeUpEvents[0]).toEqual({
+      startTime: '00:40',
+      endTime: '00:55',
+      cause: 'Too cold',
+      notes: 'Had to add blanket',
+    });
+    expect(result.wakeUpEvents[1]).toEqual({
+      startTime: '03:15',
+      endTime: '03:25',
+      cause: 'Bathroom',
+      notes: '',
+    });
+  });
+
+  it('skips wake-up events without startTime', () => {
+    const withBadEvent = {
+      ...validJSON,
+      wakeUpEvents: [
+        { endTime: '01:00', cause: 'Noise' },
+        { startTime: '02:30', endTime: '02:45', cause: 'Too hot' },
+      ],
+    };
+    const result = parseSamsungHealthJSON(JSON.stringify(withBadEvent));
+    expect(result.wakeUpEvents).toHaveLength(1);
+    expect(result.wakeUpEvents[0].startTime).toBe('02:30');
   });
 });
 
