@@ -606,9 +606,11 @@ Also a multi-step form. Opens from the Morning tab.
 **Step 3: Wake-Up Events**
 
 - "Did you wake up during the night?" toggle
+- If JSON import included `wakeUpEvents`, auto-populate this step (toggle on, events pre-filled with cause labels matched to WakeUpCause IDs)
 - If yes: "Add wake-up event" button
 - Per event:
-  - Approximate time (time picker)
+  - Start time — "Woke up at" (time picker, side-by-side with end time)
+  - End time — "Back to sleep at" (time picker, may be empty if didn't fall back asleep)
   - Cause (select from WakeUpCause list)
   - Fell back asleep? (yes / no / eventually)
   - If yes/eventually: minutes to fall back asleep (number)
@@ -778,9 +780,25 @@ The user creates the JSON externally by sending a Samsung Health screenshot to a
   "sleepLatencyRating": "Excellent",
   "restfulnessRating": "Excellent",
   "deepSleepRating": "Excellent",
-  "remSleepRating": "Excellent"
+  "remSleepRating": "Excellent",
+  "wakeUpEvents": [
+    {
+      "startTime": "00:40",
+      "endTime": "00:55",
+      "cause": "Too cold",
+      "notes": "Added blanket"
+    }
+  ]
 }
 ```
+
+**`wakeUpEvents` array (optional):**
+
+- Each entry requires at minimum a `startTime` ("HH:MM" 24hr). Entries without `startTime` are skipped.
+- `endTime` — when the user fell back asleep (empty string or omitted if they didn't)
+- `cause` — label text matching a WakeUpCause entry (e.g., "Too cold", "Bathroom", "Sweating / too hot", "Heart racing / palpitations", "Noise", "Pain / discomfort", "Anxiety / racing thoughts", "Unknown"). Matched case-insensitively to WakeUpCause labels on import.
+- `notes` — optional free text
+- When present, auto-populates Step 3 of the morning log wizard (toggles "Did you wake up?" on and pre-fills events)
 
 **Validation on import:**
 
@@ -972,12 +990,21 @@ When given a screenshot from Samsung Health's sleep tracking screen, extract the
   "sleepLatencyRating": "Excellent|Good|Fair|Attention",
   "restfulnessRating": "Excellent|Good|Fair|Attention",
   "deepSleepRating": "Excellent|Good|Fair|Attention",
-  "remSleepRating": "Excellent|Good|Fair|Attention"
+  "remSleepRating": "Excellent|Good|Fair|Attention",
+  "wakeUpEvents": [
+    {
+      "startTime": "HH:MM (24hr, when the wake-up began)",
+      "endTime": "HH:MM (24hr, when fell back asleep, empty string if unknown)",
+      "cause": "string (leave empty — user will select cause in the app)"
+    }
+  ]
 }
 
 If any field is not visible in the screenshot, set it to null.
 Convert all durations to minutes.
 Use 24-hour time format.
+
+For wakeUpEvents: examine the sleep stages chart for significant awake periods (shown as gaps or "Awake" segments in the hypnogram). Include each distinct awake period that is clearly visible. Estimate startTime and endTime from the chart's time axis. If no significant awake periods are visible, set wakeUpEvents to an empty array []. Do not include the final morning wake-up as a wake-up event.
 ```
 
 ### 12.2 Govee CSV Parsing
@@ -1096,13 +1123,19 @@ Feature: Morning Log
     Then an error message explains what's missing
     And I can try again
 
-  Scenario: Log wake-up event
+  Scenario: Log wake-up event manually
     When I toggle "Did you wake up during the night?" to yes
-    And I add a wake-up event at 3:15 AM
+    And I add a wake-up event with start time 3:15 AM and end time 3:40 AM
     And I select cause "Heart racing / palpitations"
     And I select "eventually" for fell back asleep
     And I enter 25 minutes to fall back asleep
-    Then the wake-up event is saved to the NightLog
+    Then the wake-up event is saved to the NightLog with startTime and endTime
+
+  Scenario: Wake-up events auto-populated from JSON import
+    When I import a JSON file containing a wakeUpEvents array
+    Then the "Did you wake up during the night?" toggle is set to yes
+    And the wake-up events are pre-filled with startTime, endTime, and matched cause
+    And I can edit, delete, or add more events before saving
 
   Scenario: Bedtime explanation shown only when late
     Given the Samsung Health data shows sleep time 11:23 PM
