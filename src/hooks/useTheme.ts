@@ -11,6 +11,10 @@ export function useTheme() {
         'data-theme',
         settings.darkMode ? 'dark' : 'light'
       );
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) {
+        meta.setAttribute('content', settings.darkMode ? '#1a1a2e' : '#f5f5f0');
+      }
     }
   }, [settings?.darkMode]);
 

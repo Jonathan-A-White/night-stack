@@ -25,7 +25,7 @@ export default function AboutPage() {
       <div className="card">
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <div className="fs-20 fw-600">NightStack</div>
-          <div className="text-secondary text-sm">Version 1.0.0</div>
+          <div className="text-secondary text-sm">Version {__APP_VERSION__}</div>
         </div>
         <p className="text-secondary text-sm" style={{ lineHeight: 1.6 }}>
           NightStack is a personal sleep optimization PWA. It tracks your nightly routine, supplement stack, sleep environment, and sleep data to help you identify patterns and improve sleep quality over time.
