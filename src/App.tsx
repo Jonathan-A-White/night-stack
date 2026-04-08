@@ -20,12 +20,14 @@ import LocationPage from './pages/settings/LocationPage';
 import DataManagementPage from './pages/settings/DataManagementPage';
 import AboutPage from './pages/settings/AboutPage';
 import { useTheme } from './hooks/useTheme';
+import { InstallBanner } from './components/InstallBanner';
 
 export function App() {
   useTheme();
 
   return (
     <div className="app-layout">
+      <InstallBanner />
       <div className="app-content">
         <Routes>
           <Route path="/" element={<Navigate to="/tonight" replace />} />
