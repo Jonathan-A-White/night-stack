@@ -19,10 +19,34 @@ export function EveningReview() {
   const beddingItems = useLiveQuery(() => db.beddingItems.toArray());
   const supplements = useLiveQuery(() => db.supplementDefs.toArray());
 
-  if (!nightLog) {
+  // Dynamic bedtime awareness for today's review.
+  // These hooks MUST be called before any early return to satisfy the
+  // Rules of Hooks — otherwise the component crashes once nightLog loads.
+  const isToday = date === getTodayDate();
+  const [currentTime, setCurrentTime] = useState(getCurrentTime());
+
+  useEffect(() => {
+    if (!isToday) return;
+    const interval = setInterval(() => setCurrentTime(getCurrentTime()), 60000);
+    return () => clearInterval(interval);
+  }, [isToday]);
+
+  if (nightLog === undefined) {
     return (
       <div className="empty-state">
         <h3>Loading...</h3>
+      </div>
+    );
+  }
+
+  if (!nightLog) {
+    return (
+      <div className="empty-state">
+        <h3>No data found</h3>
+        <p>No evening log for this date.</p>
+        <button className="btn btn-primary mt-16" onClick={() => navigate(-1)}>
+          Go Back
+        </button>
       </div>
     );
   }
@@ -39,16 +63,6 @@ export function EveningReview() {
 
   const { alarm, stack, eveningIntake, environment, clothing, bedding, eveningNotes } =
     nightLog;
-
-  // Dynamic bedtime awareness for today's review
-  const isToday = date === getTodayDate();
-  const [currentTime, setCurrentTime] = useState(getCurrentTime());
-
-  useEffect(() => {
-    if (!isToday) return;
-    const interval = setInterval(() => setCurrentTime(getCurrentTime()), 60000);
-    return () => clearInterval(interval);
-  }, [isToday]);
 
   const minutesPastBedtime = (() => {
     if (!isToday) return null;
@@ -277,9 +291,9 @@ export function EveningReview() {
 
       <button
         className="btn btn-secondary btn-full mt-16"
-        onClick={() => navigate('/tonight')}
+        onClick={() => navigate(-1)}
       >
-        Back to Tonight
+        Back
       </button>
     </div>
   );
