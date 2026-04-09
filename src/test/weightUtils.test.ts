@@ -11,7 +11,31 @@ import {
   parseFeetInchesToInches,
   inchesToFeetInches,
   roundWeightLbs,
+  recalculateCalculatedWeights,
+  recalculateAllCalculatedWeights,
 } from '../weightUtils';
+import type { WeightEntry } from '../types';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function makeEntry(
+  id: string,
+  timestamp: number,
+  weightLbs: number,
+  measured: boolean,
+): WeightEntry {
+  return {
+    id,
+    nightLogId: null,
+    date: '2026-01-01',
+    time: '07:00',
+    timestamp,
+    weightLbs,
+    period: 'morning',
+    createdAt: timestamp,
+    measured,
+  };
+}
 
 describe('unit conversions', () => {
   it('converts lbs ↔ kg round-trip', () => {
@@ -153,5 +177,220 @@ describe('roundWeightLbs', () => {
     const raw = kgToLbs(75.04);
     const rounded = roundWeightLbs(raw, 'metric');
     expect(lbsToKg(rounded)).toBeCloseTo(75.0, 1);
+  });
+});
+
+describe('recalculateCalculatedWeights', () => {
+  it('linearly interpolates between two measurements (2-day gap in a 4-day span)', () => {
+    // Anchor at t=4 days = 178, previous measurement at t=0 = 170
+    // Calculated at t=2 days should be 174
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('a', t0, 170, true),
+      makeEntry('c1', t0 + 1 * DAY_MS, 0, false),
+      makeEntry('c2', t0 + 2 * DAY_MS, 0, false),
+      makeEntry('c3', t0 + 3 * DAY_MS, 0, false),
+      makeEntry('b', t0 + 4 * DAY_MS, 178, true),
+    ];
+    const result = recalculateCalculatedWeights(entries, 'b');
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(172);
+    expect(byId['c2'].weightLbs).toBe(174);
+    expect(byId['c3'].weightLbs).toBe(176);
+    // Measured values unchanged
+    expect(byId['a'].weightLbs).toBe(170);
+    expect(byId['b'].weightLbs).toBe(178);
+  });
+
+  it('fill-forwards calculated entries after the last measurement', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('m1', t0, 165, true),
+      makeEntry('m2', t0 + 2 * DAY_MS, 169, true),
+      makeEntry('c1', t0 + 3 * DAY_MS, 0, false),
+      makeEntry('c2', t0 + 5 * DAY_MS, 0, false),
+    ];
+    const result = recalculateCalculatedWeights(entries, 'm2');
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(169);
+    expect(byId['c2'].weightLbs).toBe(169);
+  });
+
+  it('fill-backwards calculated entries before the first measurement', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('c1', t0, 0, false),
+      makeEntry('c2', t0 + 1 * DAY_MS, 0, false),
+      makeEntry('m1', t0 + 2 * DAY_MS, 160, true),
+      makeEntry('m2', t0 + 4 * DAY_MS, 164, true),
+    ];
+    const result = recalculateCalculatedWeights(entries, 'm1');
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(160);
+    expect(byId['c2'].weightLbs).toBe(160);
+  });
+
+  it('never modifies measured entries', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('a', t0, 170, true),
+      makeEntry('c', t0 + 1 * DAY_MS, 999, false),
+      makeEntry('b', t0 + 2 * DAY_MS, 180, true),
+    ];
+    const result = recalculateCalculatedWeights(entries, 'b');
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['a'].weightLbs).toBe(170);
+    expect(byId['b'].weightLbs).toBe(180);
+    // Calculated entry was overwritten by interpolation (175 at midpoint)
+    expect(byId['c'].weightLbs).toBe(175);
+  });
+
+  it('returns a new array and does not mutate the input', () => {
+    const t0 = 1_700_000_000_000;
+    const original: WeightEntry[] = [
+      makeEntry('a', t0, 170, true),
+      makeEntry('c', t0 + 1 * DAY_MS, 999, false),
+      makeEntry('b', t0 + 2 * DAY_MS, 180, true),
+    ];
+    const snapshot = original.map((e) => ({ ...e }));
+    const result = recalculateCalculatedWeights(original, 'b');
+    // New array reference
+    expect(result).not.toBe(original);
+    // Elements are new objects too (not the same references)
+    for (const entry of original) {
+      const matched = result.find((r) => r.id === entry.id)!;
+      expect(matched).not.toBe(entry);
+    }
+    // Original array content untouched
+    for (let i = 0; i < original.length; i++) {
+      expect(original[i]).toEqual(snapshot[i]);
+    }
+  });
+
+  it('throws when anchorId refers to a non-measured entry', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('a', t0, 170, true),
+      makeEntry('c', t0 + 1 * DAY_MS, 999, false),
+    ];
+    expect(() => recalculateCalculatedWeights(entries, 'c')).toThrow(
+      /not a measured entry/,
+    );
+  });
+
+  it('throws when anchorId is unknown', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [makeEntry('a', t0, 170, true)];
+    expect(() => recalculateCalculatedWeights(entries, 'does-not-exist')).toThrow(
+      /unknown anchorId/,
+    );
+  });
+});
+
+describe('recalculateAllCalculatedWeights', () => {
+  it('linearly interpolates between adjacent measurements', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('m1', t0, 170, true),
+      makeEntry('c1', t0 + 1 * DAY_MS, 0, false),
+      makeEntry('c2', t0 + 2 * DAY_MS, 0, false),
+      makeEntry('c3', t0 + 3 * DAY_MS, 0, false),
+      makeEntry('m2', t0 + 4 * DAY_MS, 178, true),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(172);
+    expect(byId['c2'].weightLbs).toBe(174);
+    expect(byId['c3'].weightLbs).toBe(176);
+  });
+
+  it('fill-forwards after the last measurement', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('m1', t0, 160, true),
+      makeEntry('m2', t0 + 2 * DAY_MS, 164, true),
+      makeEntry('c1', t0 + 3 * DAY_MS, 0, false),
+      makeEntry('c2', t0 + 10 * DAY_MS, 0, false),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(164);
+    expect(byId['c2'].weightLbs).toBe(164);
+  });
+
+  it('fill-backwards before the first measurement', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('c1', t0, 0, false),
+      makeEntry('c2', t0 + 1 * DAY_MS, 0, false),
+      makeEntry('m1', t0 + 2 * DAY_MS, 155, true),
+      makeEntry('m2', t0 + 4 * DAY_MS, 159, true),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(155);
+    expect(byId['c2'].weightLbs).toBe(155);
+  });
+
+  it('never modifies measured entries', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('m1', t0, 170, true),
+      makeEntry('c', t0 + 1 * DAY_MS, 999, false),
+      makeEntry('m2', t0 + 2 * DAY_MS, 180, true),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['m1'].weightLbs).toBe(170);
+    expect(byId['m2'].weightLbs).toBe(180);
+  });
+
+  it('returns a new array and does not mutate the input', () => {
+    const t0 = 1_700_000_000_000;
+    const original: WeightEntry[] = [
+      makeEntry('m1', t0, 170, true),
+      makeEntry('c', t0 + 1 * DAY_MS, 999, false),
+      makeEntry('m2', t0 + 2 * DAY_MS, 180, true),
+    ];
+    const snapshot = original.map((e) => ({ ...e }));
+    const result = recalculateAllCalculatedWeights(original);
+    expect(result).not.toBe(original);
+    for (const entry of original) {
+      const matched = result.find((r) => r.id === entry.id)!;
+      expect(matched).not.toBe(entry);
+    }
+    for (let i = 0; i < original.length; i++) {
+      expect(original[i]).toEqual(snapshot[i]);
+    }
+  });
+
+  it('leaves calculated entries unchanged when there are zero measurements', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('c1', t0, 150, false),
+      makeEntry('c2', t0 + 1 * DAY_MS, 151.5, false),
+      makeEntry('c3', t0 + 2 * DAY_MS, 152.7, false),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(150);
+    expect(byId['c2'].weightLbs).toBe(151.5);
+    expect(byId['c3'].weightLbs).toBe(152.7);
+  });
+
+  it('sets all calculated entries to the single measurement value', () => {
+    const t0 = 1_700_000_000_000;
+    const entries: WeightEntry[] = [
+      makeEntry('c1', t0, 0, false),
+      makeEntry('m1', t0 + 2 * DAY_MS, 168.3, true),
+      makeEntry('c2', t0 + 5 * DAY_MS, 0, false),
+      makeEntry('c3', t0 + 8 * DAY_MS, 0, false),
+    ];
+    const result = recalculateAllCalculatedWeights(entries);
+    const byId = Object.fromEntries(result.map((e) => [e.id, e]));
+    expect(byId['c1'].weightLbs).toBe(168.3);
+    expect(byId['c2'].weightLbs).toBe(168.3);
+    expect(byId['c3'].weightLbs).toBe(168.3);
+    expect(byId['m1'].weightLbs).toBe(168.3);
   });
 });

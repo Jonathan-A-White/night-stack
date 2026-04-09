@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
@@ -13,6 +13,8 @@ import {
   lbsToKg,
   parseFeetInchesToInches,
 } from '../../weightUtils';
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'invalid';
 
 export default function WeightProfilePage() {
   const settings = useLiveQuery(() => db.appSettings.get('default'));
@@ -31,12 +33,17 @@ export default function WeightProfilePage() {
   // Starting weight: stored in lbs canonically. Input differs by unit system.
   const [startingWeightInput, setStartingWeightInput] = useState('');
 
-  const [saved, setSaved] = useState(false);
+  const [status, setStatus] = useState<SaveStatus>('idle');
   const [error, setError] = useState<string | null>(null);
+
+  // Guard auto-save: don't write until we've loaded the existing row once.
+  // Otherwise the initial default-state render would wipe the user's saved data.
+  const [loaded, setLoaded] = useState(false);
 
   // Load settings once available.
   useEffect(() => {
     if (!settings) return;
+    if (loaded) return;
     setUnitSystem(settings.unitSystem ?? 'us');
     setWeighInPeriod(settings.weighInPeriod ?? 'morning');
     setSex(settings.sex ?? '');
@@ -59,7 +66,9 @@ export default function WeightProfilePage() {
         setStartingWeightInput(settings.startingWeightLbs.toFixed(1));
       }
     }
-  }, [settings]);
+
+    setLoaded(true);
+  }, [settings, loaded]);
 
   // When user toggles units, reformat the height/weight inputs without data loss.
   function handleUnitChange(next: UnitSystem) {
@@ -127,40 +136,83 @@ export default function WeightProfilePage() {
       ? calculateIdealWeightLbs(sex, computedHeightInches)
       : null;
 
-  async function handleSave() {
-    setError(null);
+  // Auto-save: debounce all changes and write them to appSettings.
+  // Validation errors block the write; going back into range resumes auto-save.
+  const saveTimer = useRef<number | null>(null);
+  const savedTimer = useRef<number | null>(null);
 
+  useEffect(() => {
+    if (!loaded) return; // don't overwrite before we've loaded
+
+    // Validate
     const ageNum = age.trim() === '' ? null : parseInt(age, 10);
     if (ageNum !== null && (isNaN(ageNum) || ageNum < 1 || ageNum > 120)) {
       setError('Age must be a number between 1 and 120.');
+      setStatus('invalid');
       return;
     }
-
-    if (computedHeightInches !== null && (computedHeightInches < 24 || computedHeightInches > 96)) {
+    if (
+      computedHeightInches !== null &&
+      (computedHeightInches < 24 || computedHeightInches > 96)
+    ) {
       setError('Height seems out of range. Double-check your entry.');
+      setStatus('invalid');
       return;
     }
-
     if (
       computedStartingWeightLbs !== null &&
       (computedStartingWeightLbs < 40 || computedStartingWeightLbs > 800)
     ) {
       setError('Starting weight seems out of range. Double-check your entry.');
+      setStatus('invalid');
       return;
     }
 
-    await db.appSettings.update('default', {
-      unitSystem,
-      weighInPeriod,
-      sex: sex === '' ? null : sex,
-      heightInches: computedHeightInches,
-      startingWeightLbs: computedStartingWeightLbs,
-      age: ageNum,
-    });
+    // Valid — clear any stale error and debounce the write.
+    setError(null);
+    setStatus('saving');
 
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+    }
+    saveTimer.current = window.setTimeout(async () => {
+      await db.appSettings.update('default', {
+        unitSystem,
+        weighInPeriod,
+        sex: sex === '' ? null : sex,
+        heightInches: computedHeightInches,
+        startingWeightLbs: computedStartingWeightLbs,
+        age: ageNum,
+      });
+      setStatus('saved');
+      if (savedTimer.current !== null) {
+        window.clearTimeout(savedTimer.current);
+      }
+      savedTimer.current = window.setTimeout(() => setStatus('idle'), 1500);
+    }, 400);
+
+    return () => {
+      if (saveTimer.current !== null) {
+        window.clearTimeout(saveTimer.current);
+      }
+    };
+  }, [
+    loaded,
+    unitSystem,
+    weighInPeriod,
+    sex,
+    age,
+    computedHeightInches,
+    computedStartingWeightLbs,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimer.current !== null) {
+        window.clearTimeout(savedTimer.current);
+      }
+    };
+  }, []);
 
   if (!settings) {
     return <div className="empty-state"><h3>Loading...</h3></div>;
@@ -337,15 +389,17 @@ export default function WeightProfilePage() {
 
       {error && <div className="banner banner-danger mt-8">{error}</div>}
 
-      <div className="step-nav">
-        <button className="btn btn-primary btn-full" onClick={handleSave}>
-          Save
-        </button>
+      <div
+        className="text-secondary text-sm mt-16"
+        style={{ textAlign: 'center', minHeight: 20 }}
+      >
+        {status === 'saved' && (
+          <span className="text-success">✓ Saved</span>
+        )}
+        {status === 'saving' && <span>Saving…</span>}
+        {status === 'idle' && <span>Changes auto-save</span>}
+        {status === 'invalid' && <span className="text-danger">Fix the issue above to save</span>}
       </div>
-
-      {saved && (
-        <div className="banner banner-success">Weight profile saved.</div>
-      )}
     </div>
   );
 }

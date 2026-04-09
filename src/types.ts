@@ -201,6 +201,12 @@ export interface WeightEntry {
   weightLbs: number; // canonical storage in pounds
   period: WeighInPeriod;
   createdAt: number;
+  /**
+   * True when the user actively entered this weight.
+   * False when the value is auto-computed (fill-forward from the most recent
+   * measurement, or linear interpolation between surrounding measurements).
+   */
+  measured: boolean;
 }
 
 // === App Settings ===

@@ -2,6 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h } from '../../utils';
+import { WeightEditCard } from '../../components/WeightEditCard';
 
 function scoreClass(score: number): string {
   if (score >= 85) return 'score-excellent';
@@ -230,6 +231,8 @@ export function MorningReview() {
           </div>
         )}
       </div>
+
+      <WeightEditCard nightLogId={nightLog.id} period="morning" />
 
       {(nightLog.eveningNotes || nightLog.morningNotes) && (
         <div className="card">

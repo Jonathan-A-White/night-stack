@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, getTodayDate } from '../../utils';
+import { WeightEditCard } from '../../components/WeightEditCard';
 import type { NightLog, ClothingItem, BeddingItem, SupplementDef } from '../../types';
 
 export function EveningReview() {
@@ -263,6 +264,8 @@ export function EveningReview() {
           <p className="text-secondary text-sm">None selected</p>
         )}
       </div>
+
+      <WeightEditCard nightLogId={nightLog.id} period="evening" />
 
       {/* Notes */}
       {eveningNotes && (

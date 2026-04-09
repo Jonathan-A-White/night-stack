@@ -5,6 +5,7 @@ import {
   Line, CartesianGrid,
 } from 'recharts';
 import { db } from '../../db';
+import { recalculateAllCalculatedWeights } from '../../weightUtils';
 import { SubNav } from './Dashboard';
 import type { NightLog, SleepRating, WeightEntry } from '../../types';
 
@@ -170,13 +171,24 @@ export function Correlations() {
     []
   );
 
-  // Build a nightLogId → weight (lbs) map. Only entries linked to a log count.
+  // Build a nightLogId → weight (lbs) map.
+  //
+  // Interpolation policy: calculated entries use their latest interpolation
+  // between surrounding measurements so the scatter plot always reflects the
+  // current state. We do NOT fabricate weights for night logs that have no
+  // WeightEntry at all — only entries that actually exist are plotted.
   const weightByLogId = useMemo(() => {
     const map = new Map<string, number>();
     if (!weights) return map;
-    // Sort by timestamp ascending so later entries overwrite earlier ones if the
-    // user logged weight twice for the same night.
-    const sorted = [...weights].sort((a: WeightEntry, b: WeightEntry) => a.timestamp - b.timestamp);
+
+    // Recompute interpolation on the fly. This is defensive: the save-time
+    // recalc in the log pages should already keep stored values current, but
+    // running it here ensures Correlations never shows stale interpolations.
+    const resolved = recalculateAllCalculatedWeights(weights);
+
+    // Later entries overwrite earlier ones when two weights are linked to the
+    // same night log (shouldn't happen in practice, but be safe).
+    const sorted = [...resolved].sort((a: WeightEntry, b: WeightEntry) => a.timestamp - b.timestamp);
     for (const w of sorted) {
       if (w.nightLogId) map.set(w.nightLogId, w.weightLbs);
     }

@@ -3,6 +3,43 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysISO(baseISO: string, days: number): string {
+  const [y, m, d] = baseISO.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function firstOfMonthISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}-01`;
+}
+
+function triggerJsonDownload(payload: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function DataManagementPage() {
   const nightLogCount = useLiveQuery(() => db.nightLogs.count());
   const supplementCount = useLiveQuery(() => db.supplementDefs.count());
@@ -15,6 +52,21 @@ export default function DataManagementPage() {
 
   const [status, setStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
+  const [rangeError, setRangeError] = useState('');
+
+  const buildConfigPayload = async () => ({
+    appSettings: (await db.appSettings.toArray())[0] ?? null,
+    supplementDefs: await db.supplementDefs.toArray(),
+    clothingItems: await db.clothingItems.toArray(),
+    beddingItems: await db.beddingItems.toArray(),
+    wakeUpCauses: await db.wakeUpCauses.toArray(),
+    bedtimeReasons: await db.bedtimeReasons.toArray(),
+    alarmSchedules: await db.alarmSchedules.toArray(),
+    sleepRules: await db.sleepRules.toArray(),
+  });
 
   const handleExport = async () => {
     try {
@@ -30,21 +82,101 @@ export default function DataManagementPage() {
         appSettings: await db.appSettings.toArray(),
       };
 
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `nightstack-export-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerJsonDownload(data, `nightstack-export-${todayISO()}.json`);
 
       setStatus('Export complete.');
       setTimeout(() => setStatus(''), 3000);
     } catch {
       setStatus('Export failed.');
     }
+  };
+
+  const handleFullExport = async () => {
+    try {
+      const config = await buildConfigPayload();
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        dateRange: null,
+        nightLogs: await db.nightLogs.toArray(),
+        weightEntries: await db.weightEntries.toArray(),
+        config,
+      };
+      triggerJsonDownload(payload, `nightstack-export-full-${todayISO()}.json`);
+      setStatus('Full export complete.');
+      setTimeout(() => setStatus(''), 3000);
+    } catch {
+      setStatus('Full export failed.');
+    }
+  };
+
+  const handleRangeExport = async () => {
+    if (!rangeStart || !rangeEnd) {
+      setRangeError('Please select both a start and end date.');
+      return;
+    }
+    if (rangeStart > rangeEnd) {
+      setRangeError('Start date must be on or before end date.');
+      return;
+    }
+    setRangeError('');
+    try {
+      const config = await buildConfigPayload();
+      const nightLogs = await db.nightLogs
+        .where('date')
+        .between(rangeStart, rangeEnd, true, true)
+        .toArray();
+      const weightEntries = await db.weightEntries
+        .where('date')
+        .between(rangeStart, rangeEnd, true, true)
+        .toArray();
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        dateRange: { start: rangeStart, end: rangeEnd },
+        nightLogs,
+        weightEntries,
+        config,
+      };
+      triggerJsonDownload(
+        payload,
+        `nightstack-export-${rangeStart}_to_${rangeEnd}.json`,
+      );
+      setStatus('Date-range export complete.');
+      setTimeout(() => setStatus(''), 3000);
+    } catch {
+      setStatus('Date-range export failed.');
+    }
+  };
+
+  const setQuickRange = (start: string, end: string) => {
+    setRangeStart(start);
+    setRangeEnd(end);
+    setRangeError('');
+  };
+
+  const quickLast7 = () => {
+    const end = todayISO();
+    setQuickRange(addDaysISO(end, -6), end);
+  };
+  const quickLast30 = () => {
+    const end = todayISO();
+    setQuickRange(addDaysISO(end, -29), end);
+  };
+  const quickThisMonth = () => {
+    setQuickRange(firstOfMonthISO(), todayISO());
+  };
+  const quickAllTime = () => {
+    setQuickRange('1970-01-01', todayISO());
+  };
+
+  const onRangeStartChange = (v: string) => {
+    setRangeStart(v);
+    if (rangeError) setRangeError('');
+  };
+  const onRangeEndChange = (v: string) => {
+    setRangeEnd(v);
+    if (rangeError) setRangeError('');
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -167,6 +299,81 @@ export default function DataManagementPage() {
 
         <p className="text-secondary text-sm mt-16">
           Export saves all data as a JSON file. Import replaces all current data with the contents of a previously exported file.
+        </p>
+      </div>
+
+      {/* Date Range Export */}
+      <div className="card">
+        <div className="card-title">Date Range Export</div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="range-start">Start date</label>
+          <input
+            id="range-start"
+            className="form-input"
+            type="date"
+            value={rangeStart}
+            onChange={(e) => onRangeStartChange(e.target.value)}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="range-end">End date</label>
+          <input
+            id="range-end"
+            className="form-input"
+            type="date"
+            value={rangeEnd}
+            onChange={(e) => onRangeEndChange(e.target.value)}
+          />
+        </div>
+
+        <div className="flex gap-8 mt-8" style={{ flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary text-sm" onClick={quickLast7}>
+            Last 7 days
+          </button>
+          <button type="button" className="btn btn-secondary text-sm" onClick={quickLast30}>
+            Last 30 days
+          </button>
+          <button type="button" className="btn btn-secondary text-sm" onClick={quickThisMonth}>
+            This month
+          </button>
+          <button type="button" className="btn btn-secondary text-sm" onClick={quickAllTime}>
+            All time
+          </button>
+        </div>
+
+        <button
+          className="btn btn-primary btn-full mt-16"
+          onClick={handleRangeExport}
+        >
+          Download range (JSON)
+        </button>
+
+        {rangeError && (
+          <div className="banner banner-danger mt-8">
+            {rangeError}
+          </div>
+        )}
+
+        <p className="text-secondary text-sm mt-16">
+          These JSON files can be shared directly with an AI for sleep-pattern analysis.
+        </p>
+      </div>
+
+      {/* Full Export (AI-ready) */}
+      <div className="card">
+        <div className="card-title">Full Export (AI-ready)</div>
+
+        <button
+          className="btn btn-primary btn-full"
+          onClick={handleFullExport}
+        >
+          Download full export (JSON)
+        </button>
+
+        <p className="text-secondary text-sm mt-16">
+          Exports every night log, weight entry, and config table as a single JSON file suitable for AI analysis.
         </p>
       </div>
 
