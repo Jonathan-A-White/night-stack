@@ -38,12 +38,25 @@ function getDayAfterDow(dateStr: string): number {
 export function EveningLog() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [step, setStep] = useState(1);
 
   // Support ?date=YYYY-MM-DD for backfilling a past evening log
   const backfillDate = searchParams.get('date');
   const logDate = backfillDate || getTodayDate();
   const isBackfill = backfillDate !== null && backfillDate !== getTodayDate();
+
+  const DRAFT_KEY = `evening-log-draft-${logDate}`;
+
+  // Restore draft from sessionStorage on mount
+  const [draft] = useState<Record<string, unknown> | null>(() => {
+    try {
+      const saved = sessionStorage.getItem(`evening-log-draft-${logDate}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [step, setStep] = useState((draft?.step as number) ?? 1);
 
   // DB queries — use the correct day-of-week for the alarm
   const tomorrowDow = isBackfill ? getDayAfterDow(backfillDate!) : getTomorrowDayOfWeek();
@@ -67,43 +80,58 @@ export function EveningLog() {
   );
 
   // Step 1: Alarm
-  const [overrideTime, setOverrideTime] = useState('');
+  const [overrideTime, setOverrideTime] = useState((draft?.overrideTime as string) ?? '');
 
   // Step 2: Supplements
-  const [baseStackUsed, setBaseStackUsed] = useState(true);
-  const [deviations, setDeviations] = useState<StackDeviation[]>([]);
+  const [baseStackUsed, setBaseStackUsed] = useState((draft?.baseStackUsed as boolean) ?? true);
+  const [deviations, setDeviations] = useState<StackDeviation[]>((draft?.deviations as StackDeviation[]) ?? []);
 
   // Step 3: Food & Drink
-  const [lastMealTime, setLastMealTime] = useState('');
-  const [foodDescription, setFoodDescription] = useState('');
-  const [flags, setFlags] = useState<EveningFlag[]>([
+  const [lastMealTime, setLastMealTime] = useState((draft?.lastMealTime as string) ?? '');
+  const [foodDescription, setFoodDescription] = useState((draft?.foodDescription as string) ?? '');
+  const [flags, setFlags] = useState<EveningFlag[]>((draft?.flags as EveningFlag[]) ?? [
     { type: 'overate', label: 'Overate', active: false },
     { type: 'high_salt', label: 'High salt', active: false },
     { type: 'nitrates', label: 'Nitrates', active: false },
     { type: 'questionable_food', label: 'Questionable food', active: false },
     { type: 'late_meal', label: 'Late meal', active: false },
   ]);
-  const [hasAlcohol, setHasAlcohol] = useState(false);
-  const [alcohol, setAlcohol] = useState<AlcoholEntry>({
+  const [hasAlcohol, setHasAlcohol] = useState((draft?.hasAlcohol as boolean) ?? false);
+  const [alcohol, setAlcohol] = useState<AlcoholEntry>((draft?.alcohol as AlcoholEntry) ?? {
     type: '',
     amount: '',
     time: '',
   });
-  const [liquidIntake, setLiquidIntake] = useState('');
+  const [liquidIntake, setLiquidIntake] = useState((draft?.liquidIntake as string) ?? '');
 
   // Step 4: Environment
-  const [roomTempF, setRoomTempF] = useState<string>('');
-  const [roomHumidity, setRoomHumidity] = useState<string>('');
+  const [roomTempF, setRoomTempF] = useState<string>((draft?.roomTempF as string) ?? '');
+  const [roomHumidity, setRoomHumidity] = useState<string>((draft?.roomHumidity as string) ?? '');
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
 
   // Step 5: Clothing
-  const [selectedClothing, setSelectedClothing] = useState<string[]>([]);
+  const [selectedClothing, setSelectedClothing] = useState<string[]>((draft?.selectedClothing as string[]) ?? []);
 
   // Step 6: Bedding
-  const [selectedBedding, setSelectedBedding] = useState<string[]>([]);
+  const [selectedBedding, setSelectedBedding] = useState<string[]>((draft?.selectedBedding as string[]) ?? []);
 
   // Step 7: Notes
-  const [eveningNotes, setEveningNotes] = useState('');
+  const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
+
+  // Persist form state to sessionStorage so it survives navigation
+  useEffect(() => {
+    const data = {
+      step, overrideTime, baseStackUsed, deviations,
+      lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+      roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+    };
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+  }, [
+    step, overrideTime, baseStackUsed, deviations,
+    lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+    roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+    DRAFT_KEY,
+  ]);
 
   // Derived alarm values
   const defaultAlarm = alarmSchedule?.hasAlarm
@@ -212,6 +240,7 @@ export function EveningLog() {
       scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
     }
 
+    sessionStorage.removeItem(DRAFT_KEY);
     navigate(`/tonight/review/${date}`);
   }
 
