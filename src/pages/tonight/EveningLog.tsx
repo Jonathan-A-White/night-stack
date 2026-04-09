@@ -14,6 +14,8 @@ import {
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { scheduleNotifications } from '../../services/notifications';
+import { WeightStepper } from '../../components/WeightStepper';
+import { formatWeight, resolveDefaultWeightLbs } from '../../weightUtils';
 import type {
   StackDeviation,
   EveningFlag,
@@ -22,6 +24,7 @@ import type {
   ClothingItem,
   BeddingItem,
   SupplementDef,
+  WeightEntry,
 } from '../../types';
 
 const TOTAL_STEPS = 7;
@@ -78,6 +81,9 @@ export function EveningLog() {
     () => db.nightLogs.orderBy('date').reverse().first(),
     []
   );
+  const latestWeight = useLiveQuery(
+    () => db.weightEntries.orderBy('timestamp').reverse().first()
+  );
 
   // Step 1: Alarm
   const [overrideTime, setOverrideTime] = useState((draft?.overrideTime as string) ?? '');
@@ -117,6 +123,27 @@ export function EveningLog() {
 
   // Step 7: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
+
+  // Weight entry (only surfaced if user weighs in the evening)
+  const weighInPeriod = settings?.weighInPeriod ?? 'morning';
+  const showWeightStep = weighInPeriod === 'evening';
+  const unitSystem = settings?.unitSystem ?? 'us';
+  const [weightLbs, setWeightLbs] = useState<number | null>(null);
+  const [weightInitialized, setWeightInitialized] = useState(false);
+
+  useEffect(() => {
+    if (weightInitialized) return;
+    if (!settings) return;
+    if (latestWeight === undefined) return;
+    const defaultLbs = resolveDefaultWeightLbs({
+      previousWeightLbs: latestWeight ? latestWeight.weightLbs : null,
+      startingWeightLbs: settings.startingWeightLbs ?? null,
+      sex: settings.sex ?? null,
+      heightInches: settings.heightInches ?? null,
+    });
+    setWeightLbs(defaultLbs);
+    setWeightInitialized(true);
+  }, [settings, latestWeight, weightInitialized]);
 
   // Persist form state to sessionStorage so it survives navigation
   useEffect(() => {
@@ -234,6 +261,22 @@ export function EveningLog() {
     nightLog.eveningNotes = eveningNotes;
 
     await db.nightLogs.put(nightLog);
+
+    // Log evening weight if that's the user's preference
+    if (showWeightStep && weightLbs != null) {
+      const now = Date.now();
+      const entry: WeightEntry = {
+        id: crypto.randomUUID(),
+        nightLogId: nightLog.id,
+        date,
+        time: getCurrentTime(),
+        timestamp: now,
+        weightLbs,
+        period: 'evening',
+        createdAt: now,
+      };
+      await db.weightEntries.add(entry);
+    }
 
     // Schedule notifications
     if (settings) {
@@ -639,6 +682,18 @@ export function EveningLog() {
       {/* Step 7: Notes & Summary */}
       {step === 7 && (
         <div>
+          {showWeightStep && weightLbs != null && (
+            <div className="card">
+              <div className="card-title">Evening Weight</div>
+              <WeightStepper
+                valueLbs={weightLbs}
+                onChange={setWeightLbs}
+                unitSystem={unitSystem}
+                helpText="Hold +/- to move faster"
+              />
+            </div>
+          )}
+
           <div className="card">
             <div className="card-title">Evening Notes</div>
             <div className="form-group">
@@ -697,6 +752,14 @@ export function EveningLog() {
                 {selectedBedding.length} layer(s)
               </span>
             </div>
+            {showWeightStep && weightLbs != null && (
+              <div className="summary-row">
+                <span className="summary-label">Weight</span>
+                <span className="summary-value text-accent">
+                  {formatWeight(weightLbs, unitSystem)}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="step-nav">

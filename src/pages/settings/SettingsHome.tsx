@@ -8,6 +8,7 @@ const settingsItems = [
   { label: 'Wake-Up Causes', path: '/settings/wake-up-causes' },
   { label: 'Bedtime Reasons', path: '/settings/bedtime-reasons' },
   { label: 'Sleep Rules', path: '/settings/sleep-rules' },
+  { label: 'Weight Profile', path: '/settings/weight-profile' },
   { label: 'Location', path: '/settings/location' },
   { label: 'Data Management', path: '/settings/data' },
   { label: 'About', path: '/settings/about' },

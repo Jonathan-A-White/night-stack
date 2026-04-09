@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { db } from '../../db';
 import { SubNav } from './Dashboard';
-import type { NightLog, SleepRating } from '../../types';
+import type { NightLog, SleepRating, WeightEntry } from '../../types';
 
 type XVar =
   | 'roomTemp'
@@ -16,7 +16,9 @@ type XVar =
   | 'beddingLayers'
   | 'clothingLayers'
   | 'alcohol'
-  | 'anyFlag';
+  | 'anyFlag'
+  | 'weight'
+  | 'overate';
 
 type YVar =
   | 'sleepScore'
@@ -36,6 +38,8 @@ const X_OPTIONS: { value: XVar; label: string }[] = [
   { value: 'clothingLayers', label: 'Number clothing layers' },
   { value: 'alcohol', label: 'Alcohol (1/0)' },
   { value: 'anyFlag', label: 'Any flag active (1/0)' },
+  { value: 'weight', label: 'Weight (lb)' },
+  { value: 'overate', label: 'Overate flag (1/0)' },
 ];
 
 const Y_OPTIONS: { value: YVar; label: string }[] = [
@@ -68,7 +72,11 @@ function getExternalLow(log: NightLog): number | null {
   return Math.min(...temps.map((t) => t.value));
 }
 
-function getXValue(log: NightLog, v: XVar): number | null {
+function getXValue(
+  log: NightLog,
+  v: XVar,
+  weightByLogId: Map<string, number>,
+): number | null {
   switch (v) {
     case 'roomTemp':
       return log.environment.roomTempF;
@@ -92,6 +100,16 @@ function getXValue(log: NightLog, v: XVar): number | null {
       return log.eveningIntake.alcohol ? 1 : 0;
     case 'anyFlag':
       return log.eveningIntake.flags.some((f) => f.active) ? 1 : 0;
+    case 'weight': {
+      const w = weightByLogId.get(log.id);
+      return w ?? null;
+    }
+    case 'overate':
+      return log.eveningIntake.flags.some(
+        (f) => f.type === 'overate' && f.active,
+      )
+        ? 1
+        : 0;
   }
 }
 
@@ -144,13 +162,30 @@ export function Correlations() {
     () => db.nightLogs.where('date').above(cutoffDate).toArray(),
     [cutoffDate]
   );
+  const weights = useLiveQuery(
+    () => db.weightEntries.toArray(),
+    []
+  );
+
+  // Build a nightLogId → weight (lbs) map. Only entries linked to a log count.
+  const weightByLogId = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!weights) return map;
+    // Sort by timestamp ascending so later entries overwrite earlier ones if the
+    // user logged weight twice for the same night.
+    const sorted = [...weights].sort((a: WeightEntry, b: WeightEntry) => a.timestamp - b.timestamp);
+    for (const w of sorted) {
+      if (w.nightLogId) map.set(w.nightLogId, w.weightLbs);
+    }
+    return map;
+  }, [weights]);
 
   const { points, regression, trendLine } = useMemo(() => {
     if (!logs) return { points: [], regression: { slope: 0, intercept: 0, r: 0 }, trendLine: [] };
 
     const pts: { x: number; y: number }[] = [];
     for (const log of logs) {
-      const x = getXValue(log, xVar);
+      const x = getXValue(log, xVar, weightByLogId);
       const y = getYValue(log, yVar);
       if (x !== null && y !== null) {
         pts.push({ x, y });
@@ -172,7 +207,7 @@ export function Correlations() {
     }
 
     return { points: pts, regression: reg, trendLine: trend };
-  }, [logs, xVar, yVar]);
+  }, [logs, xVar, yVar, weightByLogId]);
 
   const xLabel = X_OPTIONS.find((o) => o.value === xVar)?.label ?? '';
   const yLabel = Y_OPTIONS.find((o) => o.value === yVar)?.label ?? '';

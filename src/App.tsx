@@ -19,6 +19,7 @@ import SleepRulesPage from './pages/settings/SleepRulesPage';
 import LocationPage from './pages/settings/LocationPage';
 import DataManagementPage from './pages/settings/DataManagementPage';
 import AboutPage from './pages/settings/AboutPage';
+import WeightProfilePage from './pages/settings/WeightProfilePage';
 import { useTheme } from './hooks/useTheme';
 import { InstallBanner } from './components/InstallBanner';
 
@@ -48,6 +49,7 @@ export function App() {
           <Route path="/settings/bedtime-reasons" element={<BedtimeReasonsPage />} />
           <Route path="/settings/sleep-rules" element={<SleepRulesPage />} />
           <Route path="/settings/location" element={<LocationPage />} />
+          <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/about" element={<AboutPage />} />
         </Routes>

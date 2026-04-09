@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type {
   NightLog, SupplementDef, ClothingItem, BeddingItem,
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
+  WeightEntry,
 } from './types';
 
 export class NightStackDB extends Dexie {
@@ -14,6 +15,7 @@ export class NightStackDB extends Dexie {
   alarmSchedules!: Table<AlarmSchedule>;
   sleepRules!: Table<SleepRule>;
   appSettings!: Table<AppSettings>;
+  weightEntries!: Table<WeightEntry>;
 
   constructor() {
     super('nightstack');
@@ -27,6 +29,19 @@ export class NightStackDB extends Dexie {
       alarmSchedules: 'id, dayOfWeek',
       sleepRules: 'id, priority',
       appSettings: 'id',
+    });
+    this.version(2).stores({
+      weightEntries: 'id, date, nightLogId, timestamp',
+    }).upgrade(async (tx) => {
+      // Backfill new AppSettings fields on existing installs
+      await tx.table('appSettings').toCollection().modify((s: Partial<AppSettings>) => {
+        if (s.unitSystem === undefined) s.unitSystem = 'us';
+        if (s.weighInPeriod === undefined) s.weighInPeriod = 'morning';
+        if (s.sex === undefined) s.sex = null;
+        if (s.heightInches === undefined) s.heightInches = null;
+        if (s.startingWeightLbs === undefined) s.startingWeightLbs = null;
+        if (s.age === undefined) s.age = null;
+      });
     });
   }
 }
@@ -51,6 +66,12 @@ export async function seedDatabase(): Promise<void> {
       bedtime: true,
       morningLog: true,
     },
+    unitSystem: 'us',
+    weighInPeriod: 'morning',
+    sex: null,
+    heightInches: null,
+    startingWeightLbs: null,
+    age: null,
   });
 
   // Alarm schedule
