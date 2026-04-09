@@ -82,6 +82,24 @@ export function CalendarPage() {
 
   const [selectedDate, setSelectedDate] = useState<string>(today);
 
+  // Earliest log in the database — used to prevent navigating to months
+  // before any data exists. Falls back to the current month when there
+  // are no logs yet.
+  const earliestLog = useLiveQuery(
+    () => db.nightLogs.orderBy('date').first(),
+    []
+  );
+
+  const minMonth = useMemo(() => {
+    const fallback = fromDateString(today);
+    const base = earliestLog ? fromDateString(earliestLog.date) : fallback;
+    return { year: base.getFullYear(), month: base.getMonth() };
+  }, [earliestLog, today]);
+
+  const atMinMonth =
+    anchor.year < minMonth.year ||
+    (anchor.year === minMonth.year && anchor.month <= minMonth.month);
+
   const gridCells = useMemo(
     () => buildMonthGrid(anchor.year, anchor.month),
     [anchor]
@@ -111,6 +129,7 @@ export function CalendarPage() {
   }, [logs]);
 
   function goPrevMonth() {
+    if (atMinMonth) return;
     setAnchor((a) => {
       const m = a.month - 1;
       if (m < 0) return { year: a.year - 1, month: 11 };
@@ -149,6 +168,7 @@ export function CalendarPage() {
             className="btn btn-secondary btn-sm"
             onClick={goPrevMonth}
             aria-label="Previous month"
+            disabled={atMinMonth}
           >
             {'\u25C0'}
           </button>
