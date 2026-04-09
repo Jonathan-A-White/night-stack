@@ -89,6 +89,7 @@ export interface SleepData {
   lightSleep: number; // minutes
   awakeDuration: number; // minutes
   avgHeartRate: number; // bpm
+  minHeartRate: number | null; // bpm — lowest HR observed during the night
   avgRespiratoryRate: number; // breaths/min
   bloodOxygenAvg: number; // percent
   skinTempRange: string;

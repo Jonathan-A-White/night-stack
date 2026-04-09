@@ -14,6 +14,7 @@ describe('parseSamsungHealthJSON', () => {
     lightSleep: 179,
     awakeDuration: 21,
     avgHeartRate: 48,
+    minHeartRate: 42,
     avgRespiratoryRate: 15.1,
     bloodOxygenAvg: 93,
     skinTempRange: '-2.5 to +2.1°F',
@@ -30,8 +31,17 @@ describe('parseSamsungHealthJSON', () => {
     expect(result.data!.sleepScore).toBe(82);
     expect(result.data!.sleepTime).toBe('22:31');
     expect(result.data!.deepSleep).toBe(64);
+    expect(result.data!.minHeartRate).toBe(42);
     expect(result.data!.importedAt).toBeGreaterThan(0);
     expect(result.wakeUpEvents).toEqual([]);
+  });
+
+  it('treats minHeartRate as optional (null when missing)', () => {
+    const withoutMin = { ...validJSON };
+    delete (withoutMin as Record<string, unknown>).minHeartRate;
+    const result = parseSamsungHealthJSON(JSON.stringify(withoutMin));
+    expect(result.error).toBeNull();
+    expect(result.data!.minHeartRate).toBeNull();
   });
 
   it('rejects JSON with missing required fields', () => {

@@ -70,6 +70,7 @@ export function MorningLog() {
     lightSleep: '',
     awakeDuration: '',
     avgHeartRate: '',
+    minHeartRate: '',
     avgRespiratoryRate: '',
     bloodOxygenAvg: '',
     skinTempRange: '',
@@ -182,6 +183,7 @@ export function MorningLog() {
       lightSleep: Number(manualFields.lightSleep) || 0,
       awakeDuration: Number(manualFields.awakeDuration) || 0,
       avgHeartRate: Number(manualFields.avgHeartRate) || 0,
+      minHeartRate: manualFields.minHeartRate === '' ? null : Number(manualFields.minHeartRate),
       avgRespiratoryRate: Number(manualFields.avgRespiratoryRate) || 0,
       bloodOxygenAvg: Number(manualFields.bloodOxygenAvg) || 0,
       skinTempRange: manualFields.skinTempRange,
@@ -432,6 +434,12 @@ export function MorningLog() {
                     <span className="summary-value">{sleepData.avgHeartRate} bpm</span>
                   </div>
                   <div className="summary-row">
+                    <span className="summary-label">Night's Low HR</span>
+                    <span className="summary-value">
+                      {sleepData.minHeartRate != null ? `${sleepData.minHeartRate} bpm` : '--'}
+                    </span>
+                  </div>
+                  <div className="summary-row">
                     <span className="summary-label">Avg Respiratory Rate</span>
                     <span className="summary-value">{sleepData.avgRespiratoryRate} br/min</span>
                   </div>
@@ -529,6 +537,10 @@ export function MorningLog() {
                 <div className="form-group">
                   <label className="form-label">Avg heart rate (bpm)</label>
                   <input type="number" className="form-input" value={manualFields.avgHeartRate} onChange={(e) => updateManualField('avgHeartRate', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Night's low HR (bpm)</label>
+                  <input type="number" className="form-input" value={manualFields.minHeartRate} onChange={(e) => updateManualField('minHeartRate', e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Avg respiratory rate (br/min)</label>
@@ -875,6 +887,12 @@ export function MorningLog() {
               <span className="summary-label">Avg Heart Rate</span>
               <span className="summary-value">
                 {sleepData ? `${sleepData.avgHeartRate} bpm` : '--'}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">Night's Low HR</span>
+              <span className="summary-value">
+                {sleepData && sleepData.minHeartRate != null ? `${sleepData.minHeartRate} bpm` : '--'}
               </span>
             </div>
             <div className="summary-row">
