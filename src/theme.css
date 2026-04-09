@@ -151,6 +151,17 @@ body {
   transform: scale(0.97);
 }
 
+.btn:disabled,
+.btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn:disabled:active,
+.btn[disabled]:active {
+  transform: none;
+}
+
 .btn-primary {
   background: var(--color-accent);
   color: #1a1a2e;
@@ -621,6 +632,13 @@ textarea.form-input {
   font-size: 16px;
   font-weight: 600;
   color: var(--color-text);
+}
+
+.calendar-nav-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
 }
 
 .calendar-today-row {

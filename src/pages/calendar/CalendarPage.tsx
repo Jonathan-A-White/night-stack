@@ -96,9 +96,28 @@ export function CalendarPage() {
     return { year: base.getFullYear(), month: base.getMonth() };
   }, [earliestLog, today]);
 
+  // Max month is the current month — no navigating into the future.
+  const maxMonth = useMemo(() => {
+    const d = fromDateString(today);
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }, [today]);
+
   const atMinMonth =
     anchor.year < minMonth.year ||
     (anchor.year === minMonth.year && anchor.month <= minMonth.month);
+
+  const atMaxMonth =
+    anchor.year > maxMonth.year ||
+    (anchor.year === maxMonth.year && anchor.month >= maxMonth.month);
+
+  const prevDisabledReason = atMinMonth
+    ? earliestLog
+      ? `No log data before ${MONTH_NAMES[minMonth.month]} ${minMonth.year}`
+      : "No earlier log data yet"
+    : null;
+  const nextDisabledReason = atMaxMonth
+    ? "Can't view future months"
+    : null;
 
   const gridCells = useMemo(
     () => buildMonthGrid(anchor.year, anchor.month),
@@ -138,6 +157,7 @@ export function CalendarPage() {
   }
 
   function goNextMonth() {
+    if (atMaxMonth) return;
     setAnchor((a) => {
       const m = a.month + 1;
       if (m > 11) return { year: a.year + 1, month: 0 };
@@ -167,7 +187,12 @@ export function CalendarPage() {
           <button
             className="btn btn-secondary btn-sm"
             onClick={goPrevMonth}
-            aria-label="Previous month"
+            aria-label={
+              prevDisabledReason
+                ? `Previous month (disabled: ${prevDisabledReason})`
+                : 'Previous month'
+            }
+            title={prevDisabledReason ?? 'Previous month'}
             disabled={atMinMonth}
           >
             {'\u25C0'}
@@ -178,11 +203,25 @@ export function CalendarPage() {
           <button
             className="btn btn-secondary btn-sm"
             onClick={goNextMonth}
-            aria-label="Next month"
+            aria-label={
+              nextDisabledReason
+                ? `Next month (disabled: ${nextDisabledReason})`
+                : 'Next month'
+            }
+            title={nextDisabledReason ?? 'Next month'}
+            disabled={atMaxMonth}
           >
             {'\u25B6'}
           </button>
         </div>
+
+        {(prevDisabledReason || nextDisabledReason) && (
+          <div className="calendar-nav-hint" role="status">
+            {prevDisabledReason && nextDisabledReason
+              ? `${prevDisabledReason} • ${nextDisabledReason}`
+              : prevDisabledReason ?? nextDisabledReason}
+          </div>
+        )}
 
         <div className="calendar-today-row">
           <button className="btn btn-secondary btn-sm" onClick={goToday}>
