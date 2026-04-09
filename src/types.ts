@@ -175,10 +175,38 @@ export interface AlarmSchedule {
   naturalWakeTime: string | null;
 }
 
+/**
+ * A single atomic condition clause. Each `kind` corresponds to a signal the
+ * rules engine knows how to evaluate. Adding a new kind requires adding both
+ * a UI option and a case in the evaluator, which keeps rule conditions from
+ * drifting away from what the app can actually enforce.
+ */
+export type ConditionClause =
+  | { kind: 'always' }
+  | { kind: 'room_temp_above'; thresholdF: number }
+  | { kind: 'external_temp_above'; thresholdF: number }
+  | { kind: 'food_after_cutoff' }
+  | { kind: 'alcohol_logged' }
+  | { kind: 'peanuts_logged' }
+  | { kind: 'recurrent_night_wakeup' }
+  | { kind: 'iron_supplement_day' }
+  | { kind: 'feeling_cold' };
+
+export type ConditionClauseKind = ConditionClause['kind'];
+
+/**
+ * A rule condition: one or more clauses joined by AND/OR. A single-clause
+ * condition still carries a combinator, but its value is irrelevant.
+ */
+export interface SleepCondition {
+  combinator: 'and' | 'or';
+  clauses: ConditionClause[];
+}
+
 export interface SleepRule {
   id: string;
   name: string;
-  condition: string;
+  condition: SleepCondition;
   recommendation: string;
   priority: 'high' | 'medium' | 'low';
   isActive: boolean;

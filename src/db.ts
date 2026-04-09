@@ -4,6 +4,7 @@ import type {
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
   WeightEntry,
 } from './types';
+import { parseConditionString } from './services/rules';
 
 export class NightStackDB extends Dexie {
   nightLogs!: Table<NightLog>;
@@ -49,6 +50,19 @@ export class NightStackDB extends Dexie {
       // All existing weight entries were real user entries, so mark them measured
       await tx.table('weightEntries').toCollection().modify((w: Partial<WeightEntry>) => {
         if (w.measured === undefined) w.measured = true;
+      });
+    });
+    this.version(4).stores({
+      sleepRules: 'id, priority',
+    }).upgrade(async (tx) => {
+      // Migrate free-form string conditions into the structured AST format.
+      // `parseConditionString` best-effort parses the known patterns and falls
+      // back to "Always" for anything it doesn't recognize (matching the old
+      // evaluator's default-true behavior).
+      await tx.table('sleepRules').toCollection().modify((r: Record<string, unknown>) => {
+        if (typeof r.condition === 'string') {
+          r.condition = parseConditionString(r.condition);
+        }
       });
     });
   }
@@ -163,16 +177,16 @@ export async function seedDatabase(): Promise<void> {
   // Sleep rules
   const now = Date.now();
   const rules: SleepRule[] = [
-    { id: crypto.randomUUID(), name: 'Full glycinate dose', condition: 'Always', recommendation: 'Keep Magnesium Glycinate at 400mg — do not reduce when adding Calm. Citrate does not substitute for glycinate for sleep maintenance.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Eating cutoff', condition: 'Food logged after eating cutoff time', recommendation: 'Stop eating 2-3 hours before target bedtime. Thermic effect of food (especially protein/fat like peanuts) raises core temperature and causes overnight wake-ups.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Light covers rule', condition: 'Room temp > 68°F OR external temp > 50°F', recommendation: 'Use light covers. Skip wool comforter. Overdressing/over-covering causes sweating and cortisol-driven wake-ups around 3-4 AM.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'No heavy layers', condition: 'Feeling cold at bedtime', recommendation: 'Use a blanket you can kick off rather than wearing heavy layers. You can\'t shed clothing while asleep. Underwear + kickable blanket > layers.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Peanut moderation', condition: 'Peanuts/PB flagged in evening food', recommendation: 'Limit peanuts to one serving per day. Heavy peanut intake = more phytic acid (blocks mineral absorption) + higher thermic effect. Time peanuts away from supplements.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Bedtime target', condition: 'Always', recommendation: 'Calculate bedtime from alarm: 5 sleep cycles (7.5 hrs) + time to fall asleep. Consistently going to bed late is the #1 drag on total sleep.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Alcohol timing', condition: 'Alcohol logged in evening intake', recommendation: 'Finish alcohol with dinner (2-3 hrs before bed). Alcohol is a vasodilator — adds to overnight warming. At 4oz dry red wine, effect is small but compounds with other heat factors.', priority: 'low', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Glycine for wake recovery', condition: 'Recurrent 3 AM wake-up events', recommendation: 'Consider adding 3g glycine powder at bedtime or keep on nightstand for middle-of-night use. Glycine lowers core body temperature and promotes sleep onset.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Magnesium total ceiling', condition: 'Always', recommendation: 'Keep total daily magnesium under 600-800mg. Currently: ~100mg (Focus Factor) + 200mg (Calm citrate) + 400mg (glycinate) = 700mg. Watch for loose stools.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
-    { id: crypto.randomUUID(), name: 'Supplement spacing', condition: 'Iron supplement days', recommendation: 'On iron mornings, keep 2+ hours before lunch (Focus Factor has zinc/magnesium that compete with iron absorption). Take zinc picolinate at dinner, not with iron.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Full glycinate dose', condition: { combinator: 'and', clauses: [{ kind: 'always' }] }, recommendation: 'Keep Magnesium Glycinate at 400mg — do not reduce when adding Calm. Citrate does not substitute for glycinate for sleep maintenance.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Eating cutoff', condition: { combinator: 'and', clauses: [{ kind: 'food_after_cutoff' }] }, recommendation: 'Stop eating 2-3 hours before target bedtime. Thermic effect of food (especially protein/fat like peanuts) raises core temperature and causes overnight wake-ups.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Light covers rule', condition: { combinator: 'or', clauses: [{ kind: 'room_temp_above', thresholdF: 68 }, { kind: 'external_temp_above', thresholdF: 50 }] }, recommendation: 'Use light covers. Skip wool comforter. Overdressing/over-covering causes sweating and cortisol-driven wake-ups around 3-4 AM.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'No heavy layers', condition: { combinator: 'and', clauses: [{ kind: 'feeling_cold' }] }, recommendation: 'Use a blanket you can kick off rather than wearing heavy layers. You can\'t shed clothing while asleep. Underwear + kickable blanket > layers.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Peanut moderation', condition: { combinator: 'and', clauses: [{ kind: 'peanuts_logged' }] }, recommendation: 'Limit peanuts to one serving per day. Heavy peanut intake = more phytic acid (blocks mineral absorption) + higher thermic effect. Time peanuts away from supplements.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Bedtime target', condition: { combinator: 'and', clauses: [{ kind: 'always' }] }, recommendation: 'Calculate bedtime from alarm: 5 sleep cycles (7.5 hrs) + time to fall asleep. Consistently going to bed late is the #1 drag on total sleep.', priority: 'high', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Alcohol timing', condition: { combinator: 'and', clauses: [{ kind: 'alcohol_logged' }] }, recommendation: 'Finish alcohol with dinner (2-3 hrs before bed). Alcohol is a vasodilator — adds to overnight warming. At 4oz dry red wine, effect is small but compounds with other heat factors.', priority: 'low', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Glycine for wake recovery', condition: { combinator: 'and', clauses: [{ kind: 'recurrent_night_wakeup' }] }, recommendation: 'Consider adding 3g glycine powder at bedtime or keep on nightstand for middle-of-night use. Glycine lowers core body temperature and promotes sleep onset.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Magnesium total ceiling', condition: { combinator: 'and', clauses: [{ kind: 'always' }] }, recommendation: 'Keep total daily magnesium under 600-800mg. Currently: ~100mg (Focus Factor) + 200mg (Calm citrate) + 400mg (glycinate) = 700mg. Watch for loose stools.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
+    { id: crypto.randomUUID(), name: 'Supplement spacing', condition: { combinator: 'and', clauses: [{ kind: 'iron_supplement_day' }] }, recommendation: 'On iron mornings, keep 2+ hours before lunch (Focus Factor has zinc/magnesium that compete with iron absorption). Take zinc picolinate at dinner, not with iron.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
   ];
   await db.sleepRules.bulkAdd(rules);
 }

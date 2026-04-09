@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import type { SleepRule } from '../../types';
+import type { SleepRule, SleepCondition, ConditionClause, ConditionClauseKind } from '../../types';
+import {
+  CLAUSE_KINDS,
+  getClauseMeta,
+  makeClause,
+  formatCondition,
+} from '../../services/rules';
 
 const PRIORITY_OPTIONS = ['high', 'medium', 'low'] as const;
 const PRIORITY_LABELS: Record<string, string> = {
@@ -13,17 +19,17 @@ const PRIORITY_LABELS: Record<string, string> = {
 
 interface FormState {
   name: string;
-  condition: string;
+  condition: SleepCondition;
   recommendation: string;
   priority: SleepRule['priority'];
 }
 
-const emptyForm: FormState = {
+const emptyForm = (): FormState => ({
   name: '',
-  condition: '',
+  condition: { combinator: 'and', clauses: [{ kind: 'always' }] },
   recommendation: '',
   priority: 'medium',
-};
+});
 
 export { SleepRulesPage };
 
@@ -48,17 +54,18 @@ export default function SleepRulesPage() {
 
   const handleAdd = async () => {
     if (!form.name.trim() || !form.recommendation.trim()) return;
+    if (form.condition.clauses.length === 0) return;
     await db.sleepRules.add({
       id: crypto.randomUUID(),
       name: form.name.trim(),
-      condition: form.condition.trim(),
+      condition: form.condition,
       recommendation: form.recommendation.trim(),
       priority: form.priority,
       isActive: true,
       source: 'user',
       createdAt: Date.now(),
     });
-    setForm(emptyForm);
+    setForm(emptyForm());
     setShowAdd(false);
   };
 
@@ -84,9 +91,10 @@ export default function SleepRulesPage() {
 
   const saveEdit = async () => {
     if (!editingId || !editForm.name.trim()) return;
+    if (editForm.condition.clauses.length === 0) return;
     await db.sleepRules.update(editingId, {
       name: editForm.name.trim(),
-      condition: editForm.condition.trim(),
+      condition: editForm.condition,
       recommendation: editForm.recommendation.trim(),
       priority: editForm.priority,
     });
@@ -111,11 +119,9 @@ export default function SleepRulesPage() {
       </div>
       <div className="form-group">
         <label className="form-label">Condition</label>
-        <input
-          className="form-input"
-          value={values.condition}
-          onChange={(e) => onChange({ ...values, condition: e.target.value })}
-          placeholder="When does this apply?"
+        <ConditionEditor
+          condition={values.condition}
+          onChange={(c) => onChange({ ...values, condition: c })}
         />
       </div>
       <div className="form-group">
@@ -186,11 +192,9 @@ export default function SleepRulesPage() {
                 </label>
               </div>
             </div>
-            {rule.condition && (
-              <div className="text-sm text-secondary mb-8">
-                <strong>When:</strong> {rule.condition}
-              </div>
-            )}
+            <div className="text-sm text-secondary mb-8">
+              <strong>When:</strong> {formatCondition(rule.condition)}
+            </div>
             <div className="rec-text">{rule.recommendation}</div>
             <div className="flex gap-8 mt-8">
               <button
@@ -213,13 +217,133 @@ export default function SleepRulesPage() {
       )}
 
       {showAdd ? (
-        renderForm(form, setForm, handleAdd, () => { setShowAdd(false); setForm(emptyForm); })
+        renderForm(form, setForm, handleAdd, () => { setShowAdd(false); setForm(emptyForm()); })
       ) : (
         <button
           className="btn btn-primary btn-full mt-16"
           onClick={() => setShowAdd(true)}
         >
           Add Rule
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface ConditionEditorProps {
+  condition: SleepCondition;
+  onChange: (c: SleepCondition) => void;
+}
+
+function ConditionEditor({ condition, onChange }: ConditionEditorProps) {
+  const updateClause = (index: number, next: ConditionClause) => {
+    const clauses = condition.clauses.slice();
+    clauses[index] = next;
+    onChange({ ...condition, clauses });
+  };
+
+  const removeClause = (index: number) => {
+    const clauses = condition.clauses.filter((_, i) => i !== index);
+    onChange({ ...condition, clauses });
+  };
+
+  const addClause = () => {
+    onChange({
+      ...condition,
+      clauses: [...condition.clauses, makeClause('room_temp_above')],
+    });
+  };
+
+  return (
+    <div>
+      {condition.clauses.length >= 2 && (
+        <div className="form-group" style={{ marginBottom: 8 }}>
+          <select
+            className="form-input"
+            value={condition.combinator}
+            onChange={(e) =>
+              onChange({ ...condition, combinator: e.target.value as 'and' | 'or' })
+            }
+          >
+            <option value="and">Trigger when ALL match</option>
+            <option value="or">Trigger when ANY match</option>
+          </select>
+        </div>
+      )}
+
+      {condition.clauses.map((clause, i) => (
+        <ClauseRow
+          key={i}
+          clause={clause}
+          canRemove={condition.clauses.length > 1}
+          onChange={(c) => updateClause(i, c)}
+          onRemove={() => removeClause(i)}
+        />
+      ))}
+
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        onClick={addClause}
+        style={{ marginTop: 4 }}
+      >
+        + Add condition
+      </button>
+    </div>
+  );
+}
+
+interface ClauseRowProps {
+  clause: ConditionClause;
+  canRemove: boolean;
+  onChange: (c: ConditionClause) => void;
+  onRemove: () => void;
+}
+
+function ClauseRow({ clause, canRemove, onChange, onRemove }: ClauseRowProps) {
+  const meta = getClauseMeta(clause.kind);
+
+  const handleKindChange = (nextKind: ConditionClauseKind) => {
+    onChange(makeClause(nextKind));
+  };
+
+  return (
+    <div className="flex gap-8 items-center" style={{ marginBottom: 8 }}>
+      <select
+        className="form-input"
+        value={clause.kind}
+        onChange={(e) => handleKindChange(e.target.value as ConditionClauseKind)}
+        style={{ flex: 1 }}
+      >
+        {CLAUSE_KINDS.map((k) => (
+          <option key={k.kind} value={k.kind}>{k.label}</option>
+        ))}
+      </select>
+      {meta.hasThreshold && 'thresholdF' in clause && (
+        <>
+          <input
+            type="number"
+            className="form-input"
+            value={clause.thresholdF}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              onChange({ ...clause, thresholdF: Number.isFinite(n) ? n : 0 });
+            }}
+            style={{ width: 80 }}
+            inputMode="numeric"
+          />
+          <span className="text-secondary">°F</span>
+        </>
+      )}
+      {canRemove && (
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={onRemove}
+          aria-label="Remove condition"
+          style={{ minWidth: 40 }}
+        >
+          ×
         </button>
       )}
     </div>
