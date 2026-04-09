@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import type {
   NightLog, SupplementDef, ClothingItem, BeddingItem,
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
-  WeightEntry,
+  WeightEntry, MiddayCopingItem, MiddayStruggle,
 } from './types';
 import { parseConditionString } from './services/rules';
 
@@ -17,6 +17,7 @@ export class NightStackDB extends Dexie {
   sleepRules!: Table<SleepRule>;
   appSettings!: Table<AppSettings>;
   weightEntries!: Table<WeightEntry>;
+  middayCopingItems!: Table<MiddayCopingItem>;
 
   constructor() {
     super('nightstack');
@@ -65,7 +66,93 @@ export class NightStackDB extends Dexie {
         }
       });
     });
+    this.version(5).stores({
+      middayCopingItems: 'id, sortOrder',
+    }).upgrade(async (tx) => {
+      // Backfill middayStruggle on existing night logs so reads never
+      // encounter `undefined`. Existing entries default to "no struggle".
+      await tx.table('nightLogs').toCollection().modify((log: Partial<NightLog>) => {
+        if (log.middayStruggle === undefined) {
+          log.middayStruggle = blankMiddayStruggle();
+        }
+      });
+      // Existing installs need the seeded coping items too — seedDatabase()
+      // short-circuits after the first run, so do it here for upgraders.
+      const count = await tx.table('middayCopingItems').count();
+      if (count === 0) {
+        await tx.table('middayCopingItems').bulkAdd(seedMiddayCopingItems());
+      }
+      // Seed the two new sleep rules for upgraders. We look for them by name
+      // so re-running the migration never creates duplicates.
+      const rulesTable = tx.table('sleepRules');
+      const now = Date.now();
+      const existing = await rulesTable.toArray();
+      const newRules = seedMiddayCopingRules(now).filter(
+        (r) => !existing.some((e) => e.name === r.name),
+      );
+      if (newRules.length > 0) {
+        await rulesTable.bulkAdd(newRules);
+      }
+    });
   }
+}
+
+export function blankMiddayStruggle(): MiddayStruggle {
+  return {
+    hadStruggle: false,
+    copingItemIds: [],
+    struggleTime: '',
+    intensity: null,
+    notes: '',
+  };
+}
+
+/**
+ * Default coping items. Type determines "good/bad" flavor:
+ *   food     = bad coping (crash + thermic load)
+ *   drink    = good coping
+ *   exercise = good coping
+ *   nap      = good action / bad signal (prior sleep likely fell short)
+ * Seeded once at first install; the version 5 migration re-seeds for upgraders.
+ */
+function seedMiddayCopingItems(): MiddayCopingItem[] {
+  return [
+    { id: crypto.randomUUID(), name: 'Ginger juice / tea', type: 'drink', sortOrder: 1, isActive: true },
+    { id: crypto.randomUUID(), name: 'Peanuts', type: 'food', sortOrder: 2, isActive: true },
+    { id: crypto.randomUUID(), name: 'Peanut butter & chocolate', type: 'food', sortOrder: 3, isActive: true },
+    { id: crypto.randomUUID(), name: 'Walk', type: 'exercise', sortOrder: 4, isActive: true },
+    { id: crypto.randomUUID(), name: 'Standing at desk', type: 'exercise', sortOrder: 5, isActive: true },
+    { id: crypto.randomUUID(), name: '30 minute power nap', type: 'nap', sortOrder: 6, isActive: true },
+    { id: crypto.randomUUID(), name: '1.5 hour nap', type: 'nap', sortOrder: 7, isActive: true },
+  ];
+}
+
+/** Sleep rules that pair with the midday-struggle feature. */
+function seedMiddayCopingRules(createdAt: number): SleepRule[] {
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: 'Midday food coping',
+      condition: { combinator: 'and', clauses: [{ kind: 'midday_food_coping' }] },
+      recommendation:
+        'You reached for food to push through the afternoon slump. Swap for a drink (ginger tea) or movement (walk, standing desk). Peanuts and sweet + fat combos spike then crash, and thermic load from protein/fat makes evening cooling harder.',
+      priority: 'medium',
+      isActive: true,
+      source: 'seeded',
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Midday nap signal',
+      condition: { combinator: 'and', clauses: [{ kind: 'midday_nap_logged' }] },
+      recommendation:
+        'A midday nap was logged — the nap itself is a solid recovery move, but it usually means last night came up short. Check the prior night\'s bedtime, wake-ups, and room temp to find what to adjust tonight.',
+      priority: 'low',
+      isActive: true,
+      source: 'seeded',
+      createdAt,
+    },
+  ];
 }
 
 export const db = new NightStackDB();
@@ -174,6 +261,9 @@ export async function seedDatabase(): Promise<void> {
   ];
   await db.bedtimeReasons.bulkAdd(reasons);
 
+  // Midday coping items
+  await db.middayCopingItems.bulkAdd(seedMiddayCopingItems());
+
   // Sleep rules
   const now = Date.now();
   const rules: SleepRule[] = [
@@ -187,6 +277,7 @@ export async function seedDatabase(): Promise<void> {
     { id: crypto.randomUUID(), name: 'Glycine for wake recovery', condition: { combinator: 'and', clauses: [{ kind: 'recurrent_night_wakeup' }] }, recommendation: 'Consider adding 3g glycine powder at bedtime or keep on nightstand for middle-of-night use. Glycine lowers core body temperature and promotes sleep onset.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
     { id: crypto.randomUUID(), name: 'Magnesium total ceiling', condition: { combinator: 'and', clauses: [{ kind: 'always' }] }, recommendation: 'Keep total daily magnesium under 600-800mg. Currently: ~100mg (Focus Factor) + 200mg (Calm citrate) + 400mg (glycinate) = 700mg. Watch for loose stools.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
     { id: crypto.randomUUID(), name: 'Supplement spacing', condition: { combinator: 'and', clauses: [{ kind: 'iron_supplement_day' }] }, recommendation: 'On iron mornings, keep 2+ hours before lunch (Focus Factor has zinc/magnesium that compete with iron absorption). Take zinc picolinate at dinner, not with iron.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
+    ...seedMiddayCopingRules(now),
   ];
   await db.sleepRules.bulkAdd(rules);
 }

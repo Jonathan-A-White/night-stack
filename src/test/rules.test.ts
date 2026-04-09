@@ -10,6 +10,8 @@ import type {
   NightLog,
   ExternalWeather,
   SleepCondition,
+  MiddayCopingItem,
+  MiddayStruggle,
 } from '../types';
 
 function makeRule(overrides: Partial<SleepRule> = {}): SleepRule {
@@ -156,6 +158,75 @@ describe('evaluateRules', () => {
     } as unknown as NightLog;
     const result = evaluateRules(rules, makeContext({ currentLog: log }));
     expect(result[0].triggered).toBe(false);
+  });
+
+  describe('midday coping clauses', () => {
+    const foodItem: MiddayCopingItem = { id: 'f1', name: 'Peanuts', type: 'food', sortOrder: 1, isActive: true };
+    const drinkItem: MiddayCopingItem = { id: 'd1', name: 'Ginger tea', type: 'drink', sortOrder: 2, isActive: true };
+    const exerciseItem: MiddayCopingItem = { id: 'e1', name: 'Walk', type: 'exercise', sortOrder: 3, isActive: true };
+    const napItem: MiddayCopingItem = { id: 'n1', name: '30 min nap', type: 'nap', sortOrder: 4, isActive: true };
+    const itemMap = new Map<string, MiddayCopingItem>([
+      [foodItem.id, foodItem],
+      [drinkItem.id, drinkItem],
+      [exerciseItem.id, exerciseItem],
+      [napItem.id, napItem],
+    ]);
+
+    const logWith = (struggle: Partial<MiddayStruggle>): NightLog => ({
+      middayStruggle: {
+        hadStruggle: true,
+        copingItemIds: [],
+        struggleTime: '',
+        intensity: null,
+        notes: '',
+        ...struggle,
+      },
+    } as unknown as NightLog);
+
+    it('fires food-coping rule when a food item is logged', () => {
+      const rules = [makeRule({
+        condition: { combinator: 'and', clauses: [{ kind: 'midday_food_coping' }] },
+      })];
+      const log = logWith({ copingItemIds: [foodItem.id, drinkItem.id] });
+      const result = evaluateRules(rules, makeContext({ currentLog: log, middayCopingItems: itemMap }));
+      expect(result[0].triggered).toBe(true);
+    });
+
+    it('does not fire food-coping rule for drink/exercise only', () => {
+      const rules = [makeRule({
+        condition: { combinator: 'and', clauses: [{ kind: 'midday_food_coping' }] },
+      })];
+      const log = logWith({ copingItemIds: [drinkItem.id, exerciseItem.id] });
+      const result = evaluateRules(rules, makeContext({ currentLog: log, middayCopingItems: itemMap }));
+      expect(result[0].triggered).toBe(false);
+    });
+
+    it('does not fire food-coping rule when hadStruggle is false', () => {
+      const rules = [makeRule({
+        condition: { combinator: 'and', clauses: [{ kind: 'midday_food_coping' }] },
+      })];
+      const log = logWith({ hadStruggle: false, copingItemIds: [foodItem.id] });
+      const result = evaluateRules(rules, makeContext({ currentLog: log, middayCopingItems: itemMap }));
+      expect(result[0].triggered).toBe(false);
+    });
+
+    it('fires nap-logged rule when a nap item is logged', () => {
+      const rules = [makeRule({
+        condition: { combinator: 'and', clauses: [{ kind: 'midday_nap_logged' }] },
+      })];
+      const log = logWith({ copingItemIds: [napItem.id] });
+      const result = evaluateRules(rules, makeContext({ currentLog: log, middayCopingItems: itemMap }));
+      expect(result[0].triggered).toBe(true);
+    });
+
+    it('does not fire midday rules without an item map (safe default)', () => {
+      const rules = [makeRule({
+        condition: { combinator: 'and', clauses: [{ kind: 'midday_food_coping' }] },
+      })];
+      const log = logWith({ copingItemIds: [foodItem.id] });
+      const result = evaluateRules(rules, makeContext({ currentLog: log }));
+      expect(result[0].triggered).toBe(false);
+    });
   });
 });
 

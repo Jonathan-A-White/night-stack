@@ -7,12 +7,13 @@ import {
   calculateSchedule,
   formatTime12h,
   getCurrentTime,
+  getTodayDate,
   isTimeAfter,
   DAY_NAMES,
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { evaluateRules, type EvaluatedRule } from '../../services/rules';
-import type { ExternalWeather } from '../../types';
+import type { ExternalWeather, MiddayCopingItem } from '../../types';
 
 export function TonightPlan() {
   const navigate = useNavigate();
@@ -29,6 +30,12 @@ export function TonightPlan() {
     () => db.nightLogs.orderBy('date').reverse().limit(7).toArray(),
     []
   );
+  // Today's night log (if already logged) — drives midday-coping rules.
+  const todayLog = useLiveQuery(
+    () => db.nightLogs.where('date').equals(getTodayDate()).first(),
+    []
+  );
+  const middayCopingItems = useLiveQuery(() => db.middayCopingItems.toArray());
 
   const [overrideTime, setOverrideTime] = useState('');
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
@@ -55,14 +62,18 @@ export function TonightPlan() {
   // Evaluate rules when data is ready
   useEffect(() => {
     if (!rules) return;
+    const itemMap = new Map<string, MiddayCopingItem>(
+      (middayCopingItems ?? []).map((m) => [m.id, m]),
+    );
     const result = evaluateRules(rules, {
       weather,
       currentRoomTemp: null,
       recentLogs: recentLogs ?? [],
-      currentLog: null,
+      currentLog: todayLog ?? null,
+      middayCopingItems: itemMap,
     });
     setEvaluatedRules(result);
-  }, [rules, weather, recentLogs]);
+  }, [rules, weather, recentLogs, todayLog, middayCopingItems]);
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
 

@@ -62,6 +62,7 @@ export default function DataManagementPage() {
     supplementDefs: await db.supplementDefs.toArray(),
     clothingItems: await db.clothingItems.toArray(),
     beddingItems: await db.beddingItems.toArray(),
+    middayCopingItems: await db.middayCopingItems.toArray(),
     wakeUpCauses: await db.wakeUpCauses.toArray(),
     bedtimeReasons: await db.bedtimeReasons.toArray(),
     alarmSchedules: await db.alarmSchedules.toArray(),
@@ -75,6 +76,7 @@ export default function DataManagementPage() {
         supplementDefs: await db.supplementDefs.toArray(),
         clothingItems: await db.clothingItems.toArray(),
         beddingItems: await db.beddingItems.toArray(),
+        middayCopingItems: await db.middayCopingItems.toArray(),
         wakeUpCauses: await db.wakeUpCauses.toArray(),
         bedtimeReasons: await db.bedtimeReasons.toArray(),
         alarmSchedules: await db.alarmSchedules.toArray(),
@@ -194,13 +196,15 @@ export default function DataManagementPage() {
 
       await db.transaction('rw', [
         db.nightLogs, db.supplementDefs, db.clothingItems, db.beddingItems,
-        db.wakeUpCauses, db.bedtimeReasons, db.alarmSchedules, db.sleepRules, db.appSettings,
+        db.middayCopingItems, db.wakeUpCauses, db.bedtimeReasons, db.alarmSchedules,
+        db.sleepRules, db.appSettings,
       ], async () => {
           // Clear all tables
           await db.nightLogs.clear();
           await db.supplementDefs.clear();
           await db.clothingItems.clear();
           await db.beddingItems.clear();
+          await db.middayCopingItems.clear();
           await db.wakeUpCauses.clear();
           await db.bedtimeReasons.clear();
           await db.alarmSchedules.clear();
@@ -212,6 +216,7 @@ export default function DataManagementPage() {
           if (data.supplementDefs?.length) await db.supplementDefs.bulkAdd(data.supplementDefs);
           if (data.clothingItems?.length) await db.clothingItems.bulkAdd(data.clothingItems);
           if (data.beddingItems?.length) await db.beddingItems.bulkAdd(data.beddingItems);
+          if (data.middayCopingItems?.length) await db.middayCopingItems.bulkAdd(data.middayCopingItems);
           if (data.wakeUpCauses?.length) await db.wakeUpCauses.bulkAdd(data.wakeUpCauses);
           if (data.bedtimeReasons?.length) await db.bedtimeReasons.bulkAdd(data.bedtimeReasons);
           if (data.alarmSchedules?.length) await db.alarmSchedules.bulkAdd(data.alarmSchedules);

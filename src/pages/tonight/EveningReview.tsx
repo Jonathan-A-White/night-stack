@@ -4,7 +4,27 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, getTodayDate } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
-import type { NightLog, ClothingItem, BeddingItem, SupplementDef } from '../../types';
+import type {
+  NightLog,
+  ClothingItem,
+  BeddingItem,
+  SupplementDef,
+  MiddayCopingItem,
+  MiddayCopingType,
+} from '../../types';
+
+const COPING_TYPE_LABEL: Record<MiddayCopingType, string> = {
+  food: 'Food',
+  drink: 'Drink',
+  exercise: 'Exercise',
+  nap: 'Nap',
+};
+
+function copingTone(type: MiddayCopingType): string {
+  if (type === 'food') return 'text-danger';
+  if (type === 'nap') return 'text-warning';
+  return 'text-success';
+}
 
 export function EveningReview() {
   const { date } = useParams<{ date: string }>();
@@ -18,6 +38,7 @@ export function EveningReview() {
   const clothingItems = useLiveQuery(() => db.clothingItems.toArray());
   const beddingItems = useLiveQuery(() => db.beddingItems.toArray());
   const supplements = useLiveQuery(() => db.supplementDefs.toArray());
+  const middayCopingItems = useLiveQuery(() => db.middayCopingItems.toArray());
 
   // Dynamic bedtime awareness for today's review.
   // These hooks MUST be called before any early return to satisfy the
@@ -60,8 +81,11 @@ export function EveningReview() {
   const supplementMap = new Map(
     (supplements ?? []).map((s: SupplementDef) => [s.id, s.name])
   );
+  const middayCopingMap = new Map<string, MiddayCopingItem>(
+    (middayCopingItems ?? []).map((m) => [m.id, m])
+  );
 
-  const { alarm, stack, eveningIntake, environment, clothing, bedding, eveningNotes } =
+  const { alarm, stack, eveningIntake, environment, clothing, bedding, middayStruggle, eveningNotes } =
     nightLog;
 
   const minutesPastBedtime = (() => {
@@ -207,6 +231,62 @@ export function EveningReview() {
             <span className="summary-label">Liquids</span>
             <span className="summary-value">{eveningIntake.liquidIntake}</span>
           </div>
+        )}
+      </div>
+
+      {/* Midday Struggle */}
+      <div className="card">
+        <div className="card-title">Midday Struggle</div>
+        {middayStruggle && middayStruggle.hadStruggle ? (
+          <>
+            {middayStruggle.struggleTime && (
+              <div className="summary-row">
+                <span className="summary-label">When</span>
+                <span className="summary-value">
+                  {formatTime12h(middayStruggle.struggleTime)}
+                </span>
+              </div>
+            )}
+            {middayStruggle.intensity && (
+              <div className="summary-row">
+                <span className="summary-label">Intensity</span>
+                <span className="summary-value">{middayStruggle.intensity}</span>
+              </div>
+            )}
+            {middayStruggle.copingItemIds.length > 0 ? (
+              <div className="summary-row">
+                <span className="summary-label">Coping</span>
+                <span className="summary-value">
+                  {middayStruggle.copingItemIds.map((id, i) => {
+                    const item = middayCopingMap.get(id);
+                    if (!item) return <span key={id}>{id}</span>;
+                    return (
+                      <span key={id}>
+                        <span className={copingTone(item.type)}>{item.name}</span>
+                        <span className="text-secondary text-sm">
+                          {` (${COPING_TYPE_LABEL[item.type]})`}
+                        </span>
+                        {i < middayStruggle.copingItemIds.length - 1 ? ', ' : ''}
+                      </span>
+                    );
+                  })}
+                </span>
+              </div>
+            ) : (
+              <div className="summary-row">
+                <span className="summary-label">Coping</span>
+                <span className="summary-value text-secondary">None logged</span>
+              </div>
+            )}
+            {middayStruggle.notes && (
+              <div className="summary-row">
+                <span className="summary-label">Notes</span>
+                <span className="summary-value">{middayStruggle.notes}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-secondary text-sm">No struggle logged</p>
         )}
       </div>
 

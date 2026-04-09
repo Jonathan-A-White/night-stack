@@ -30,9 +30,32 @@ import type {
   BeddingItem,
   SupplementDef,
   WeightEntry,
+  MiddayCopingItem,
+  MiddayCopingType,
+  StruggleIntensity,
 } from '../../types';
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
+
+const COPING_TYPE_LABEL: Record<MiddayCopingType, string> = {
+  food: 'Food',
+  drink: 'Drink',
+  exercise: 'Exercise',
+  nap: 'Nap',
+};
+
+/**
+ * Tone class for the coping-item toggle button when it is selected.
+ *   food     → danger (bad coping)
+ *   drink    → success (good coping)
+ *   exercise → success (good coping)
+ *   nap      → warning (good action, bad signal)
+ */
+function copingTone(type: MiddayCopingType): string {
+  if (type === 'food') return 'text-danger';
+  if (type === 'nap') return 'text-warning';
+  return 'text-success';
+}
 
 /**
  * Get the day-of-week for the day after a given "YYYY-MM-DD" date string.
@@ -82,6 +105,9 @@ export function EveningLog() {
   const beddingItems = useLiveQuery(
     () => db.beddingItems.orderBy('sortOrder').filter((b) => b.isActive).toArray()
   );
+  const middayCopingItems = useLiveQuery(
+    () => db.middayCopingItems.orderBy('sortOrder').filter((m) => m.isActive).toArray()
+  );
   const lastLog = useLiveQuery(
     () => db.nightLogs.orderBy('date').reverse().first(),
     []
@@ -115,18 +141,29 @@ export function EveningLog() {
   });
   const [liquidIntake, setLiquidIntake] = useState((draft?.liquidIntake as string) ?? '');
 
-  // Step 4: Environment
+  // Step 4: Midday struggle
+  const [hadStruggle, setHadStruggle] = useState((draft?.hadStruggle as boolean) ?? false);
+  const [selectedCoping, setSelectedCoping] = useState<string[]>(
+    (draft?.selectedCoping as string[]) ?? []
+  );
+  const [struggleTime, setStruggleTime] = useState((draft?.struggleTime as string) ?? '');
+  const [struggleIntensity, setStruggleIntensity] = useState<StruggleIntensity | ''>(
+    (draft?.struggleIntensity as StruggleIntensity | '') ?? ''
+  );
+  const [struggleNotes, setStruggleNotes] = useState((draft?.struggleNotes as string) ?? '');
+
+  // Step 5: Environment
   const [roomTempF, setRoomTempF] = useState<string>((draft?.roomTempF as string) ?? '');
   const [roomHumidity, setRoomHumidity] = useState<string>((draft?.roomHumidity as string) ?? '');
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
 
-  // Step 5: Clothing
+  // Step 6: Clothing
   const [selectedClothing, setSelectedClothing] = useState<string[]>((draft?.selectedClothing as string[]) ?? []);
 
-  // Step 6: Bedding
+  // Step 7: Bedding
   const [selectedBedding, setSelectedBedding] = useState<string[]>((draft?.selectedBedding as string[]) ?? []);
 
-  // Step 7: Notes
+  // Step 8: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
 
   // Weight entry (only surfaced if user weighs in the evening)
@@ -162,6 +199,7 @@ export function EveningLog() {
     const data = {
       step, overrideTime, baseStackUsed, deviations,
       lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+      hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
       roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
       weightLbs, weightSkipped,
     };
@@ -169,6 +207,7 @@ export function EveningLog() {
   }, [
     step, overrideTime, baseStackUsed, deviations,
     lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+    hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
     roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
     weightLbs, weightSkipped,
     DRAFT_KEY,
@@ -215,6 +254,12 @@ export function EveningLog() {
   function toggleBedding(id: string) {
     setSelectedBedding((prev) =>
       prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
+    );
+  }
+
+  function toggleCoping(id: string) {
+    setSelectedCoping((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
     );
   }
 
@@ -272,6 +317,13 @@ export function EveningLog() {
     };
     nightLog.clothing = selectedClothing;
     nightLog.bedding = selectedBedding;
+    nightLog.middayStruggle = {
+      hadStruggle,
+      copingItemIds: hadStruggle ? selectedCoping : [],
+      struggleTime: hadStruggle ? struggleTime : '',
+      intensity: hadStruggle ? (struggleIntensity || null) : null,
+      notes: hadStruggle ? struggleNotes : '',
+    };
     nightLog.eveningNotes = eveningNotes;
 
     await db.nightLogs.put(nightLog);
@@ -617,8 +669,102 @@ export function EveningLog() {
         </div>
       )}
 
-      {/* Step 4: Room Environment */}
+      {/* Step 4: Midday Struggle */}
       {step === 4 && (
+        <div>
+          <div className="card">
+            <div className="card-title">Midday Struggle</div>
+            <p className="text-secondary text-sm mb-8">
+              The afternoon dip between lunch and dinner. Did you feel one today?
+            </p>
+            <div className="switch-row">
+              <span>Had a midday struggle</span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={hadStruggle}
+                  onChange={(e) => setHadStruggle(e.target.checked)}
+                />
+                <span className="switch-slider" />
+              </label>
+            </div>
+          </div>
+
+          {hadStruggle && (
+            <>
+              <div className="card">
+                <div className="card-title">How you coped</div>
+                <p className="text-secondary text-sm mb-8">
+                  Pick everything you used. <span className="text-success">Drink / exercise</span> are good coping; <span className="text-warning">nap</span> is a good recovery move that often signals short sleep; <span className="text-danger">food</span> is worth avoiding (crash + thermic load).
+                </p>
+                {(middayCopingItems ?? []).length === 0 ? (
+                  <p className="text-secondary text-sm">
+                    No coping items yet. Add some in Settings → Midday Coping Items.
+                  </p>
+                ) : (
+                  <div className="toggle-grid">
+                    {(middayCopingItems ?? []).map((item: MiddayCopingItem) => {
+                      const active = selectedCoping.includes(item.id);
+                      return (
+                        <button
+                          key={item.id}
+                          className={`toggle-btn${active ? ' active' : ''}`}
+                          onClick={() => toggleCoping(item.id)}
+                        >
+                          <div>{item.name}</div>
+                          <div className={`text-sm ${copingTone(item.type)}`}>
+                            {COPING_TYPE_LABEL[item.type]}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="card">
+                <div className="card-title">Details</div>
+                <div className="form-group">
+                  <label className="form-label">When did it hit (optional)</label>
+                  <input
+                    type="time"
+                    className="form-input"
+                    value={struggleTime}
+                    onChange={(e) => setStruggleTime(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Intensity (optional)</label>
+                  <select
+                    className="form-input"
+                    value={struggleIntensity}
+                    onChange={(e) =>
+                      setStruggleIntensity(e.target.value as StruggleIntensity | '')
+                    }
+                  >
+                    <option value="">--</option>
+                    <option value="low">Low — mild dip</option>
+                    <option value="medium">Medium — noticeable</option>
+                    <option value="high">High — couldn't function</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Notes (optional)</label>
+                  <textarea
+                    className="form-input"
+                    placeholder="e.g. skipped breakfast, long meeting block"
+                    value={struggleNotes}
+                    onChange={(e) => setStruggleNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Step 5: Room Environment */}
+      {step === 5 && (
         <div>
           <div className="card">
             <div className="card-title">Room Environment</div>
@@ -661,8 +807,8 @@ export function EveningLog() {
         </div>
       )}
 
-      {/* Step 5: Clothing */}
-      {step === 5 && (
+      {/* Step 6: Clothing */}
+      {step === 6 && (
         <div>
           <div className="card">
             <div className="card-title">Clothing</div>
@@ -681,8 +827,8 @@ export function EveningLog() {
         </div>
       )}
 
-      {/* Step 6: Bedding */}
-      {step === 6 && (
+      {/* Step 7: Bedding */}
+      {step === 7 && (
         <div>
           <div className="card">
             <div className="card-title">Bedding</div>
@@ -700,8 +846,8 @@ export function EveningLog() {
         </div>
       )}
 
-      {/* Step 7: Notes & Summary */}
-      {step === 7 && (
+      {/* Step 8: Notes & Summary */}
+      {step === 8 && (
         <div>
           {showWeightStep && weightLbs != null && (
             <div className="card">
@@ -778,6 +924,14 @@ export function EveningLog() {
               <span className="summary-label">Last meal</span>
               <span className="summary-value">
                 {lastMealTime ? formatTime12h(lastMealTime) : 'Not logged'}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">Midday struggle</span>
+              <span className="summary-value">
+                {hadStruggle
+                  ? `${selectedCoping.length} coping action(s)`
+                  : 'None'}
               </span>
             </div>
             <div className="summary-row">

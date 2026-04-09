@@ -5,6 +5,7 @@ const settingsItems = [
   { label: 'Supplement Stack', path: '/settings/supplements' },
   { label: 'Clothing Items', path: '/settings/clothing' },
   { label: 'Bedding Items', path: '/settings/bedding' },
+  { label: 'Midday Coping Items', path: '/settings/midday-coping' },
   { label: 'Wake-Up Causes', path: '/settings/wake-up-causes' },
   { label: 'Bedtime Reasons', path: '/settings/bedtime-reasons' },
   { label: 'Sleep Rules', path: '/settings/sleep-rules' },
