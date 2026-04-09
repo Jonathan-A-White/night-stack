@@ -1,5 +1,8 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { BottomTabs } from './components/BottomTabs';
+const EveningRoutineSettingsPage = lazy(() => import('./pages/settings/EveningRoutineSettingsPage'));
+const RoutineTracker = lazy(() => import('./pages/tonight/RoutineTracker'));
 import { TonightPlan } from './pages/tonight/TonightPlan';
 import { EveningLog } from './pages/tonight/EveningLog';
 import { EveningReview } from './pages/tonight/EveningReview';
@@ -44,6 +47,8 @@ export function App() {
           <Route path="/insights/correlations" element={<Correlations />} />
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/settings" element={<SettingsHome />} />
+          <Route path="/settings/evening-routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><EveningRoutineSettingsPage /></Suspense>} />
+          <Route path="/tonight/routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><RoutineTracker /></Suspense>} />
           <Route path="/settings/alarm-schedule" element={<AlarmSchedulePage />} />
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />

@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 
 const settingsItems = [
+  { label: 'Evening Routine', path: '/settings/evening-routine' },
   { label: 'Alarm Schedule', path: '/settings/alarm-schedule' },
   { label: 'Supplement Stack', path: '/settings/supplements' },
   { label: 'Clothing Items', path: '/settings/clothing' },
