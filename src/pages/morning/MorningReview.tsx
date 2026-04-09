@@ -77,6 +77,10 @@ export function MorningReview() {
               <div className="metric-value">{sd.avgHeartRate}</div>
               <div className="metric-label">Avg HR (bpm)</div>
             </div>
+            <div className="metric-card">
+              <div className="metric-value">{sd.minHeartRate ?? '--'}</div>
+              <div className="metric-label">Night's Low (bpm)</div>
+            </div>
           </div>
 
           <div className="card">

@@ -54,6 +54,10 @@ export function parseSamsungHealthJSON(jsonStr: string): { data: SleepData | nul
       lightSleep: Number(raw.lightSleep),
       awakeDuration: Number(raw.awakeDuration),
       avgHeartRate: Number(raw.avgHeartRate),
+      minHeartRate:
+        raw.minHeartRate === undefined || raw.minHeartRate === null
+          ? null
+          : Number(raw.minHeartRate),
       avgRespiratoryRate: Number(raw.avgRespiratoryRate),
       bloodOxygenAvg: Number(raw.bloodOxygenAvg),
       skinTempRange: raw.skinTempRange ?? '',

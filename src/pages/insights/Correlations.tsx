@@ -26,6 +26,7 @@ type YVar =
   | 'remSleep'
   | 'awakeMins'
   | 'avgHR'
+  | 'minHR'
   | 'wakeUpCount'
   | 'restfulness';
 
@@ -48,6 +49,7 @@ const Y_OPTIONS: { value: YVar; label: string }[] = [
   { value: 'remSleep', label: 'REM sleep (min)' },
   { value: 'awakeMins', label: 'Awake (min)' },
   { value: 'avgHR', label: 'Avg heart rate (bpm)' },
+  { value: 'minHR', label: "Night's low HR (bpm)" },
   { value: 'wakeUpCount', label: 'Wake-up events' },
   { value: 'restfulness', label: 'Restfulness rating' },
 ];
@@ -121,6 +123,7 @@ function getYValue(log: NightLog, v: YVar): number | null {
     case 'remSleep': return log.sleepData.remSleep;
     case 'awakeMins': return log.sleepData.awakeDuration;
     case 'avgHR': return log.sleepData.avgHeartRate;
+    case 'minHR': return log.sleepData.minHeartRate;
     case 'wakeUpCount': return log.wakeUpEvents.length;
     case 'restfulness': return ratingToNum(log.sleepData.restfulnessRating);
   }

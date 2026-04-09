@@ -19,6 +19,7 @@ Return **only** a valid JSON object (no markdown fences, no commentary) with exa
   "lightSleep": <number>,
   "awakeDuration": <number>,
   "avgHeartRate": <number>,
+  "minHeartRate": <number>,
   "avgRespiratoryRate": <number>,
   "bloodOxygenAvg": <number>,
   "skinTempRange": "<string>",
@@ -52,6 +53,7 @@ Return **only** a valid JSON object (no markdown fences, no commentary) with exa
 | `lightSleep` | integer (minutes) | From **Sleep stages** — the "Light" row (e.g., "2h 39m" → `159`). |
 | `awakeDuration` | integer (minutes) | From **Sleep stages** — the "Awake" row (e.g., "17m" → `17`). |
 | `avgHeartRate` | integer (bpm) | From **Heart rate** — the "Avg. heart rate" value (e.g., `50`). |
+| `minHeartRate` | integer (bpm), optional | From **Heart rate** — the "Min. heart rate" / lowest HR value shown for the night. Omit or set to `null` if not visible. |
 | `avgRespiratoryRate` | float (breaths/min) | From **Respiratory rate** — the "Avg. respiratory rate" value (e.g., `14.6`). |
 | `bloodOxygenAvg` | integer (%) | From **Blood oxygen** — the "Average" value (e.g., `95`). |
 | `skinTempRange` | string | From **Skin temperature** — the range text (e.g., `"-4.4 to +3.1°F"`). If not shown, use `""`. |
@@ -138,6 +140,7 @@ Output:
   "lightSleep": 159,
   "awakeDuration": 17,
   "avgHeartRate": 50,
+  "minHeartRate": 44,
   "avgRespiratoryRate": 14.6,
   "bloodOxygenAvg": 95,
   "skinTempRange": "-4.4 to +3.1°F",
