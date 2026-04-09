@@ -3,11 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
-  getTomorrowDayOfWeek,
   calculateSchedule,
   formatTime12h,
   isTimeAfter,
   getTodayDate,
+  getEveningLogDate,
   createBlankNightLog,
   getCurrentTime,
   DAY_NAMES,
@@ -70,10 +70,15 @@ export function EveningLog() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Support ?date=YYYY-MM-DD for backfilling a past evening log
+  // Support ?date=YYYY-MM-DD for backfilling a past evening log. Otherwise
+  // derive the evening date from the current time (before noon = yesterday's
+  // evening, after noon = today's evening). `NightLog.date` is the date of
+  // the evening itself per the spec, so an evening logged at 6 AM on April 9
+  // belongs to April 8.
   const backfillDate = searchParams.get('date');
-  const logDate = backfillDate || getTodayDate();
+  const logDate = backfillDate || getEveningLogDate();
   const isBackfill = backfillDate !== null && backfillDate !== getTodayDate();
+  const showLogDate = logDate !== getTodayDate();
 
   const DRAFT_KEY = `evening-log-draft-${logDate}`;
 
@@ -89,8 +94,11 @@ export function EveningLog() {
 
   const [step, setStep] = useState((draft?.step as number) ?? 1);
 
-  // DB queries — use the correct day-of-week for the alarm
-  const tomorrowDow = isBackfill ? getDayAfterDow(backfillDate!) : getTomorrowDayOfWeek();
+  // DB queries — use the correct day-of-week for the alarm. The alarm is the
+  // one that wakes the user from the night being logged, i.e. the day after
+  // `logDate`. This works for both backfill and morning-after logging (where
+  // logDate is yesterday).
+  const tomorrowDow = getDayAfterDow(logDate);
   const alarmSchedule = useLiveQuery(
     () => db.alarmSchedules.where('dayOfWeek').equals(tomorrowDow).first(),
     [tomorrowDow]
@@ -376,14 +384,18 @@ export function EveningLog() {
     <div>
       <div className="page-header">
         <h1>Evening Log</h1>
-        <p className="subtitle">Step {step} of {TOTAL_STEPS}{isBackfill ? ` \u2014 ${logDate}` : ''}</p>
+        <p className="subtitle">Step {step} of {TOTAL_STEPS}{showLogDate ? ` \u2014 ${logDate}` : ''}</p>
       </div>
 
-      {isBackfill && (
+      {isBackfill ? (
         <div className="banner banner-warning mb-8">
           Backfilling evening log for {logDate}
         </div>
-      )}
+      ) : showLogDate ? (
+        <div className="banner banner-warning mb-8">
+          Logging evening for {logDate} (last night).
+        </div>
+      ) : null}
 
       {/* Step progress bar */}
       <div className="step-progress">

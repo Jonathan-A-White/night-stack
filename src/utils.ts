@@ -51,10 +51,46 @@ export function getTomorrowDayOfWeek(): number {
 }
 
 /**
- * Get today's date as ISO string "YYYY-MM-DD"
+ * Format a Date as a local "YYYY-MM-DD" string. Uses local time components
+ * to avoid the UTC shift from toISOString() that can move the date by a day
+ * in negative UTC offsets.
+ */
+export function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = (date.getMonth() + 1).toString().padStart(2, '0');
+  const d = date.getDate().toString().padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Get today's date as local "YYYY-MM-DD"
  */
 export function getTodayDate(): string {
-  return new Date().toISOString().split('T')[0];
+  return toLocalDateString(new Date());
+}
+
+/**
+ * Get yesterday's date as local "YYYY-MM-DD"
+ */
+export function getYesterdayDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return toLocalDateString(d);
+}
+
+/**
+ * Return the date a new Evening Log should be stamped with. The stored
+ * `NightLog.date` is the date of the evening itself, so an evening logged
+ * in the early hours (before noon) of the next morning belongs to yesterday,
+ * not today. After noon we assume the user is prepping/logging today's
+ * upcoming evening.
+ */
+export function getEveningLogDate(now: Date = new Date()): string {
+  const target = new Date(now);
+  if (now.getHours() < 12) {
+    target.setDate(target.getDate() - 1);
+  }
+  return toLocalDateString(target);
 }
 
 /**

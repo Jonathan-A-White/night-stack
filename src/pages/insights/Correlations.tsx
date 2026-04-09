@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { db } from '../../db';
 import { recalculateAllCalculatedWeights } from '../../weightUtils';
+import { toLocalDateString } from '../../utils';
 import { SubNav } from './Dashboard';
 import type { NightLog, SleepRating, WeightEntry } from '../../types';
 
@@ -159,7 +160,7 @@ export function Correlations() {
   const cutoffDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 90);
-    return d.toISOString().split('T')[0];
+    return toLocalDateString(d);
   }, []);
 
   const logs = useLiveQuery(
