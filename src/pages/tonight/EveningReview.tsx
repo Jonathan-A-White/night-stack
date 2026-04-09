@@ -1,7 +1,8 @@
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h } from '../../utils';
+import { formatTime12h, getCurrentTime, getTodayDate } from '../../utils';
 import type { NightLog, ClothingItem, BeddingItem, SupplementDef } from '../../types';
 
 export function EveningReview() {
@@ -38,6 +39,35 @@ export function EveningReview() {
   const { alarm, stack, eveningIntake, environment, clothing, bedding, eveningNotes } =
     nightLog;
 
+  // Dynamic bedtime awareness for today's review
+  const isToday = date === getTodayDate();
+  const [currentTime, setCurrentTime] = useState(getCurrentTime());
+
+  useEffect(() => {
+    if (!isToday) return;
+    const interval = setInterval(() => setCurrentTime(getCurrentTime()), 60000);
+    return () => clearInterval(interval);
+  }, [isToday]);
+
+  const minutesPastBedtime = (() => {
+    if (!isToday) return null;
+    const [ch, cm] = currentTime.split(':').map(Number);
+    const [bh, bm] = alarm.targetBedtime.split(':').map(Number);
+    let diff = (ch * 60 + cm) - (bh * 60 + bm);
+    if (diff < 0) diff += 24 * 60;
+    // More than 12 hours means we're before bedtime, not after
+    if (diff > 12 * 60 || diff === 0) return null;
+    return diff;
+  })();
+
+  function formatDuration(minutes: number): string {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    if (h === 0) return `${m} minute${m !== 1 ? 's' : ''}`;
+    if (m === 0) return `${h} hour${h !== 1 ? 's' : ''}`;
+    return `${h}h ${m}m`;
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -46,9 +76,15 @@ export function EveningReview() {
       </div>
 
       {/* Bedtime recommendation */}
-      <div className="banner banner-success">
-        Head to bed at {formatTime12h(alarm.targetBedtime)} for optimal sleep.
-      </div>
+      {minutesPastBedtime !== null ? (
+        <div className="banner banner-warning">
+          Your ideal bedtime was {formatTime12h(alarm.targetBedtime)} ({formatDuration(minutesPastBedtime)} ago). Head to bed now!
+        </div>
+      ) : (
+        <div className="banner banner-success">
+          Head to bed at {formatTime12h(alarm.targetBedtime)} for optimal sleep.
+        </div>
+      )}
 
       {/* Alarm */}
       <div className="card">
