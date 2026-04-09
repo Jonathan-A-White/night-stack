@@ -552,6 +552,39 @@ textarea.form-input {
 .score-fair { background: rgba(226, 162, 20, 0.2); color: var(--color-warning); }
 .score-poor { background: rgba(226, 85, 85, 0.2); color: var(--color-danger); }
 
+/* Weight stepper */
+.weight-stepper {
+  padding: 8px 0;
+}
+
+.weight-stepper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weight-stepper-btn {
+  width: 64px;
+  height: 64px;
+  font-size: 32px;
+  font-weight: 700;
+  padding: 0;
+  flex-shrink: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.weight-stepper-value {
+  flex: 1;
+  text-align: center;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Utilities */
 .text-accent { color: var(--color-accent); }
 .text-secondary { color: var(--color-text-secondary); }

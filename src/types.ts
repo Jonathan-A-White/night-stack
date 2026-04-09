@@ -185,6 +185,23 @@ export interface SleepRule {
   createdAt: number;
 }
 
+// === Weight Tracking ===
+
+export type UnitSystem = 'us' | 'metric';
+export type Sex = 'm' | 'f';
+export type WeighInPeriod = 'morning' | 'evening';
+
+export interface WeightEntry {
+  id: string;
+  nightLogId: string | null; // Links to the NightLog this weigh-in correlates with
+  date: string; // ISO date "YYYY-MM-DD" — date of the weigh-in
+  time: string; // "HH:MM" — time of the weigh-in
+  timestamp: number; // epoch ms for sorting
+  weightLbs: number; // canonical storage in pounds
+  period: WeighInPeriod;
+  createdAt: number;
+}
+
 // === App Settings ===
 
 export interface AppSettings {
@@ -200,4 +217,11 @@ export interface AppSettings {
     bedtime: boolean;
     morningLog: boolean;
   };
+  // Weight profile
+  unitSystem: UnitSystem;
+  weighInPeriod: WeighInPeriod;
+  sex: Sex | null;
+  heightInches: number | null;
+  startingWeightLbs: number | null;
+  age: number | null;
 }

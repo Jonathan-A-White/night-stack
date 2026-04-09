@@ -1,15 +1,18 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { getTodayDate, formatTime12h, isTimeAfter } from '../../utils';
+import { getCurrentTime, getTodayDate, formatTime12h, isTimeAfter } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
+import { WeightStepper } from '../../components/WeightStepper';
+import { formatWeight, resolveDefaultWeightLbs } from '../../weightUtils';
 import type {
   SleepData,
   SleepRating,
   RoomReading,
   WakeUpEvent,
   BedtimeExplanation,
+  WeightEntry,
 } from '../../types';
 
 const TOTAL_STEPS = 5;
@@ -42,6 +45,10 @@ export function MorningLog() {
   );
   const bedtimeReasons = useLiveQuery(
     () => db.bedtimeReasons.orderBy('sortOrder').filter((r) => r.isActive).toArray()
+  );
+  const settings = useLiveQuery(() => db.appSettings.get('default'));
+  const latestWeight = useLiveQuery(
+    () => db.weightEntries.orderBy('timestamp').reverse().first()
   );
 
   // Step 1: Sleep data import
@@ -87,6 +94,28 @@ export function MorningLog() {
 
   // Step 5: Morning notes
   const [morningNotes, setMorningNotes] = useState('');
+
+  // Weight entry (only surfaced if user weighs in the morning)
+  const weighInPeriod = settings?.weighInPeriod ?? 'morning';
+  const showWeightStep = weighInPeriod === 'morning';
+  const unitSystem = settings?.unitSystem ?? 'us';
+  const [weightLbs, setWeightLbs] = useState<number | null>(null);
+  const [weightInitialized, setWeightInitialized] = useState(false);
+
+  // Initialize the stepper once settings + latest weight query resolve.
+  useEffect(() => {
+    if (weightInitialized) return;
+    if (!settings) return;
+    if (latestWeight === undefined) return; // query not yet resolved
+    const defaultLbs = resolveDefaultWeightLbs({
+      previousWeightLbs: latestWeight ? latestWeight.weightLbs : null,
+      startingWeightLbs: settings.startingWeightLbs ?? null,
+      sex: settings.sex ?? null,
+      heightInches: settings.heightInches ?? null,
+    });
+    setWeightLbs(defaultLbs);
+    setWeightInitialized(true);
+  }, [settings, latestWeight, weightInitialized]);
 
   // --- Handlers ---
 
@@ -257,6 +286,22 @@ export function MorningLog() {
       morningNotes,
       updatedAt: Date.now(),
     });
+
+    // Log morning weight (if that's the user's preference)
+    if (showWeightStep && weightLbs != null) {
+      const now = Date.now();
+      const entry: WeightEntry = {
+        id: crypto.randomUUID(),
+        nightLogId: nightLog.id,
+        date: today,
+        time: getCurrentTime(),
+        timestamp: now,
+        weightLbs,
+        period: 'morning',
+        createdAt: now,
+      };
+      await db.weightEntries.add(entry);
+    }
 
     navigate(`/morning/review/${nightLog.date}`);
   }
@@ -770,6 +815,18 @@ export function MorningLog() {
       {/* Step 5: Notes + Summary + Save */}
       {step === 5 && (
         <div>
+          {showWeightStep && weightLbs != null && (
+            <div className="card">
+              <div className="card-title">Morning Weight</div>
+              <WeightStepper
+                valueLbs={weightLbs}
+                onChange={setWeightLbs}
+                unitSystem={unitSystem}
+                helpText="Hold +/- to move faster"
+              />
+            </div>
+          )}
+
           <div className="card">
             <div className="card-title">Morning Notes</div>
             <div className="form-group">
@@ -834,6 +891,14 @@ export function MorningLog() {
                 {hadWakeUps ? `${wakeUpEvents.length} event(s)` : 'None'}
               </span>
             </div>
+            {showWeightStep && weightLbs != null && (
+              <div className="summary-row">
+                <span className="summary-label">Weight</span>
+                <span className="summary-value text-accent">
+                  {formatWeight(weightLbs, unitSystem)}
+                </span>
+              </div>
+            )}
             {needsBedtimeExplanation && (
               <div className="summary-row">
                 <span className="summary-label">Late bedtime</span>

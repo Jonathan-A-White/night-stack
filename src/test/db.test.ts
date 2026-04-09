@@ -16,6 +16,12 @@ describe('seedDatabase', () => {
     expect(settings!.latitude).toBe(41.37);
     expect(settings!.longitude).toBe(-73.41);
     expect(settings!.darkMode).toBe(true);
+    expect(settings!.unitSystem).toBe('us');
+    expect(settings!.weighInPeriod).toBe('morning');
+    expect(settings!.sex).toBeNull();
+    expect(settings!.heightInches).toBeNull();
+    expect(settings!.startingWeightLbs).toBeNull();
+    expect(settings!.age).toBeNull();
 
     const schedules = await db.alarmSchedules.toArray();
     expect(schedules).toHaveLength(7);
