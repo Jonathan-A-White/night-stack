@@ -164,8 +164,8 @@ export default function SleepRulesPage() {
           <div
             key={rule.id}
             className={`rec-card rec-${rule.priority}`}
-            style={{ opacity: rule.isActive ? 1 : 0.5, cursor: rule.source === 'user' ? 'pointer' : 'default' }}
-            onClick={() => rule.source === 'user' && startEdit(rule)}
+            style={{ opacity: rule.isActive ? 1 : 0.5, cursor: 'pointer' }}
+            onClick={() => startEdit(rule)}
           >
             <div className="flex items-center justify-between mb-8">
               <div className="rec-name">{rule.name}</div>
@@ -192,16 +192,22 @@ export default function SleepRulesPage() {
               </div>
             )}
             <div className="rec-text">{rule.recommendation}</div>
-            {rule.source === 'user' && (
-              <div className="mt-8">
+            <div className="flex gap-8 mt-8">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={(e) => { e.stopPropagation(); startEdit(rule); }}
+              >
+                Edit
+              </button>
+              {rule.source === 'user' && (
                 <button
                   className="btn btn-danger btn-sm"
                   onClick={(e) => { e.stopPropagation(); handleDelete(rule.id); }}
                 >
                   Delete
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )
       )}
