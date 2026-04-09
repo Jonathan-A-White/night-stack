@@ -8,6 +8,7 @@ import { MorningReview } from './pages/morning/MorningReview';
 import { Dashboard } from './pages/insights/Dashboard';
 import { Correlations } from './pages/insights/Correlations';
 import { BestNights } from './pages/insights/BestNights';
+import { CalendarPage } from './pages/calendar/CalendarPage';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
@@ -37,6 +38,7 @@ export function App() {
           <Route path="/tonight/review/:date" element={<EveningReview />} />
           <Route path="/morning" element={<MorningLog />} />
           <Route path="/morning/review/:date" element={<MorningReview />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/insights" element={<Dashboard />} />
           <Route path="/insights/correlations" element={<Correlations />} />
           <Route path="/insights/best-nights" element={<BestNights />} />

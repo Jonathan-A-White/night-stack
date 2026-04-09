@@ -15,7 +15,12 @@ import {
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { scheduleNotifications } from '../../services/notifications';
 import { WeightStepper } from '../../components/WeightStepper';
-import { formatWeight, resolveDefaultWeightLbs } from '../../weightUtils';
+import {
+  formatWeight,
+  recalculateCalculatedWeights,
+  resolveDefaultWeightLbs,
+  roundWeightLbs,
+} from '../../weightUtils';
 import type {
   StackDeviation,
   EveningFlag,
@@ -128,8 +133,15 @@ export function EveningLog() {
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'evening';
   const unitSystem = settings?.unitSystem ?? 'us';
-  const [weightLbs, setWeightLbs] = useState<number | null>(null);
-  const [weightInitialized, setWeightInitialized] = useState(false);
+  const [weightLbs, setWeightLbs] = useState<number | null>(
+    (draft?.weightLbs as number | null) ?? null,
+  );
+  const [weightSkipped, setWeightSkipped] = useState(
+    (draft?.weightSkipped as boolean) ?? false,
+  );
+  const [weightInitialized, setWeightInitialized] = useState(
+    draft?.weightLbs != null,
+  );
 
   useEffect(() => {
     if (weightInitialized) return;
@@ -151,12 +163,14 @@ export function EveningLog() {
       step, overrideTime, baseStackUsed, deviations,
       lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
       roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+      weightLbs, weightSkipped,
     };
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
     step, overrideTime, baseStackUsed, deviations,
     lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
     roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+    weightLbs, weightSkipped,
     DRAFT_KEY,
   ]);
 
@@ -271,11 +285,18 @@ export function EveningLog() {
         date,
         time: getCurrentTime(),
         timestamp: now,
-        weightLbs,
+        weightLbs: roundWeightLbs(weightLbs, 'us'),
         period: 'evening',
         createdAt: now,
+        measured: !weightSkipped,
       };
       await db.weightEntries.add(entry);
+
+      if (!weightSkipped) {
+        const all = await db.weightEntries.toArray();
+        const recalculated = recalculateCalculatedWeights(all, entry.id);
+        await db.weightEntries.bulkPut(recalculated);
+      }
     }
 
     // Schedule notifications
@@ -685,12 +706,37 @@ export function EveningLog() {
           {showWeightStep && weightLbs != null && (
             <div className="card">
               <div className="card-title">Evening Weight</div>
-              <WeightStepper
-                valueLbs={weightLbs}
-                onChange={setWeightLbs}
-                unitSystem={unitSystem}
-                helpText="Hold +/- to move faster"
-              />
+              {weightSkipped ? (
+                <div>
+                  <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>
+                    Skipped — will be filled with the calculated value
+                    ({formatWeight(weightLbs, unitSystem)}).
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full"
+                    onClick={() => setWeightSkipped(false)}
+                  >
+                    Log weight instead
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <WeightStepper
+                    valueLbs={weightLbs}
+                    onChange={setWeightLbs}
+                    unitSystem={unitSystem}
+                    helpText="Hold +/- to move faster"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full mt-8"
+                    onClick={() => setWeightSkipped(true)}
+                  >
+                    Skip weigh-in
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -757,6 +803,9 @@ export function EveningLog() {
                 <span className="summary-label">Weight</span>
                 <span className="summary-value text-accent">
                   {formatWeight(weightLbs, unitSystem)}
+                  {weightSkipped && (
+                    <span className="text-secondary text-sm"> (skipped)</span>
+                  )}
                 </span>
               </div>
             )}

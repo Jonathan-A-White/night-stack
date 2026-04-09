@@ -5,7 +5,12 @@ import { db } from '../../db';
 import { getCurrentTime, getTodayDate, formatTime12h, isTimeAfter } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { WeightStepper } from '../../components/WeightStepper';
-import { formatWeight, resolveDefaultWeightLbs } from '../../weightUtils';
+import {
+  formatWeight,
+  recalculateCalculatedWeights,
+  resolveDefaultWeightLbs,
+  roundWeightLbs,
+} from '../../weightUtils';
 import type {
   SleepData,
   SleepRating,
@@ -24,9 +29,24 @@ function getYesterdayDate(): string {
   return d.toISOString().split('T')[0];
 }
 
+// Stable draft key — the morning log always edits the most-recent evening log,
+// so keying by today's date is sufficient to survive navigation.
+const MORNING_DRAFT_KEY = 'morning-log-draft';
+
+function loadDraft(): Record<string, unknown> | null {
+  try {
+    const raw = sessionStorage.getItem(MORNING_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function MorningLog() {
   const navigate = useNavigate();
-  const [step, setStep] = useState(1);
+  const draft = useRef(loadDraft()).current;
+
+  const [step, setStep] = useState<number>((draft?.step as number) ?? 1);
 
   const today = getTodayDate();
   const yesterday = getYesterdayDate();
@@ -52,7 +72,9 @@ export function MorningLog() {
   );
 
   // Step 1: Sleep data import
-  const [sleepData, setSleepData] = useState<SleepData | null>(null);
+  const [sleepData, setSleepData] = useState<SleepData | null>(
+    (draft?.sleepData as SleepData | null) ?? null,
+  );
   const [importError, setImportError] = useState<string | null>(null);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const sleepFileRef = useRef<HTMLInputElement>(null);
@@ -80,27 +102,38 @@ export function MorningLog() {
   });
 
   // Step 2: Govee room data
-  const [roomTimeline, setRoomTimeline] = useState<RoomReading[] | null>(null);
+  const [roomTimeline, setRoomTimeline] = useState<RoomReading[] | null>(
+    (draft?.roomTimeline as RoomReading[] | null) ?? null,
+  );
   const [goveeError, setGoveeError] = useState<string | null>(null);
   const goveeFileRef = useRef<HTMLInputElement>(null);
 
   // Step 3: Wake-up events
-  const [hadWakeUps, setHadWakeUps] = useState(false);
-  const [wakeUpEvents, setWakeUpEvents] = useState<WakeUpEvent[]>([]);
+  const [hadWakeUps, setHadWakeUps] = useState((draft?.hadWakeUps as boolean) ?? false);
+  const [wakeUpEvents, setWakeUpEvents] = useState<WakeUpEvent[]>(
+    (draft?.wakeUpEvents as WakeUpEvent[]) ?? [],
+  );
 
   // Step 4: Bedtime explanation
-  const [bedtimeReason, setBedtimeReason] = useState('');
-  const [bedtimeNotes, setBedtimeNotes] = useState('');
+  const [bedtimeReason, setBedtimeReason] = useState((draft?.bedtimeReason as string) ?? '');
+  const [bedtimeNotes, setBedtimeNotes] = useState((draft?.bedtimeNotes as string) ?? '');
 
   // Step 5: Morning notes
-  const [morningNotes, setMorningNotes] = useState('');
+  const [morningNotes, setMorningNotes] = useState((draft?.morningNotes as string) ?? '');
 
   // Weight entry (only surfaced if user weighs in the morning)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'morning';
   const unitSystem = settings?.unitSystem ?? 'us';
-  const [weightLbs, setWeightLbs] = useState<number | null>(null);
-  const [weightInitialized, setWeightInitialized] = useState(false);
+  const [weightLbs, setWeightLbs] = useState<number | null>(
+    (draft?.weightLbs as number | null) ?? null,
+  );
+  const [weightSkipped, setWeightSkipped] = useState(
+    (draft?.weightSkipped as boolean) ?? false,
+  );
+  const [weightInitialized, setWeightInitialized] = useState(
+    draft?.weightLbs != null,
+  );
 
   // Initialize the stepper once settings + latest weight query resolve.
   useEffect(() => {
@@ -116,6 +149,40 @@ export function MorningLog() {
     setWeightLbs(defaultLbs);
     setWeightInitialized(true);
   }, [settings, latestWeight, weightInitialized]);
+
+  // Persist every step of the morning log to sessionStorage so switching away
+  // (settings, insights, closing the app) doesn't lose work.
+  useEffect(() => {
+    const data = {
+      step,
+      sleepData,
+      roomTimeline,
+      hadWakeUps,
+      wakeUpEvents,
+      bedtimeReason,
+      bedtimeNotes,
+      morningNotes,
+      weightLbs,
+      weightSkipped,
+    };
+    try {
+      sessionStorage.setItem(MORNING_DRAFT_KEY, JSON.stringify(data));
+    } catch {
+      // sessionStorage can be full or disabled — fail silently, the user will
+      // just lose their draft if they navigate away.
+    }
+  }, [
+    step,
+    sleepData,
+    roomTimeline,
+    hadWakeUps,
+    wakeUpEvents,
+    bedtimeReason,
+    bedtimeNotes,
+    morningNotes,
+    weightLbs,
+    weightSkipped,
+  ]);
 
   // --- Handlers ---
 
@@ -296,12 +363,25 @@ export function MorningLog() {
         date: today,
         time: getCurrentTime(),
         timestamp: now,
-        weightLbs,
+        weightLbs: roundWeightLbs(weightLbs, 'us'),
         period: 'morning',
         createdAt: now,
+        measured: !weightSkipped,
       };
       await db.weightEntries.add(entry);
+
+      // When the user actively enters a weight, use it as a new anchor and
+      // recompute any calculated entries between the previous measurement
+      // and this one (plus fill-forward past the anchor).
+      if (!weightSkipped) {
+        const all = await db.weightEntries.toArray();
+        const recalculated = recalculateCalculatedWeights(all, entry.id);
+        await db.weightEntries.bulkPut(recalculated);
+      }
     }
+
+    // Clear draft on successful save
+    sessionStorage.removeItem(MORNING_DRAFT_KEY);
 
     navigate(`/morning/review/${nightLog.date}`);
   }
@@ -818,12 +898,37 @@ export function MorningLog() {
           {showWeightStep && weightLbs != null && (
             <div className="card">
               <div className="card-title">Morning Weight</div>
-              <WeightStepper
-                valueLbs={weightLbs}
-                onChange={setWeightLbs}
-                unitSystem={unitSystem}
-                helpText="Hold +/- to move faster"
-              />
+              {weightSkipped ? (
+                <div>
+                  <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>
+                    Skipped — will be filled with the calculated value
+                    ({formatWeight(weightLbs, unitSystem)}).
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full"
+                    onClick={() => setWeightSkipped(false)}
+                  >
+                    Log weight instead
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <WeightStepper
+                    valueLbs={weightLbs}
+                    onChange={setWeightLbs}
+                    unitSystem={unitSystem}
+                    helpText="Hold +/- to move faster"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full mt-8"
+                    onClick={() => setWeightSkipped(true)}
+                  >
+                    Skip weigh-in
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -896,6 +1001,9 @@ export function MorningLog() {
                 <span className="summary-label">Weight</span>
                 <span className="summary-value text-accent">
                   {formatWeight(weightLbs, unitSystem)}
+                  {weightSkipped && (
+                    <span className="text-secondary text-sm"> (skipped)</span>
+                  )}
                 </span>
               </div>
             )}

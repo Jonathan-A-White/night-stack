@@ -43,6 +43,14 @@ export class NightStackDB extends Dexie {
         if (s.age === undefined) s.age = null;
       });
     });
+    this.version(3).stores({
+      weightEntries: 'id, date, nightLogId, timestamp',
+    }).upgrade(async (tx) => {
+      // All existing weight entries were real user entries, so mark them measured
+      await tx.table('weightEntries').toCollection().modify((w: Partial<WeightEntry>) => {
+        if (w.measured === undefined) w.measured = true;
+      });
+    });
   }
 }
 
