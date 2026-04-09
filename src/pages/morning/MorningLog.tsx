@@ -2,7 +2,13 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { getCurrentTime, getTodayDate, formatTime12h, isTimeAfter } from '../../utils';
+import {
+  getCurrentTime,
+  getTodayDate,
+  getYesterdayDate,
+  formatTime12h,
+  isTimeAfter,
+} from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { WeightStepper } from '../../components/WeightStepper';
 import {
@@ -22,12 +28,6 @@ import type {
 
 const TOTAL_STEPS = 5;
 const VALID_RATINGS: SleepRating[] = ['Excellent', 'Good', 'Fair', 'Attention'];
-
-function getYesterdayDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
-}
 
 // Stable draft key — the morning log always edits the most-recent evening log,
 // so keying by today's date is sufficient to survive navigation.

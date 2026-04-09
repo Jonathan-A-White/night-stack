@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   formatTime12h,
   subtractMinutes,
@@ -6,6 +6,10 @@ import {
   calculateSchedule,
   isTimeAfter,
   createBlankNightLog,
+  toLocalDateString,
+  getTodayDate,
+  getYesterdayDate,
+  getEveningLogDate,
 } from '../utils';
 
 describe('formatTime12h', () => {
@@ -88,6 +92,70 @@ describe('isTimeAfter', () => {
 
   it('returns false when equal', () => {
     expect(isTimeAfter('21:00', '21:00')).toBe(false);
+  });
+});
+
+describe('toLocalDateString', () => {
+  it('formats using local time components', () => {
+    // Date constructed from local parts; should round-trip regardless of TZ
+    const d = new Date(2026, 3, 9, 22, 30); // April 9, 2026 22:30 local
+    expect(toLocalDateString(d)).toBe('2026-04-09');
+  });
+
+  it('zero-pads single-digit months and days', () => {
+    const d = new Date(2026, 0, 5, 12, 0); // Jan 5, 2026
+    expect(toLocalDateString(d)).toBe('2026-01-05');
+  });
+});
+
+describe('date helpers (getTodayDate / getYesterdayDate / getEveningLogDate)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('getTodayDate returns local date, not UTC-shifted', () => {
+    // 10 PM local on April 8 — in many negative-UTC-offset zones this is
+    // already April 9 in UTC. We want the local date.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 8, 22, 0));
+    expect(getTodayDate()).toBe('2026-04-08');
+  });
+
+  it('getYesterdayDate returns the day before today', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 9, 6, 31));
+    expect(getYesterdayDate()).toBe('2026-04-08');
+  });
+
+  it('getYesterdayDate crosses month boundaries', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 4, 1, 6, 0)); // May 1
+    expect(getYesterdayDate()).toBe('2026-04-30');
+  });
+
+  it('getEveningLogDate returns yesterday in the early morning', () => {
+    // 6:31 AM on April 9 — user is logging about last night's evening
+    expect(getEveningLogDate(new Date(2026, 3, 9, 6, 31))).toBe('2026-04-08');
+  });
+
+  it('getEveningLogDate returns yesterday just past midnight', () => {
+    // 1:15 AM — still last night's evening
+    expect(getEveningLogDate(new Date(2026, 3, 9, 1, 15))).toBe('2026-04-08');
+  });
+
+  it('getEveningLogDate returns today at noon', () => {
+    // Noon is the cutoff; at exactly noon we start counting as today
+    expect(getEveningLogDate(new Date(2026, 3, 9, 12, 0))).toBe('2026-04-09');
+  });
+
+  it('getEveningLogDate returns today in the evening', () => {
+    // 9 PM on April 9 — logging for tonight
+    expect(getEveningLogDate(new Date(2026, 3, 9, 21, 0))).toBe('2026-04-09');
+  });
+
+  it('getEveningLogDate handles month boundary in morning', () => {
+    // 5 AM on May 1 — last night was April 30
+    expect(getEveningLogDate(new Date(2026, 4, 1, 5, 0))).toBe('2026-04-30');
   });
 });
 
