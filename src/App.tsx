@@ -14,6 +14,7 @@ import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
 import ClothingItemsPage from './pages/settings/ClothingItemsPage';
 import BeddingItemsPage from './pages/settings/BeddingItemsPage';
+import MiddayCopingItemsPage from './pages/settings/MiddayCopingItemsPage';
 import WakeUpCausesPage from './pages/settings/WakeUpCausesPage';
 import BedtimeReasonsPage from './pages/settings/BedtimeReasonsPage';
 import SleepRulesPage from './pages/settings/SleepRulesPage';
@@ -47,6 +48,7 @@ export function App() {
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />
           <Route path="/settings/bedding" element={<BeddingItemsPage />} />
+          <Route path="/settings/midday-coping" element={<MiddayCopingItemsPage />} />
           <Route path="/settings/wake-up-causes" element={<WakeUpCausesPage />} />
           <Route path="/settings/bedtime-reasons" element={<BedtimeReasonsPage />} />
           <Route path="/settings/sleep-rules" element={<SleepRulesPage />} />

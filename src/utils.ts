@@ -117,6 +117,13 @@ export function createBlankNightLog(date: string, alarm: {
     roomTimeline: null,
     wakeUpEvents: [],
     bedtimeExplanation: null,
+    middayStruggle: {
+      hadStruggle: false,
+      copingItemIds: [],
+      struggleTime: '',
+      intensity: null,
+      notes: '',
+    },
     eveningNotes: '',
     morningNotes: '',
   };

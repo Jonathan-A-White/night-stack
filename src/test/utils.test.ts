@@ -114,5 +114,8 @@ describe('createBlankNightLog', () => {
     expect(log.bedding).toEqual([]);
     expect(log.eveningIntake.flags).toHaveLength(5);
     expect(log.eveningIntake.flags.every((f) => !f.active)).toBe(true);
+    expect(log.middayStruggle.hadStruggle).toBe(false);
+    expect(log.middayStruggle.copingItemIds).toEqual([]);
+    expect(log.middayStruggle.intensity).toBeNull();
   });
 });

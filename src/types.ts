@@ -15,6 +15,7 @@ export interface NightLog {
   roomTimeline: RoomReading[] | null;
   wakeUpEvents: WakeUpEvent[];
   bedtimeExplanation: BedtimeExplanation | null;
+  middayStruggle: MiddayStruggle;
   eveningNotes: string;
   morningNotes: string;
 }
@@ -126,6 +127,33 @@ export interface BedtimeExplanation {
   notes: string;
 }
 
+/**
+ * Midday slump coping. Food is a "bad" coping action (crash + thermic load);
+ * drink and exercise are "good"; nap is a good response to a bad situation
+ * (indicates the prior night fell short). The good/bad flavor is derived from
+ * the item's `type`, not stored per-entry, so classifying an item correctly in
+ * settings is what drives rule evaluation and UI color.
+ */
+export type MiddayCopingType = 'food' | 'drink' | 'exercise' | 'nap';
+
+export type StruggleIntensity = 'low' | 'medium' | 'high';
+
+export interface MiddayCopingItem {
+  id: string;
+  name: string;
+  type: MiddayCopingType;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface MiddayStruggle {
+  hadStruggle: boolean;
+  copingItemIds: string[]; // IDs of MiddayCopingItem; can be empty even when hadStruggle=true
+  struggleTime: string; // "HH:MM", empty if not set
+  intensity: StruggleIntensity | null;
+  notes: string;
+}
+
 // === Configuration Entities ===
 
 export interface SupplementDef {
@@ -190,7 +218,9 @@ export type ConditionClause =
   | { kind: 'peanuts_logged' }
   | { kind: 'recurrent_night_wakeup' }
   | { kind: 'iron_supplement_day' }
-  | { kind: 'feeling_cold' };
+  | { kind: 'feeling_cold' }
+  | { kind: 'midday_food_coping' }
+  | { kind: 'midday_nap_logged' };
 
 export type ConditionClauseKind = ConditionClause['kind'];
 

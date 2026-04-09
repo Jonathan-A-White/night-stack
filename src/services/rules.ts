@@ -5,6 +5,7 @@ import type {
   SleepCondition,
   ConditionClause,
   ConditionClauseKind,
+  MiddayCopingItem,
 } from '../types';
 import { getOvernightLow } from './weather';
 
@@ -13,6 +14,13 @@ export interface RuleEvalContext {
   currentRoomTemp: number | null;
   recentLogs: NightLog[]; // last 7 days
   currentLog: NightLog | null;
+  /**
+   * Lookup of midday coping items by id. Needed so clause evaluators can
+   * translate the IDs stored on a night log into their type (food/drink/
+   * exercise/nap). Callers that don't touch midday rules can pass an empty
+   * map or omit the field.
+   */
+  middayCopingItems?: Map<string, MiddayCopingItem>;
 }
 
 export interface EvaluatedRule {
@@ -50,6 +58,8 @@ export const CLAUSE_KINDS: ClauseMeta[] = [
   { kind: 'recurrent_night_wakeup', label: 'Recurrent 3 AM wake-ups (3+ of last 7 nights)', hasThreshold: false },
   { kind: 'iron_supplement_day', label: 'Iron supplement day', hasThreshold: false },
   { kind: 'feeling_cold', label: 'Feeling cold at bedtime', hasThreshold: false },
+  { kind: 'midday_food_coping', label: 'Midday slump: food used to cope', hasThreshold: false },
+  { kind: 'midday_nap_logged', label: 'Midday slump: nap logged', hasThreshold: false },
 ];
 
 const CLAUSE_META_BY_KIND: Record<ConditionClauseKind, ClauseMeta> = Object.fromEntries(
@@ -90,6 +100,10 @@ export function formatClause(clause: ConditionClause): string {
       return 'Iron supplement day';
     case 'feeling_cold':
       return 'Feeling cold at bedtime';
+    case 'midday_food_coping':
+      return 'Midday slump: food used to cope';
+    case 'midday_nap_logged':
+      return 'Midday slump: nap logged';
   }
 }
 
@@ -176,6 +190,20 @@ function evaluateClause(clause: ConditionClause, ctx: RuleEvalContext): boolean 
     case 'feeling_cold':
       // User-triggered advice — always surfaced so it's visible as guidance.
       return true;
+
+    case 'midday_food_coping': {
+      if (!ctx.currentLog || !ctx.middayCopingItems) return false;
+      const { hadStruggle, copingItemIds } = ctx.currentLog.middayStruggle;
+      if (!hadStruggle) return false;
+      return copingItemIds.some((id) => ctx.middayCopingItems!.get(id)?.type === 'food');
+    }
+
+    case 'midday_nap_logged': {
+      if (!ctx.currentLog || !ctx.middayCopingItems) return false;
+      const { hadStruggle, copingItemIds } = ctx.currentLog.middayStruggle;
+      if (!hadStruggle) return false;
+      return copingItemIds.some((id) => ctx.middayCopingItems!.get(id)?.type === 'nap');
+    }
   }
 }
 

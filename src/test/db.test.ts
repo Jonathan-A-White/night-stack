@@ -36,6 +36,12 @@ describe('seedDatabase', () => {
     const bedding = await db.beddingItems.toArray();
     expect(bedding).toHaveLength(6);
 
+    const copingItems = await db.middayCopingItems.toArray();
+    expect(copingItems).toHaveLength(7);
+    expect(copingItems.find((i) => i.name === 'Ginger juice / tea')?.type).toBe('drink');
+    expect(copingItems.find((i) => i.name === 'Peanuts')?.type).toBe('food');
+    expect(copingItems.find((i) => i.name === '30 minute power nap')?.type).toBe('nap');
+
     const causes = await db.wakeUpCauses.toArray();
     expect(causes).toHaveLength(8);
 
@@ -43,7 +49,7 @@ describe('seedDatabase', () => {
     expect(reasons).toHaveLength(8);
 
     const rules = await db.sleepRules.toArray();
-    expect(rules).toHaveLength(10);
+    expect(rules).toHaveLength(12);
     expect(rules.every((r) => r.source === 'seeded')).toBe(true);
     expect(rules.every((r) => r.isActive)).toBe(true);
   });
@@ -78,7 +84,7 @@ describe('seedDatabase', () => {
     expect(schedules[6].hasAlarm).toBe(false);
   });
 
-  it('seeds all 10 sleep rules with correct priorities', async () => {
+  it('seeds all sleep rules with correct priorities', async () => {
     await seedDatabase();
     const rules = await db.sleepRules.toArray();
 
@@ -86,8 +92,9 @@ describe('seedDatabase', () => {
     const medRules = rules.filter((r) => r.priority === 'medium');
     const lowRules = rules.filter((r) => r.priority === 'low');
 
+    // 10 legacy rules + 2 midday coping rules (medium + low)
     expect(highRules).toHaveLength(5);
-    expect(medRules).toHaveLength(4);
-    expect(lowRules).toHaveLength(1);
+    expect(medRules).toHaveLength(5);
+    expect(lowRules).toHaveLength(2);
   });
 });
