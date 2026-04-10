@@ -39,6 +39,45 @@ function sessionDateToMs(date: string): number {
   return new Date(y, m - 1, d).getTime();
 }
 
+/**
+ * Returns the earliest `startedAt` across today's already-saved sessions —
+ * i.e. the "immutable" session start for the day. Once the user has begun
+ * their routine for the evening, later sub-sessions (e.g. added items run
+ * after a first save) should inherit this value so the displayed total
+ * stays a true wall-clock measurement from the very first step. Returns
+ * null if no session exists yet for the given date.
+ */
+export function computeTodaySessionStartedAt(
+  sessions: RoutineSession[],
+  todayDate: string,
+): number | null {
+  let earliest: number | null = null;
+  for (const s of sessions) {
+    if (s.date !== todayDate) continue;
+    if (earliest == null || s.startedAt < earliest) {
+      earliest = s.startedAt;
+    }
+  }
+  return earliest;
+}
+
+/**
+ * Returns the latest `endedAt` across the given steps. Used to compute the
+ * session's effective end time — this naturally "bumps" forward as
+ * additional steps are completed in later sub-sessions the same evening.
+ * Returns null if no step has a non-null endedAt.
+ */
+export function computeLatestStepEndedAt(
+  steps: ReadonlyArray<{ endedAt: number | null }>,
+): number | null {
+  let latest: number | null = null;
+  for (const s of steps) {
+    if (s.endedAt == null) continue;
+    if (latest == null || s.endedAt > latest) latest = s.endedAt;
+  }
+  return latest;
+}
+
 /** All-time best completion per step. */
 export function computeStepPBs(sessions: RoutineSession[]): Map<string, number> {
   const pbs = new Map<string, number>();

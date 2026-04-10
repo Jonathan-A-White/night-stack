@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
+  computeLatestStepEndedAt,
   computeStepPBs,
   computeRecommendedStart,
   computeBufferedTotalMs,
   computeSessionStats,
+  computeTodaySessionStartedAt,
   formatStopwatch,
   formatTotal,
 } from '../services/routineAnalytics';
@@ -169,6 +171,60 @@ describe('formatStopwatch', () => {
 
   it('formats >= 1h as H:MM:SS', () => {
     expect(formatStopwatch(3_725_000)).toBe('1:02:05');
+  });
+});
+
+describe('computeTodaySessionStartedAt', () => {
+  it('returns null when no sessions exist for the date', () => {
+    const sessions: RoutineSession[] = [
+      makeSession({ date: '2026-04-09', startedAt: 1_000 }),
+    ];
+    expect(computeTodaySessionStartedAt(sessions, '2026-04-10')).toBeNull();
+  });
+
+  it('returns the earliest startedAt across all sessions on the given date', () => {
+    const sessions: RoutineSession[] = [
+      makeSession({ date: '2026-04-10', startedAt: 5_000 }),
+      makeSession({ date: '2026-04-10', startedAt: 2_000 }),
+      makeSession({ date: '2026-04-10', startedAt: 8_000 }),
+      // Sessions from other dates must be ignored even if earlier.
+      makeSession({ date: '2026-04-09', startedAt: 1_000 }),
+    ];
+    expect(computeTodaySessionStartedAt(sessions, '2026-04-10')).toBe(2_000);
+  });
+
+  it('preserves the original startedAt as a later sub-session is saved', () => {
+    // Simulate the "add more items and restart" flow: the first saved
+    // session's startedAt must remain the canonical start for the day so
+    // that a subsequent WIP session inherits it instead of drifting to now.
+    const firstStart = 1_700_000_000_000;
+    const sessions: RoutineSession[] = [
+      makeSession({ date: '2026-04-10', startedAt: firstStart }),
+    ];
+    expect(computeTodaySessionStartedAt(sessions, '2026-04-10')).toBe(firstStart);
+  });
+});
+
+describe('computeLatestStepEndedAt', () => {
+  it('returns null for empty input', () => {
+    expect(computeLatestStepEndedAt([])).toBeNull();
+  });
+
+  it('returns null when every step has a null endedAt', () => {
+    expect(
+      computeLatestStepEndedAt([{ endedAt: null }, { endedAt: null }]),
+    ).toBeNull();
+  });
+
+  it('returns the maximum non-null endedAt', () => {
+    expect(
+      computeLatestStepEndedAt([
+        { endedAt: 1_000 },
+        { endedAt: null },
+        { endedAt: 5_000 },
+        { endedAt: 3_000 },
+      ]),
+    ).toBe(5_000);
   });
 });
 
