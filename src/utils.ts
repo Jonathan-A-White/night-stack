@@ -79,6 +79,18 @@ export function getYesterdayDate(): string {
 }
 
 /**
+ * Add (or subtract) days to a local "YYYY-MM-DD" date string, returning a new
+ * "YYYY-MM-DD" string. Parses components explicitly so it's immune to the
+ * timezone shift that `new Date("YYYY-MM-DD")` triggers in some runtimes.
+ */
+export function addDaysToDate(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return toLocalDateString(dt);
+}
+
+/**
  * Return the date a new Evening Log should be stamped with. The stored
  * `NightLog.date` is the date of the evening itself, so an evening logged
  * in the early hours (before noon) of the next morning belongs to yesterday,
