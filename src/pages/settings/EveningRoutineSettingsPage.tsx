@@ -251,8 +251,8 @@ export default function EveningRoutineSettingsPage() {
               ) : (
                 <>
                   <span className="routine-step-name" style={{ cursor: 'pointer' }} onClick={() => startEditStep(step)}>{step.name}</span>
-                  <span className="routine-step-time" style={{ fontSize: 14 }}>PB {formatTotal(pbMs)}</span>
-                  <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                  <span className="routine-step-time" style={{ fontSize: 13, minWidth: 0, flexShrink: 0 }}>PB {formatTotal(pbMs)}</span>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
                     <button className="routine-reorder-btn" onClick={() => handleMoveStep(step.id, 'up')} disabled={isFirst} aria-label="Move up">&uarr;</button>
                     <button className="routine-reorder-btn" onClick={() => handleMoveStep(step.id, 'down')} disabled={isLast} aria-label="Move down">&darr;</button>
                     <button className="routine-reorder-btn" onClick={() => handleDeleteStep(step.id)} aria-label="Delete step">&times;</button>
