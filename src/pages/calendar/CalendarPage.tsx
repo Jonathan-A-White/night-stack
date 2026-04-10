@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { getTodayDate } from '../../utils';
+import { addDaysToDate, getTodayDate } from '../../utils';
 import type { NightLog } from '../../types';
 
 const WEEKDAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -124,8 +124,12 @@ export function CalendarPage() {
     [anchor]
   );
 
-  // Date range for the entire visible grid (not just the month)
-  const rangeStart = gridCells[0].dateStr;
+  // Date range for the entire visible grid (not just the month). We extend
+  // the start backward by one day because the morning shown on calendar day
+  // D comes from the NightLog stored under D−1 (NightLog.date is the evening
+  // date). Without the extra day we'd miss the morning for the first cell.
+  const gridStartDate = gridCells[0].dateStr;
+  const rangeStart = addDaysToDate(gridStartDate, -1);
   const rangeEnd = gridCells[gridCells.length - 1].dateStr;
 
   // Fetch all logs whose date falls within the visible grid range
@@ -171,9 +175,27 @@ export function CalendarPage() {
     setSelectedDate(today);
   }
 
-  const selectedLog = selectedDate ? logsByDate.get(selectedDate) : undefined;
-  const hasEvening = selectedLog !== undefined;
-  const hasMorning = selectedLog !== undefined && selectedLog.sleepData !== null;
+  // Day-based semantics: calendar day D has both a morning slot and an
+  // evening slot. The evening slot maps to the NightLog with date D (since
+  // NightLog.date is the evening date). The morning slot maps to the
+  // sleepData on the NightLog with date D−1 — i.e. the night that ended
+  // during the morning of D.
+  const selectedEveningLog = selectedDate
+    ? logsByDate.get(selectedDate)
+    : undefined;
+  const selectedPriorDate = selectedDate
+    ? addDaysToDate(selectedDate, -1)
+    : undefined;
+  const selectedPriorLog = selectedPriorDate
+    ? logsByDate.get(selectedPriorDate)
+    : undefined;
+
+  const hasEvening = selectedEveningLog !== undefined;
+  const hasMorning =
+    selectedPriorLog !== undefined && selectedPriorLog.sleepData !== null;
+  // Morning can only be logged/completed once the prior night's evening
+  // log exists (the morning writes into that same record).
+  const canLogMorning = selectedPriorLog !== undefined;
 
   return (
     <div>
@@ -239,10 +261,18 @@ export function CalendarPage() {
 
         <div className="calendar-grid">
           {gridCells.map((cell) => {
-            const log = logsByDate.get(cell.dateStr);
-            const hasLog = log !== undefined;
-            const hasFull = hasLog && log.sleepData !== null;
-            const hasEveningOnly = hasLog && log.sleepData === null;
+            // Evening of this calendar day = log stored under this date.
+            const eveningLog = logsByDate.get(cell.dateStr);
+            // Morning of this calendar day = sleepData on the prior day's
+            // log (the night that ended during this morning).
+            const priorLog = logsByDate.get(addDaysToDate(cell.dateStr, -1));
+
+            const dayHasEvening = eveningLog !== undefined;
+            const dayHasMorning =
+              priorLog !== undefined && priorLog.sleepData !== null;
+            const hasFull = dayHasEvening && dayHasMorning;
+            const hasPartial = (dayHasEvening || dayHasMorning) && !hasFull;
+
             const isToday = cell.dateStr === today;
             const isSelected = cell.dateStr === selectedDate;
 
@@ -251,7 +281,7 @@ export function CalendarPage() {
             if (isToday) classes.push('today');
             if (isSelected) classes.push('selected');
             if (hasFull) classes.push('has-full');
-            else if (hasEveningOnly) classes.push('has-evening');
+            else if (hasPartial) classes.push('has-evening');
 
             return (
               <button
@@ -262,7 +292,7 @@ export function CalendarPage() {
                 aria-pressed={isSelected}
               >
                 <span className="calendar-day-number">{cell.day}</span>
-                {(hasFull || hasEveningOnly) && (
+                {(hasFull || hasPartial) && (
                   <span
                     className={`calendar-dot${hasFull ? ' dot-full' : ' dot-evening'}`}
                   />
@@ -323,9 +353,9 @@ export function CalendarPage() {
               <div className="text-secondary text-sm">
                 {hasMorning
                   ? 'Logged'
-                  : hasEvening
+                  : canLogMorning
                   ? 'Not yet completed'
-                  : 'Needs evening log first'}
+                  : 'Needs prior-night evening log first'}
               </div>
             </div>
             <div className="calendar-entry-actions">
@@ -334,7 +364,7 @@ export function CalendarPage() {
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() =>
-                      navigate(`/morning/review/${selectedDate}`)
+                      navigate(`/morning/review/${selectedPriorDate}`)
                     }
                   >
                     View
@@ -346,7 +376,7 @@ export function CalendarPage() {
                     Edit
                   </button>
                 </>
-              ) : hasEvening ? (
+              ) : canLogMorning ? (
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => navigate('/morning')}
@@ -368,11 +398,11 @@ export function CalendarPage() {
         <div className="calendar-legend">
           <div className="calendar-legend-item">
             <span className="calendar-dot dot-full" />
-            <span className="text-secondary text-sm">Full log (evening + morning)</span>
+            <span className="text-secondary text-sm">Full day (morning + evening)</span>
           </div>
           <div className="calendar-legend-item">
             <span className="calendar-dot dot-evening" />
-            <span className="text-secondary text-sm">Evening only</span>
+            <span className="text-secondary text-sm">Partial (morning or evening only)</span>
           </div>
         </div>
       </div>
