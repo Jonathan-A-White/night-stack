@@ -6,52 +6,75 @@ creates or replaces their evening routine — the ordered list of steps they run
 each night, plus one or more variants (e.g., Full, Quick, Travel) that pick a
 subset and order of those steps.
 
-> **Heads up:** NightStack's import is a full replace. Importing a file wipes
-> *every* table in the app (night logs, weights, supplements, clothing, all of
-> it) and repopulates only what is present in the file. If you only want to
-> swap routines, start from a recent export of the user's data and modify the
-> routine sections in place. See [Modify an existing export](#modify-an-existing-export)
-> below.
+> **Pick the right import button.** NightStack's Data Management page has two
+> import paths:
+>
+> - **Import Routines** (under the "Routines Only" card) — replaces only the
+>   routine tables (steps, variants, sessions). Night logs, weights,
+>   supplements, and everything else are untouched. **This is the right target
+>   for files produced by this guide.**
+> - **Import Data** (under the "Export / Import" card) — full replace. Wipes
+>   every table in the app and rebuilds from the file. Only use this if the
+>   user is intentionally restoring a full backup.
+>
+> A routine-only file works with either button, but the full-replace path will
+> erase the user's other data, so prefer Import Routines.
 
 ## Output format
 
-Return **only** a valid JSON object (no markdown fences, no commentary). There
-are two acceptable shapes:
+Return **only** a valid JSON object (no markdown fences, no commentary).
 
-### Shape A — routine-only import (fresh install / wipe and replace)
+### Recommended shape — routine-only file
 
-Use this when the user has no data they care about keeping, or has confirmed
-they're OK with wiping everything else.
+This is the shape produced by the "Export Routines" button and consumed
+cleanly by the "Import Routines" button. It is the preferred output for this
+guide because it leaves the rest of the user's data alone.
 
 ```json
 {
+  "exportedAt": "2026-04-10T03:14:00.000Z",
+  "version": 1,
+  "kind": "nightstack-routines",
+  "includesSessions": false,
   "routineSteps": [ /* RoutineStep, ... */ ],
-  "routineVariants": [ /* RoutineVariant, ... */ ],
-  "routineSessions": []
+  "routineVariants": [ /* RoutineVariant, ... */ ]
 }
 ```
 
-The importer also accepts routine data nested under a `config` key (this is
-what the "Full Export (AI-ready)" button produces):
+- `exportedAt`, `version`, `kind`, and `includesSessions` are advisory — the
+  importer doesn't require them, but including them makes the file
+  self-describing and matches what the app itself produces.
+- Set `includesSessions` to `true` and add a `routineSessions` array if and
+  only if you are deliberately shipping history (rare for hand-authored
+  files — see the [`RoutineSession`](#routinesession) note below).
+
+### Alternate shape — nested under `config`
+
+The importer also accepts routine data nested under a `config` key. This is
+what the "Full Export (AI-ready)" button produces:
 
 ```json
 {
   "config": {
     "routineSteps": [ /* ... */ ],
     "routineVariants": [ /* ... */ ]
-  },
-  "routineSessions": []
+  }
 }
 ```
 
-Either shape works. Top-level is simpler for authoring from scratch.
+Only use this shape if you're modifying an existing full export in place —
+otherwise prefer the top-level shape above.
 
-### Shape B — modify an existing export
+### Modify an existing export
 
 Ask the user for a recent export file (Export All Data or Full Export). Parse
 it, replace only the `routineSteps` and `routineVariants` arrays (and the
 parallel arrays under `config` if present), leave everything else untouched,
-and return the modified file. This preserves night logs, weight history, etc.
+and return the modified file.
+
+Note that if the user is just swapping their routine, the simpler workflow is
+to hand them a fresh routine-only file and tell them to use **Import
+Routines** — no need to round-trip through a full export at all.
 
 ## Field reference
 
@@ -230,10 +253,10 @@ Notes on the example:
 - `routineSessions` is `[]`, so the import will wipe any prior session history
   rather than fabricating runs.
 
-## Modify an existing export
+## Modify an existing full export
 
-If the user hands you an existing export file and asks you to change the
-routine in place:
+If the user hands you an existing Full Export file and asks you to change the
+routine in place (rather than letting you produce a fresh routine-only file):
 
 1. Parse the file as JSON.
 2. Locate `routineSteps` and `routineVariants`. Depending on which export
@@ -243,7 +266,7 @@ routine in place:
    (`nightLogs`, `weightEntries`, `appSettings`, etc.) exactly as they were.
 4. Leave `routineSessions` alone — the user presumably wants their history.
 5. Return the whole modified JSON. The user re-imports it via Settings → Data
-   Management → Import Data.
+   Management → Import Data (full-replace).
 
 **Caveat when preserving history:** if you delete or rename a step, existing
 `routineSessions[].steps[]` entries still reference the old `stepId` and carry
@@ -251,6 +274,12 @@ a snapshot `stepName`, so history displays correctly but per-step stats
 (averages, personal bests) tied to the deleted id will disappear from the
 settings stats view. That is usually desired behavior for a cleanup; flag it
 to the user if they were expecting otherwise.
+
+**In most cases, don't do this.** The routine-only file + Import Routines
+button is safer and simpler: it only touches the routine tables, so you don't
+risk corrupting the user's night logs or weight history by mishandling a
+field in the full export. Only use this path if the user explicitly asks for
+it.
 
 ## Questions to ask the user before generating
 
