@@ -199,6 +199,13 @@ export default function RoutineTracker() {
   // "Resume" banner hides after the user interacts with it.
   const [showResumeBanner, setShowResumeBanner] = useState<boolean>(() => loadWip() != null);
 
+  // Drag-and-drop state for reordering steps. `index` updates live as the
+  // dragged row moves so the row currently held under the pointer can be
+  // styled.
+  const [dragInfo, setDragInfo] = useState<
+    { context: 'start' | 'session'; index: number } | null
+  >(null);
+
   // Refs for long-press timers.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -390,31 +397,90 @@ export default function RoutineTracker() {
     setShowResumeBanner(false);
   };
 
-  /** Move a step up or down in tonight's start-screen ordering. */
-  const handleMoveStartStep = (index: number, direction: -1 | 1) => {
-    const target = index + direction;
-    if (target < 0 || target >= orderedSteps.length) return;
-    const ids = orderedSteps.map((s) => s.id);
-    [ids[index], ids[target]] = [ids[target], ids[index]];
-    setTonightStepIds(ids);
-  };
-
   /**
-   * Reorder a pending step inside the running WIP session. Only pending
-   * steps can move, and they can only swap with another pending step —
-   * completed/skipped/punted rows and the currently-running step stay put.
+   * Drag-and-drop reordering. Pointer events drive a live reorder: as the
+   * pointer moves over another row the dragged step jumps to that row's
+   * position. Works on both the start screen (`'start'` context, mutating
+   * the per-night override) and inside a running session (`'session'`
+   * context, mutating `wip.steps`). Free reorder is allowed across
+   * completed / skipped / punted rows so the user can move a pending step
+   * past previously-handled ones. The currently-running step is locked in
+   * place (you can drag other rows around it, but you can't drag it).
    */
-  const handleMoveWipStep = (index: number, direction: -1 | 1) => {
-    if (!wip) return;
-    const target = index + direction;
-    if (target < 0 || target >= wip.steps.length) return;
-    if (index === wip.currentStepIndex || target === wip.currentStepIndex) return;
-    const step = wip.steps[index];
-    const neighbor = wip.steps[target];
-    if (step.status !== 'pending' || neighbor.status !== 'pending') return;
-    const nextSteps = wip.steps.slice();
-    [nextSteps[index], nextSteps[target]] = [nextSteps[target], nextSteps[index]];
-    setWip({ ...wip, steps: nextSteps });
+  const handleDragStart = (
+    context: 'start' | 'session',
+    index: number,
+    e: React.PointerEvent<HTMLElement>,
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelLongPressTimer();
+    if (context === 'session') {
+      if (!wip) return;
+      if (index === wip.currentStepIndex) return;
+    }
+
+    let currentIndex = index;
+    // Closure-local working copies so consecutive pointermoves don't race
+    // against React's render cycle.
+    const workingIds: string[] | null =
+      context === 'start' ? orderedSteps.map((s) => s.id) : null;
+    const workingWip: WipSession | null =
+      context === 'session' && wip
+        ? { ...wip, steps: wip.steps.slice() }
+        : null;
+    const currentStepId =
+      context === 'session' && workingWip
+        ? workingWip.steps[workingWip.currentStepIndex]?.stepId ?? null
+        : null;
+
+    setDragInfo({ context, index });
+
+    const handleMove = (ev: PointerEvent) => {
+      ev.preventDefault();
+      const elt = document.elementFromPoint(
+        ev.clientX,
+        ev.clientY,
+      ) as HTMLElement | null;
+      if (!elt) return;
+      const rowEl = elt.closest('[data-step-index]') as HTMLElement | null;
+      if (!rowEl) return;
+      const ctxAttr = rowEl.dataset.dragContext;
+      if (ctxAttr !== context) return;
+      const toIndex = parseInt(rowEl.dataset.stepIndex ?? '', 10);
+      if (Number.isNaN(toIndex) || toIndex === currentIndex) return;
+
+      if (context === 'start' && workingIds) {
+        const [moved] = workingIds.splice(currentIndex, 1);
+        workingIds.splice(toIndex, 0, moved);
+        setTonightStepIds(workingIds.slice());
+      } else if (context === 'session' && workingWip) {
+        const [moved] = workingWip.steps.splice(currentIndex, 1);
+        workingWip.steps.splice(toIndex, 0, moved);
+        // The current step's index may have shifted; recompute by stepId
+        // so the running timer keeps tracking the same step.
+        if (currentStepId != null) {
+          const newIdx = workingWip.steps.findIndex(
+            (s) => s.stepId === currentStepId,
+          );
+          if (newIdx !== -1) workingWip.currentStepIndex = newIdx;
+        }
+        setWip({ ...workingWip, steps: workingWip.steps.slice() });
+      }
+      currentIndex = toIndex;
+      setDragInfo({ context, index: toIndex });
+    };
+
+    const handleEnd = () => {
+      setDragInfo(null);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleEnd);
+      window.removeEventListener('pointercancel', handleEnd);
+    };
+
+    window.addEventListener('pointermove', handleMove, { passive: false });
+    window.addEventListener('pointerup', handleEnd);
+    window.addEventListener('pointercancel', handleEnd);
   };
 
   /** Mutate the WIP by index, producing a new WipSession. */
@@ -814,29 +880,25 @@ export default function RoutineTracker() {
         <div className="card">
           <div className="card-title">Steps</div>
           {wip.steps.map((s, i) => {
-            const rowClass = (() => {
+            const isDragging =
+              dragInfo?.context === 'session' && dragInfo.index === i;
+            const baseRowClass = (() => {
               if (i === idx) return 'routine-step-row active';
               if (s.status === 'completed') return 'routine-step-row done';
               if (s.status === 'skipped') return 'routine-step-row skipped';
               if (s.status === 'punted') return 'routine-step-row punted';
               return 'routine-step-row';
             })();
-            const canMoveUp =
-              s.status === 'pending' &&
-              i !== idx &&
-              i > 0 &&
-              wip.steps[i - 1].status === 'pending' &&
-              i - 1 !== idx;
-            const canMoveDown =
-              s.status === 'pending' &&
-              i !== idx &&
-              i < wip.steps.length - 1 &&
-              wip.steps[i + 1].status === 'pending' &&
-              i + 1 !== idx;
+            const rowClass = isDragging
+              ? `${baseRowClass} dragging`
+              : baseRowClass;
+            const canDrag = i !== idx;
             return (
               <div
                 key={`${s.stepId}-${i}`}
                 className={rowClass}
+                data-step-index={i}
+                data-drag-context="session"
                 onMouseDown={() => startLongPress(i)}
                 onMouseUp={cancelLongPressTimer}
                 onMouseLeave={cancelLongPressTimer}
@@ -870,36 +932,18 @@ export default function RoutineTracker() {
                       {msToMMSS(s.pbAtStartMs)}
                     </span>
                   )}
-                {(canMoveUp || canMoveDown) && (
-                  <span className="routine-step-reorder">
-                    <button
-                      type="button"
-                      className="routine-step-reorder-btn"
-                      aria-label="Move step up"
-                      disabled={!canMoveUp}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMoveWipStep(i, -1);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                    >
-                      &#9650;
-                    </button>
-                    <button
-                      type="button"
-                      className="routine-step-reorder-btn"
-                      aria-label="Move step down"
-                      disabled={!canMoveDown}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleMoveWipStep(i, 1);
-                      }}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                    >
-                      &#9660;
-                    </button>
+                {canDrag && (
+                  <span
+                    className="routine-step-drag-handle"
+                    aria-label="Drag to reorder"
+                    role="button"
+                    onPointerDown={(e) => handleDragStart('session', i, e)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                  >
+                    <span className="routine-step-drag-dots" aria-hidden="true">
+                      &#x22EE;&#x22EE;
+                    </span>
                   </span>
                 )}
               </div>
@@ -1000,15 +1044,25 @@ export default function RoutineTracker() {
             {orderedSteps.map((step, i) => {
               const pb = pbs.get(step.id) ?? null;
               const prior = todayStepStatuses.get(step.id);
-              const rowClass = prior
+              const isDragging =
+                dragInfo?.context === 'start' && dragInfo.index === i;
+              const baseRowClass = prior
                 ? prior.status === 'completed'
                   ? 'routine-step-row done'
                   : prior.status === 'skipped'
                     ? 'routine-step-row skipped'
                     : 'routine-step-row punted'
                 : 'routine-step-row';
+              const rowClass = isDragging
+                ? `${baseRowClass} dragging`
+                : baseRowClass;
               return (
-                <div key={step.id} className={rowClass}>
+                <div
+                  key={step.id}
+                  className={rowClass}
+                  data-step-index={i}
+                  data-drag-context="start"
+                >
                   <span className="routine-step-name">
                     {i + 1}. {step.name}
                   </span>
@@ -1025,25 +1079,15 @@ export default function RoutineTracker() {
                   ) : (
                     <span className="text-secondary text-sm">no best yet</span>
                   )}
-                  <span className="routine-step-reorder">
-                    <button
-                      type="button"
-                      className="routine-step-reorder-btn"
-                      aria-label="Move step up"
-                      disabled={i === 0}
-                      onClick={() => handleMoveStartStep(i, -1)}
-                    >
-                      &#9650;
-                    </button>
-                    <button
-                      type="button"
-                      className="routine-step-reorder-btn"
-                      aria-label="Move step down"
-                      disabled={i === orderedSteps.length - 1}
-                      onClick={() => handleMoveStartStep(i, 1)}
-                    >
-                      &#9660;
-                    </button>
+                  <span
+                    className="routine-step-drag-handle"
+                    aria-label="Drag to reorder"
+                    role="button"
+                    onPointerDown={(e) => handleDragStart('start', i, e)}
+                  >
+                    <span className="routine-step-drag-dots" aria-hidden="true">
+                      &#x22EE;&#x22EE;
+                    </span>
                   </span>
                 </div>
               );
