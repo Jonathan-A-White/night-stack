@@ -451,9 +451,46 @@ export function MorningLog() {
         ))}
       </div>
 
-      {/* Step 1: Import Samsung Health Data */}
+      {/* Step 1: Morning Weight + Import Samsung Health Data */}
       {step === 1 && (
         <div>
+          {showWeightStep && weightLbs != null && (
+            <div className="card">
+              <div className="card-title">Morning Weight</div>
+              {weightSkipped ? (
+                <div>
+                  <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>
+                    Skipped &mdash; will be filled with the calculated value
+                    ({formatWeight(weightLbs, unitSystem)}).
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full"
+                    onClick={() => setWeightSkipped(false)}
+                  >
+                    Log weight instead
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <WeightStepper
+                    valueLbs={weightLbs}
+                    onChange={setWeightLbs}
+                    unitSystem={unitSystem}
+                    helpText="Hold +/- to move faster"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-full mt-8"
+                    onClick={() => setWeightSkipped(true)}
+                  >
+                    Skip weigh-in
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           <div className="card">
             <div className="card-title">Import Sleep Data</div>
 
@@ -916,43 +953,6 @@ export function MorningLog() {
       {/* Step 5: Notes + Summary + Save */}
       {step === 5 && (
         <div>
-          {showWeightStep && weightLbs != null && (
-            <div className="card">
-              <div className="card-title">Morning Weight</div>
-              {weightSkipped ? (
-                <div>
-                  <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>
-                    Skipped — will be filled with the calculated value
-                    ({formatWeight(weightLbs, unitSystem)}).
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-full"
-                    onClick={() => setWeightSkipped(false)}
-                  >
-                    Log weight instead
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <WeightStepper
-                    valueLbs={weightLbs}
-                    onChange={setWeightLbs}
-                    unitSystem={unitSystem}
-                    helpText="Hold +/- to move faster"
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-full mt-8"
-                    onClick={() => setWeightSkipped(true)}
-                  >
-                    Skip weigh-in
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
           <div className="card">
             <div className="card-title">Morning Notes</div>
             <div className="form-group">
