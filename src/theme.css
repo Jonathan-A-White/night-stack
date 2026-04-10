@@ -875,6 +875,22 @@ textarea.form-input {
 .routine-start-card-countdown.overdue {
   color: var(--color-danger);
 }
+.routine-until-bed {
+  text-align: center;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 8px;
+}
+.routine-until-bed-countdown {
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  line-height: 1.1;
+}
+.routine-until-bed-countdown.overdue {
+  color: var(--color-danger);
+}
 .routine-step-notes-input {
   width: 100%;
   margin-top: 8px;
