@@ -8,6 +8,7 @@ import {
   formatTime12h,
   getCurrentTime,
   getTodayDate,
+  getEveningLogDate,
   isTimeAfter,
   DAY_NAMES,
 } from '../../utils';
@@ -42,6 +43,38 @@ export function TonightPlan() {
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
   const [weatherError, setWeatherError] = useState('');
   const [evaluatedRules, setEvaluatedRules] = useState<EvaluatedRule[]>([]);
+
+  // Detect an in-progress evening log draft so the CTA can read
+  // "Resume Evening Log" instead of "Start Evening Log". EveningLog persists
+  // its wizard state to sessionStorage under this key and clears it on submit.
+  const [hasEveningLogDraft, setHasEveningLogDraft] = useState(() => {
+    try {
+      return (
+        sessionStorage.getItem(`evening-log-draft-${getEveningLogDate()}`) !==
+        null
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  // Re-check on window focus in case the draft was cleared/created in another
+  // tab or after completing the log and returning via the back button.
+  useEffect(() => {
+    function refresh() {
+      try {
+        setHasEveningLogDraft(
+          sessionStorage.getItem(
+            `evening-log-draft-${getEveningLogDate()}`,
+          ) !== null,
+        );
+      } catch {
+        setHasEveningLogDraft(false);
+      }
+    }
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
 
   const defaultAlarm = alarmSchedule?.hasAlarm
     ? alarmSchedule.alarmTime
@@ -179,12 +212,12 @@ export function TonightPlan() {
         </div>
       )}
 
-      {/* Start Evening Log */}
+      {/* Start / Resume Evening Log */}
       <button
         className="btn btn-primary btn-full mt-16"
         onClick={() => navigate('/tonight/log')}
       >
-        Start Evening Log
+        {hasEveningLogDraft ? 'Resume Evening Log' : 'Start Evening Log'}
       </button>
     </div>
   );
