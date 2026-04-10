@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, getTodayDate, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
+import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
   NightLog,
   ClothingItem,
@@ -27,12 +28,12 @@ function copingTone(type: MiddayCopingType): string {
 }
 
 export function EveningReview() {
-  const { date } = useParams<{ date: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const nightLog = useLiveQuery(
-    () => (date ? db.nightLogs.where('date').equals(date).first() : undefined),
-    [date]
+    () => (id ? db.nightLogs.get(id) : undefined),
+    [id]
   );
 
   const clothingItems = useLiveQuery(() => db.clothingItems.toArray());
@@ -43,7 +44,7 @@ export function EveningReview() {
   // Dynamic bedtime awareness for today's review.
   // These hooks MUST be called before any early return to satisfy the
   // Rules of Hooks — otherwise the component crashes once nightLog loads.
-  const isToday = date === getTodayDate();
+  const isToday = nightLog?.date === getTodayDate();
   const [currentTime, setCurrentTime] = useState(getCurrentTime());
 
   useEffect(() => {
@@ -126,8 +127,10 @@ export function EveningReview() {
     <div>
       <div className="page-header">
         <h1>Evening Review</h1>
-        <p className="subtitle">{date}</p>
+        <p className="subtitle">{nightLog.date}</p>
       </div>
+
+      <NightLogDateEditor nightLog={nightLog} />
 
       {/* Bedtime recommendation */}
       {loggedBedtimeHHMM !== null ? (

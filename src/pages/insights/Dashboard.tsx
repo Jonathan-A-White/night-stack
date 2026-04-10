@@ -200,7 +200,7 @@ export function Dashboard() {
                 <div
                   key={log.id}
                   className="list-item"
-                  onClick={() => navigate(`/morning/review/${log.date}`)}
+                  onClick={() => navigate(`/morning/review/${log.id}`)}
                 >
                   <div>
                     <div className="fw-600">{log.date}</div>

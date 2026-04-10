@@ -315,12 +315,12 @@ export function CalendarPage() {
               </div>
             </div>
             <div className="calendar-entry-actions">
-              {hasEvening ? (
+              {hasEvening && selectedEveningLog ? (
                 <>
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() =>
-                      navigate(`/tonight/review/${selectedDate}`)
+                      navigate(`/tonight/review/${selectedEveningLog.id}`)
                     }
                   >
                     View
@@ -359,12 +359,12 @@ export function CalendarPage() {
               </div>
             </div>
             <div className="calendar-entry-actions">
-              {hasMorning ? (
+              {hasMorning && selectedPriorLog ? (
                 <>
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={() =>
-                      navigate(`/morning/review/${selectedPriorDate}`)
+                      navigate(`/morning/review/${selectedPriorLog.id}`)
                     }
                   >
                     View

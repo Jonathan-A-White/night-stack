@@ -179,6 +179,10 @@ export function EveningLog() {
   // Step 8: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
 
+  // Prevents the save button from creating a duplicate log if the user
+  // double-taps while the async save is in flight.
+  const [isSaving, setIsSaving] = useState(false);
+
   // Weight entry (only surfaced if user weighs in the evening)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'evening';
@@ -303,81 +307,90 @@ export function EveningLog() {
   }
 
   async function handleSave() {
-    const date = logDate;
-    const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
+    if (isSaving) return; // guard against double-tap
+    setIsSaving(true);
+    try {
+      const date = logDate;
+      const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
 
-    const nightLog = createBlankNightLog(date, {
-      expectedAlarmTime: defaultAlarm,
-      actualAlarmTime: activeAlarm,
-      isOverridden,
-      targetBedtime: schedule.targetBedtime,
-      eatingCutoff: schedule.eatingCutoff,
-      supplementTime: schedule.supplementTime,
-    });
+      const nightLog = createBlankNightLog(date, {
+        expectedAlarmTime: defaultAlarm,
+        actualAlarmTime: activeAlarm,
+        isOverridden,
+        targetBedtime: schedule.targetBedtime,
+        eatingCutoff: schedule.eatingCutoff,
+        supplementTime: schedule.supplementTime,
+      });
 
-    // The moment the user finishes the evening log is treated as their
-    // actual bedtime — independent of whatever the watch sleep tracker
-    // later reports. Backfilled entries (for a previous date) get null
-    // because the finish time doesn't reflect when the user actually
-    // went to bed that night.
-    nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      // The moment the user finishes the evening log is treated as their
+      // actual bedtime — independent of whatever the watch sleep tracker
+      // later reports. Backfilled entries (for a previous date) get null
+      // because the finish time doesn't reflect when the user actually
+      // went to bed that night.
+      nightLog.loggedBedtime = isBackfill ? null : Date.now();
 
-    nightLog.stack = { baseStackUsed, deviations };
-    nightLog.eveningIntake = {
-      lastMealTime,
-      foodDescription,
-      flags,
-      alcohol: hasAlcohol ? alcohol : null,
-      liquidIntake,
-    };
-    nightLog.environment = {
-      roomTempF: roomTempF ? parseFloat(roomTempF) : null,
-      roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
-      externalWeather: weather,
-    };
-    nightLog.clothing = selectedClothing;
-    nightLog.bedding = selectedBedding;
-    nightLog.middayStruggle = {
-      hadStruggle,
-      copingItemIds: hadStruggle ? selectedCoping : [],
-      struggleTime: hadStruggle ? struggleTime : '',
-      intensity: hadStruggle ? (struggleIntensity || null) : null,
-      notes: hadStruggle ? struggleNotes : '',
-    };
-    nightLog.eveningNotes = eveningNotes;
-
-    await db.nightLogs.put(nightLog);
-
-    // Log evening weight if that's the user's preference
-    if (showWeightStep && weightLbs != null) {
-      const now = Date.now();
-      const entry: WeightEntry = {
-        id: crypto.randomUUID(),
-        nightLogId: nightLog.id,
-        date,
-        time: getCurrentTime(),
-        timestamp: now,
-        weightLbs: roundWeightLbs(weightLbs, 'us'),
-        period: 'evening',
-        createdAt: now,
-        measured: !weightSkipped,
+      nightLog.stack = { baseStackUsed, deviations };
+      nightLog.eveningIntake = {
+        lastMealTime,
+        foodDescription,
+        flags,
+        alcohol: hasAlcohol ? alcohol : null,
+        liquidIntake,
       };
-      await db.weightEntries.add(entry);
+      nightLog.environment = {
+        roomTempF: roomTempF ? parseFloat(roomTempF) : null,
+        roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
+        externalWeather: weather,
+      };
+      nightLog.clothing = selectedClothing;
+      nightLog.bedding = selectedBedding;
+      nightLog.middayStruggle = {
+        hadStruggle,
+        copingItemIds: hadStruggle ? selectedCoping : [],
+        struggleTime: hadStruggle ? struggleTime : '',
+        intensity: hadStruggle ? (struggleIntensity || null) : null,
+        notes: hadStruggle ? struggleNotes : '',
+      };
+      nightLog.eveningNotes = eveningNotes;
 
-      if (!weightSkipped) {
-        const all = await db.weightEntries.toArray();
-        const recalculated = recalculateCalculatedWeights(all, entry.id);
-        await db.weightEntries.bulkPut(recalculated);
+      await db.nightLogs.put(nightLog);
+
+      // Log evening weight if that's the user's preference
+      if (showWeightStep && weightLbs != null) {
+        const now = Date.now();
+        const entry: WeightEntry = {
+          id: crypto.randomUUID(),
+          nightLogId: nightLog.id,
+          date,
+          time: getCurrentTime(),
+          timestamp: now,
+          weightLbs: roundWeightLbs(weightLbs, 'us'),
+          period: 'evening',
+          createdAt: now,
+          measured: !weightSkipped,
+        };
+        await db.weightEntries.add(entry);
+
+        if (!weightSkipped) {
+          const all = await db.weightEntries.toArray();
+          const recalculated = recalculateCalculatedWeights(all, entry.id);
+          await db.weightEntries.bulkPut(recalculated);
+        }
       }
-    }
 
-    // Schedule notifications
-    if (settings) {
-      scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
-    }
+      // Schedule notifications
+      if (settings) {
+        scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
+      }
 
-    sessionStorage.removeItem(DRAFT_KEY);
-    navigate(`/tonight/review/${date}`);
+      sessionStorage.removeItem(DRAFT_KEY);
+      // Navigate by id — multiple night logs can legitimately share a date
+      // (e.g. a mis-filed backfill), so routing by id keeps each entry
+      // independently addressable.
+      navigate(`/tonight/review/${nightLog.id}`);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
@@ -999,8 +1012,9 @@ export function EveningLog() {
             <button
               className="btn btn-primary"
               onClick={handleSave}
+              disabled={isSaving}
             >
-              Save Evening Log
+              {isSaving ? 'Saving…' : 'Save Evening Log'}
             </button>
           </div>
         </div>
