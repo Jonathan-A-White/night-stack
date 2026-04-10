@@ -21,33 +21,16 @@ import type {
   RoutineStepStatus,
   RoutineVariant,
 } from '../../types';
+import {
+  loadWip,
+  saveWip,
+  type WipSession,
+  type WipStep,
+  type WipStepStatus,
+} from './routineWipStorage';
 
 export { RoutineTracker };
 
-type WipStepStatus = 'pending' | RoutineStepStatus;
-
-interface WipStep {
-  stepId: string;
-  stepName: string;
-  status: WipStepStatus;
-  startedAt: number | null;
-  endedAt: number | null;
-  durationMs: number | null;
-  pbAtStartMs: number | null;
-  notes: string;
-}
-
-interface WipSession {
-  id: string;
-  variantId: string | null;
-  variantName: string;
-  startedAt: number;
-  currentStepIndex: number;
-  currentStepStartedAt: number | null;
-  steps: WipStep[];
-}
-
-const WIP_KEY = 'routine-session-wip';
 const LONGPRESS_MS = 500;
 
 function msToMMSS(ms: number): string {
@@ -63,31 +46,6 @@ function msToMMSS(ms: number): string {
 function formatDelta(ms: number): string {
   const sign = ms >= 0 ? '+' : '-';
   return `${sign}${msToMMSS(Math.abs(ms))}`;
-}
-
-function loadWip(): WipSession | null {
-  try {
-    const raw = sessionStorage.getItem(WIP_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as WipSession;
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (!Array.isArray(parsed.steps)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveWip(wip: WipSession | null): void {
-  try {
-    if (wip == null) {
-      sessionStorage.removeItem(WIP_KEY);
-      return;
-    }
-    sessionStorage.setItem(WIP_KEY, JSON.stringify(wip));
-  } catch {
-    // best-effort — storage quota / private mode
-  }
 }
 
 /**
