@@ -809,6 +809,35 @@ textarea.form-input {
   text-align: right;
 }
 .routine-step-time.negative { color: var(--color-danger); }
+.routine-step-reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-left: 8px;
+}
+.routine-step-reorder-btn {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  width: 28px;
+  height: 22px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.routine-step-reorder-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.routine-step-reorder-btn:not(:disabled):hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
 .routine-timer-display {
   font-size: 72px;
   font-weight: 700;
