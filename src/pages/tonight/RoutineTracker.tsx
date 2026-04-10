@@ -460,8 +460,9 @@ export default function RoutineTracker() {
    * the per-night override) and inside a running session (`'session'`
    * context, mutating `wip.steps`). Free reorder is allowed across
    * completed / skipped / punted rows so the user can move a pending step
-   * past previously-handled ones. The currently-running step is locked in
-   * place (you can drag other rows around it, but you can't drag it).
+   * past previously-handled ones. The currently-running step can also be
+   * dragged; its timer keeps tracking it via stepId lookup as positions
+   * shift.
    */
   const handleDragStart = (
     context: 'start' | 'session',
@@ -471,10 +472,7 @@ export default function RoutineTracker() {
     e.preventDefault();
     e.stopPropagation();
     cancelLongPressTimer();
-    if (context === 'session') {
-      if (!wip) return;
-      if (index === wip.currentStepIndex) return;
-    }
+    if (context === 'session' && !wip) return;
 
     let currentIndex = index;
     // Closure-local working copies so consecutive pointermoves don't race
@@ -970,7 +968,6 @@ export default function RoutineTracker() {
             const rowClass = isDragging
               ? `${baseRowClass} dragging`
               : baseRowClass;
-            const canDrag = i !== idx;
             return (
               <div
                 key={`${s.stepId}-${i}`}
@@ -1010,20 +1007,18 @@ export default function RoutineTracker() {
                       {msToMMSS(s.pbAtStartMs)}
                     </span>
                   )}
-                {canDrag && (
-                  <span
-                    className="routine-step-drag-handle"
-                    aria-label="Drag to reorder"
-                    role="button"
-                    onPointerDown={(e) => handleDragStart('session', i, e)}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                  >
-                    <span className="routine-step-drag-dots" aria-hidden="true">
-                      &#x22EE;&#x22EE;
-                    </span>
+                <span
+                  className="routine-step-drag-handle"
+                  aria-label="Drag to reorder"
+                  role="button"
+                  onPointerDown={(e) => handleDragStart('session', i, e)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
+                  <span className="routine-step-drag-dots" aria-hidden="true">
+                    &#x22EE;&#x22EE;
                   </span>
-                )}
+                </span>
               </div>
             );
           })}
