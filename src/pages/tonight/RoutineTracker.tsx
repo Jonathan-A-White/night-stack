@@ -644,6 +644,32 @@ export default function RoutineTracker() {
     setLongPressStepIndex(null);
   };
 
+  /**
+   * Restart a step's timer. Makes the target step the current (active) step
+   * and resets its timer state so the next `handleDone` measures only the
+   * fresh attempt — NOT the wall-clock span from the original session start,
+   * which would otherwise happen if the step was carried over from a prior
+   * session tonight (its old startedAt would still be set). Available for any
+   * step regardless of prior status.
+   */
+  const handleLongPressRestart = () => {
+    if (longPressStepIndex == null || !wip) return;
+    const idx = longPressStepIndex;
+    const now = Date.now();
+    const next = updateStep(wip, idx, {
+      status: 'pending',
+      startedAt: now,
+      endedAt: null,
+      durationMs: null,
+    });
+    setWip({
+      ...next,
+      currentStepIndex: idx,
+      currentStepStartedAt: now,
+    });
+    setLongPressStepIndex(null);
+  };
+
   const cancelLongPressTimer = () => {
     if (longPressTimer.current != null) {
       clearTimeout(longPressTimer.current);
@@ -1055,6 +1081,12 @@ export default function RoutineTracker() {
               <div className="card-title">
                 {wip.steps[longPressStepIndex]?.stepName}
               </div>
+              <button
+                className="btn btn-secondary btn-full mt-16"
+                onClick={handleLongPressRestart}
+              >
+                Restart timer
+              </button>
               <button
                 className="btn btn-secondary btn-full mt-16"
                 onClick={handleLongPressSkip}
