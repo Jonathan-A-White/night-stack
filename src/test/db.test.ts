@@ -1,5 +1,56 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { db, seedDatabase } from '../db';
+import { db, mergeNightLogDuplicates, seedDatabase } from '../db';
+import { createBlankNightLog } from '../utils';
+import type { NightLog, SleepData, WakeUpEvent } from '../types';
+
+function makeNightLog(date: string, overrides: Partial<NightLog> = {}): NightLog {
+  const log = createBlankNightLog(date, {
+    expectedAlarmTime: '06:15',
+    actualAlarmTime: '06:15',
+    isOverridden: false,
+    targetBedtime: '22:45',
+    eatingCutoff: '20:15',
+    supplementTime: '22:00',
+  });
+  return { ...log, ...overrides };
+}
+
+function makeSleepData(sleepScore: number): SleepData {
+  return {
+    sleepTime: '22:30',
+    wakeTime: '06:15',
+    totalSleepDuration: 465,
+    actualSleepDuration: 450,
+    sleepScore,
+    sleepScoreDelta: 0,
+    deepSleep: 70,
+    remSleep: 90,
+    lightSleep: 290,
+    awakeDuration: 15,
+    avgHeartRate: 52,
+    minHeartRate: 45,
+    avgRespiratoryRate: 14,
+    bloodOxygenAvg: 97,
+    skinTempRange: '-0.2 to +0.1',
+    sleepLatencyRating: 'Good',
+    restfulnessRating: 'Good',
+    deepSleepRating: 'Good',
+    remSleepRating: 'Good',
+    importedAt: Date.now(),
+  };
+}
+
+function makeWakeUpEvent(): WakeUpEvent {
+  return {
+    id: 'wake-1',
+    startTime: '03:00',
+    endTime: '03:15',
+    cause: 'bathroom',
+    fellBackAsleep: 'yes',
+    minutesToFallBackAsleep: 15,
+    notes: '',
+  };
+}
 
 describe('seedDatabase', () => {
   beforeEach(async () => {
@@ -96,5 +147,160 @@ describe('seedDatabase', () => {
     expect(highRules).toHaveLength(5);
     expect(medRules).toHaveLength(5);
     expect(lowRules).toHaveLength(2);
+  });
+});
+
+describe('mergeNightLogDuplicates', () => {
+  it('returns the single log unchanged when there are no duplicates', () => {
+    const log = makeNightLog('2026-04-09');
+    expect(mergeNightLogDuplicates([log])).toBe(log);
+  });
+
+  it('picks the log with sleepData as the winner', () => {
+    const bare = makeNightLog('2026-04-09', {
+      id: 'bare',
+      updatedAt: 2000,
+      stack: { baseStackUsed: true, deviations: [
+        { id: 'd1', supplementId: 's1', deviation: 'skipped', notes: '' },
+      ] },
+    });
+    const full = makeNightLog('2026-04-09', {
+      id: 'full',
+      updatedAt: 1000, // older, but has sleepData
+      sleepData: makeSleepData(82),
+      wakeUpEvents: [makeWakeUpEvent()],
+    });
+
+    const merged = mergeNightLogDuplicates([bare, full]);
+
+    expect(merged.id).toBe('full');
+    expect(merged.sleepData?.sleepScore).toBe(82);
+    expect(merged.wakeUpEvents).toHaveLength(1);
+  });
+
+  it('breaks ties on score by updatedAt (most recent wins)', () => {
+    const older = makeNightLog('2026-04-09', { id: 'older', updatedAt: 1000 });
+    const newer = makeNightLog('2026-04-09', { id: 'newer', updatedAt: 2000 });
+
+    const merged = mergeNightLogDuplicates([older, newer]);
+
+    expect(merged.id).toBe('newer');
+  });
+
+  it('fills blank fields on the winner from losers', () => {
+    const winner = makeNightLog('2026-04-09', {
+      id: 'winner',
+      sleepData: makeSleepData(90),
+      updatedAt: 2000,
+      eveningNotes: '',
+    });
+    const loser = makeNightLog('2026-04-09', {
+      id: 'loser',
+      updatedAt: 1000,
+      wakeUpEvents: [makeWakeUpEvent()],
+      eveningNotes: 'felt good',
+    });
+
+    const merged = mergeNightLogDuplicates([winner, loser]);
+
+    expect(merged.id).toBe('winner');
+    expect(merged.sleepData?.sleepScore).toBe(90);
+    // winner had no wake-ups, should inherit from loser
+    expect(merged.wakeUpEvents).toHaveLength(1);
+    expect(merged.eveningNotes).toBe('felt good');
+  });
+
+  it('preserves the earliest createdAt across all logs', () => {
+    const a = makeNightLog('2026-04-09', { id: 'a', createdAt: 5000, updatedAt: 5000 });
+    const b = makeNightLog('2026-04-09', { id: 'b', createdAt: 1000, updatedAt: 1000 });
+    const c = makeNightLog('2026-04-09', { id: 'c', createdAt: 3000, updatedAt: 3000 });
+
+    const merged = mergeNightLogDuplicates([a, b, c]);
+
+    expect(merged.createdAt).toBe(1000);
+  });
+
+  it('throws on an empty list', () => {
+    expect(() => mergeNightLogDuplicates([])).toThrow();
+  });
+});
+
+describe('v8 nightLogs dedupe migration', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+  });
+
+  it('collapses duplicate night logs for the same date to one entry', async () => {
+    // Simulate the pre-fix state: two night logs for the same date with
+    // different UUIDs, one carrying morning data and one not.
+    const dup1 = makeNightLog('2026-04-09', {
+      id: 'dup-1',
+      createdAt: 1000,
+      updatedAt: 1000,
+      wakeUpEvents: [makeWakeUpEvent()],
+      sleepData: makeSleepData(70),
+      stack: { baseStackUsed: true, deviations: [
+        { id: 'd1', supplementId: 's1', deviation: 'skipped', notes: '' },
+        { id: 'd2', supplementId: 's2', deviation: 'skipped', notes: '' },
+        { id: 'd3', supplementId: 's3', deviation: 'skipped', notes: '' },
+      ] },
+    });
+    const dup2 = makeNightLog('2026-04-09', {
+      id: 'dup-2',
+      createdAt: 2000,
+      updatedAt: 2000,
+      sleepData: makeSleepData(83),
+      wakeUpEvents: [makeWakeUpEvent()],
+      stack: { baseStackUsed: true, deviations: [
+        { id: 'd4', supplementId: 's1', deviation: 'skipped', notes: '' },
+        { id: 'd5', supplementId: 's2', deviation: 'skipped', notes: '' },
+        { id: 'd6', supplementId: 's3', deviation: 'skipped', notes: '' },
+        { id: 'd7', supplementId: 's4', deviation: 'skipped', notes: '' },
+        { id: 'd8', supplementId: 's5', deviation: 'skipped', notes: '' },
+        { id: 'd9', supplementId: 's6', deviation: 'skipped', notes: '' },
+      ] },
+    });
+    const unique = makeNightLog('2026-04-08', {
+      id: 'solo',
+      createdAt: 500,
+      updatedAt: 500,
+      sleepData: makeSleepData(64),
+    });
+
+    await db.nightLogs.bulkAdd([dup1, dup2, unique]);
+
+    // Re-opening the db after bulkAdd doesn't re-run upgrades, so drive the
+    // migration logic directly through the same code path the upgrade uses.
+    // (A full version jump test would require owning the Dexie schema lifecycle.)
+    const all = await db.nightLogs.toArray();
+    const byDate = new Map<string, NightLog[]>();
+    for (const log of all) {
+      const bucket = byDate.get(log.date);
+      if (bucket) bucket.push(log);
+      else byDate.set(log.date, [log]);
+    }
+    for (const group of byDate.values()) {
+      if (group.length <= 1) continue;
+      const winner = mergeNightLogDuplicates(group);
+      const loserIds = group.filter((l) => l.id !== winner.id).map((l) => l.id);
+      await db.nightLogs.bulkDelete(loserIds);
+      await db.nightLogs.put(winner);
+    }
+
+    const remaining = await db.nightLogs.orderBy('date').toArray();
+    expect(remaining).toHaveLength(2);
+
+    const forApril9 = remaining.filter((l) => l.date === '2026-04-09');
+    expect(forApril9).toHaveLength(1);
+    // dup2 had the same sleepData-presence but was newer, so it wins on the
+    // tie-breaker (updatedAt). It also had strictly more deviations.
+    expect(forApril9[0].id).toBe('dup-2');
+    expect(forApril9[0].sleepData?.sleepScore).toBe(83);
+
+    // The standalone entry for 2026-04-08 must not be touched.
+    const forApril8 = remaining.filter((l) => l.date === '2026-04-08');
+    expect(forApril8).toHaveLength(1);
+    expect(forApril8[0].id).toBe('solo');
   });
 });

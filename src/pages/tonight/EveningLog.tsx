@@ -179,6 +179,10 @@ export function EveningLog() {
   // Step 8: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
 
+  // Prevents the save button from creating a duplicate log if the user
+  // double-taps while the async save is in flight.
+  const [isSaving, setIsSaving] = useState(false);
+
   // Weight entry (only surfaced if user weighs in the evening)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'evening';
@@ -303,81 +307,107 @@ export function EveningLog() {
   }
 
   async function handleSave() {
-    const date = logDate;
-    const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
+    if (isSaving) return; // guard against double-tap
+    setIsSaving(true);
+    try {
+      const date = logDate;
+      const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
 
-    const nightLog = createBlankNightLog(date, {
-      expectedAlarmTime: defaultAlarm,
-      actualAlarmTime: activeAlarm,
-      isOverridden,
-      targetBedtime: schedule.targetBedtime,
-      eatingCutoff: schedule.eatingCutoff,
-      supplementTime: schedule.supplementTime,
-    });
+      // If a night log for this date already exists (e.g. the user came back
+      // to edit the evening log, or backfilled after a morning log was saved),
+      // reuse its id so `put` updates in place instead of creating a duplicate
+      // row. Fields that only the morning flow sets are preserved from the
+      // existing entry.
+      const existing = await db.nightLogs.where('date').equals(date).first();
 
-    // The moment the user finishes the evening log is treated as their
-    // actual bedtime — independent of whatever the watch sleep tracker
-    // later reports. Backfilled entries (for a previous date) get null
-    // because the finish time doesn't reflect when the user actually
-    // went to bed that night.
-    nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      const nightLog = createBlankNightLog(date, {
+        expectedAlarmTime: defaultAlarm,
+        actualAlarmTime: activeAlarm,
+        isOverridden,
+        targetBedtime: schedule.targetBedtime,
+        eatingCutoff: schedule.eatingCutoff,
+        supplementTime: schedule.supplementTime,
+      });
 
-    nightLog.stack = { baseStackUsed, deviations };
-    nightLog.eveningIntake = {
-      lastMealTime,
-      foodDescription,
-      flags,
-      alcohol: hasAlcohol ? alcohol : null,
-      liquidIntake,
-    };
-    nightLog.environment = {
-      roomTempF: roomTempF ? parseFloat(roomTempF) : null,
-      roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
-      externalWeather: weather,
-    };
-    nightLog.clothing = selectedClothing;
-    nightLog.bedding = selectedBedding;
-    nightLog.middayStruggle = {
-      hadStruggle,
-      copingItemIds: hadStruggle ? selectedCoping : [],
-      struggleTime: hadStruggle ? struggleTime : '',
-      intensity: hadStruggle ? (struggleIntensity || null) : null,
-      notes: hadStruggle ? struggleNotes : '',
-    };
-    nightLog.eveningNotes = eveningNotes;
-
-    await db.nightLogs.put(nightLog);
-
-    // Log evening weight if that's the user's preference
-    if (showWeightStep && weightLbs != null) {
-      const now = Date.now();
-      const entry: WeightEntry = {
-        id: crypto.randomUUID(),
-        nightLogId: nightLog.id,
-        date,
-        time: getCurrentTime(),
-        timestamp: now,
-        weightLbs: roundWeightLbs(weightLbs, 'us'),
-        period: 'evening',
-        createdAt: now,
-        measured: !weightSkipped,
-      };
-      await db.weightEntries.add(entry);
-
-      if (!weightSkipped) {
-        const all = await db.weightEntries.toArray();
-        const recalculated = recalculateCalculatedWeights(all, entry.id);
-        await db.weightEntries.bulkPut(recalculated);
+      if (existing) {
+        nightLog.id = existing.id;
+        nightLog.createdAt = existing.createdAt;
+        nightLog.sleepData = existing.sleepData;
+        nightLog.roomTimeline = existing.roomTimeline;
+        nightLog.wakeUpEvents = existing.wakeUpEvents;
+        nightLog.bedtimeExplanation = existing.bedtimeExplanation;
+        nightLog.morningNotes = existing.morningNotes;
       }
-    }
 
-    // Schedule notifications
-    if (settings) {
-      scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
-    }
+      // The moment the user finishes the evening log is treated as their
+      // actual bedtime — independent of whatever the watch sleep tracker
+      // later reports. Backfilled entries (for a previous date) get null
+      // because the finish time doesn't reflect when the user actually
+      // went to bed that night. When re-saving an existing log, preserve
+      // the original bedtime so a later edit doesn't overwrite it.
+      nightLog.loggedBedtime = isBackfill
+        ? null
+        : existing?.loggedBedtime ?? Date.now();
 
-    sessionStorage.removeItem(DRAFT_KEY);
-    navigate(`/tonight/review/${date}`);
+      nightLog.stack = { baseStackUsed, deviations };
+      nightLog.eveningIntake = {
+        lastMealTime,
+        foodDescription,
+        flags,
+        alcohol: hasAlcohol ? alcohol : null,
+        liquidIntake,
+      };
+      nightLog.environment = {
+        roomTempF: roomTempF ? parseFloat(roomTempF) : null,
+        roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
+        externalWeather: weather,
+      };
+      nightLog.clothing = selectedClothing;
+      nightLog.bedding = selectedBedding;
+      nightLog.middayStruggle = {
+        hadStruggle,
+        copingItemIds: hadStruggle ? selectedCoping : [],
+        struggleTime: hadStruggle ? struggleTime : '',
+        intensity: hadStruggle ? (struggleIntensity || null) : null,
+        notes: hadStruggle ? struggleNotes : '',
+      };
+      nightLog.eveningNotes = eveningNotes;
+
+      await db.nightLogs.put(nightLog);
+
+      // Log evening weight if that's the user's preference
+      if (showWeightStep && weightLbs != null) {
+        const now = Date.now();
+        const entry: WeightEntry = {
+          id: crypto.randomUUID(),
+          nightLogId: nightLog.id,
+          date,
+          time: getCurrentTime(),
+          timestamp: now,
+          weightLbs: roundWeightLbs(weightLbs, 'us'),
+          period: 'evening',
+          createdAt: now,
+          measured: !weightSkipped,
+        };
+        await db.weightEntries.add(entry);
+
+        if (!weightSkipped) {
+          const all = await db.weightEntries.toArray();
+          const recalculated = recalculateCalculatedWeights(all, entry.id);
+          await db.weightEntries.bulkPut(recalculated);
+        }
+      }
+
+      // Schedule notifications
+      if (settings) {
+        scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
+      }
+
+      sessionStorage.removeItem(DRAFT_KEY);
+      navigate(`/tonight/review/${date}`);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
@@ -999,8 +1029,9 @@ export function EveningLog() {
             <button
               className="btn btn-primary"
               onClick={handleSave}
+              disabled={isSaving}
             >
-              Save Evening Log
+              {isSaving ? 'Saving…' : 'Save Evening Log'}
             </button>
           </div>
         </div>

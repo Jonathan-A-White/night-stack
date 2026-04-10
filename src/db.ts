@@ -123,7 +123,88 @@ export class NightStackDB extends Dexie {
         }
       });
     });
+    this.version(8).stores({
+      nightLogs: 'id, date',
+    }).upgrade(async (tx) => {
+      // Historically `EveningLog.handleSave` minted a fresh UUID every save,
+      // so re-saving (or double-tapping the save button) left behind multiple
+      // night logs for the same date. Merge any such duplicates into a single
+      // canonical entry and drop the losers. The root cause is fixed in
+      // `EveningLog.handleSave`, so this runs once per upgrader.
+      const table = tx.table('nightLogs');
+      const all = (await table.toArray()) as NightLog[];
+      const byDate = new Map<string, NightLog[]>();
+      for (const log of all) {
+        const bucket = byDate.get(log.date);
+        if (bucket) bucket.push(log);
+        else byDate.set(log.date, [log]);
+      }
+      for (const group of byDate.values()) {
+        if (group.length <= 1) continue;
+        const winner = mergeNightLogDuplicates(group);
+        const loserIds = group.filter((l) => l.id !== winner.id).map((l) => l.id);
+        await table.bulkDelete(loserIds);
+        await table.put(winner);
+      }
+    });
   }
+}
+
+/**
+ * Merge duplicate night logs for the same date into a single canonical log.
+ * The winner is the entry with the most data filled in (ties broken by most
+ * recent `updatedAt`); blank fields on the winner are filled from the losers.
+ * Exported so the v8 migration and `EveningLog.handleSave` can share the
+ * same merge semantics, and so the behavior can be unit-tested.
+ */
+export function mergeNightLogDuplicates(logs: NightLog[]): NightLog {
+  if (logs.length === 0) {
+    throw new Error('mergeNightLogDuplicates: cannot merge an empty list');
+  }
+  if (logs.length === 1) return logs[0];
+
+  // Score a log by how much data it carries. sleepData dominates because it
+  // marks the morning-log step as completed and is the most expensive to
+  // lose. Everything else is additive fine-tuning.
+  const score = (log: NightLog): number => {
+    let s = 0;
+    if (log.sleepData) s += 1000;
+    if (log.roomTimeline && log.roomTimeline.length > 0) s += 200;
+    if (log.wakeUpEvents.length > 0) s += 100;
+    if (log.bedtimeExplanation) s += 50;
+    if (log.stack.deviations.length > 0) s += 10;
+    if (log.clothing.length > 0) s += 2;
+    if (log.bedding.length > 0) s += 2;
+    if (log.eveningNotes) s += 1;
+    if (log.morningNotes) s += 1;
+    return s;
+  };
+
+  const sorted = [...logs].sort((a, b) => {
+    const diff = score(b) - score(a);
+    if (diff !== 0) return diff;
+    return b.updatedAt - a.updatedAt;
+  });
+
+  const winner: NightLog = { ...sorted[0] };
+  for (const loser of sorted.slice(1)) {
+    if (!winner.sleepData && loser.sleepData) winner.sleepData = loser.sleepData;
+    if (!winner.roomTimeline && loser.roomTimeline) winner.roomTimeline = loser.roomTimeline;
+    if (winner.wakeUpEvents.length === 0 && loser.wakeUpEvents.length > 0) {
+      winner.wakeUpEvents = loser.wakeUpEvents;
+    }
+    if (!winner.bedtimeExplanation && loser.bedtimeExplanation) {
+      winner.bedtimeExplanation = loser.bedtimeExplanation;
+    }
+    if (!winner.eveningNotes && loser.eveningNotes) winner.eveningNotes = loser.eveningNotes;
+    if (!winner.morningNotes && loser.morningNotes) winner.morningNotes = loser.morningNotes;
+    if (winner.loggedBedtime === null && loser.loggedBedtime !== null) {
+      winner.loggedBedtime = loser.loggedBedtime;
+    }
+  }
+  winner.createdAt = logs.reduce((min, l) => Math.min(min, l.createdAt), winner.createdAt);
+  winner.updatedAt = Date.now();
+  return winner;
 }
 
 function buildDefaultRoutineVariant(): RoutineVariant {
