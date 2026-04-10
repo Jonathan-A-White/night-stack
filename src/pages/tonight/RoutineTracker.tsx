@@ -7,7 +7,11 @@ import {
   formatStopwatch,
   formatTotal,
 } from '../../services/routineAnalytics';
-import { getTodayDate } from '../../utils';
+import {
+  calculateSchedule,
+  getTodayDate,
+  getTomorrowDayOfWeek,
+} from '../../utils';
 import type {
   RoutineSession,
   RoutineStep,
@@ -82,6 +86,43 @@ function saveWip(wip: WipSession | null): void {
   } catch {
     // best-effort — storage quota / private mode
   }
+}
+
+/**
+ * Resolve a "HH:MM" target bedtime to the concrete Date for TONIGHT. Mirrors
+ * the "early morning rolls forward a day" logic used by computeRecommendedStart
+ * so the countdown stays correct if the routine is running near / past
+ * midnight.
+ */
+function resolveBedtimeDate(
+  targetBedtimeHHMM: string,
+  now: Date = new Date(),
+): Date | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(targetBedtimeHHMM.trim());
+  if (!match) return null;
+  const hh = parseInt(match[1], 10);
+  const mm = parseInt(match[2], 10);
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  const bedtime = new Date(
+    now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0,
+  );
+  if (hh < 12 && now.getHours() >= 12) {
+    bedtime.setDate(bedtime.getDate() + 1);
+  }
+  return bedtime;
+}
+
+function formatUntilBed(ms: number): string {
+  const negative = ms < 0;
+  const abs = Math.floor(Math.abs(ms) / 1000);
+  const hours = Math.floor(abs / 3600);
+  const minutes = Math.floor((abs % 3600) / 60);
+  const seconds = abs % 60;
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const sign = negative ? '-' : '';
+  if (hours > 0) return `${sign}${hours}:${pad(minutes)}:${pad(seconds)}`;
+  return `${sign}${pad(minutes)}:${pad(seconds)}`;
 }
 
 function formatClockHHMM(ts: number): string {
@@ -176,6 +217,21 @@ export default function RoutineTracker() {
   );
   const allSteps = useLiveQuery(() => db.routineSteps.toArray(), []);
   const sessions = useLiveQuery(() => db.routineSessions.toArray(), []);
+
+  // Tomorrow's alarm drives tonight's target bedtime — used by the small
+  // "time until bed" countdown rendered above the active step timer.
+  const tomorrowDow = getTomorrowDayOfWeek();
+  const alarmSchedule = useLiveQuery(
+    () => db.alarmSchedules.where('dayOfWeek').equals(tomorrowDow).first(),
+    [tomorrowDow],
+  );
+  const targetBedtimeHHMM = useMemo<string | null>(() => {
+    if (!alarmSchedule) return null;
+    const alarmTime = alarmSchedule.hasAlarm
+      ? alarmSchedule.alarmTime
+      : alarmSchedule.naturalWakeTime ?? '07:00';
+    return calculateSchedule(alarmTime).targetBedtime;
+  }, [alarmSchedule]);
 
   // Selected variant id (starts as null, resolved once variants load).
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
@@ -836,6 +892,14 @@ export default function RoutineTracker() {
     const timerMs = pb != null ? pb - elapsed : elapsed;
     const isNegative = timerMs < 0;
 
+    // Small "time until bed" countdown rendered above the main step timer.
+    // Ticks with the same 200ms interval that drives the main timer re-render.
+    const bedtimeDate = targetBedtimeHHMM
+      ? resolveBedtimeDate(targetBedtimeHHMM)
+      : null;
+    const msUntilBed = bedtimeDate ? bedtimeDate.getTime() - Date.now() : null;
+    const bedtimeOverdue = msUntilBed != null && msUntilBed < 0;
+
     return (
       <div>
         <div className="page-header">
@@ -853,6 +917,20 @@ export default function RoutineTracker() {
         </div>
 
         <div className="card">
+          {msUntilBed != null && (
+            <div className="routine-until-bed">
+              <div
+                className={`routine-until-bed-countdown${
+                  bedtimeOverdue ? ' overdue' : ''
+                }`}
+              >
+                {formatUntilBed(msUntilBed)}
+              </div>
+              <div className="routine-timer-label">
+                {bedtimeOverdue ? 'past bedtime' : 'until bed'}
+              </div>
+            </div>
+          )}
           <div className={`routine-timer-display${isNegative ? ' negative' : ''}`}>
             {formatStopwatch(timerMs)}
           </div>
