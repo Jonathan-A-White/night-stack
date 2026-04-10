@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h, timestampToHHMM } from '../../utils';
+import { formatTime12h, timestampToHHMM, findNearestRoomReading } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 
 function scoreClass(score: number): string {
@@ -165,12 +165,18 @@ export function MorningReview() {
           <div className="card-title">Wake-Up Events</div>
           {nightLog.wakeUpEvents.map((e) => {
             const cause = (wakeUpCauses ?? []).find((c) => c.id === e.cause);
+            const nearest = findNearestRoomReading(e.startTime, nightLog.roomTimeline ?? []);
             return (
               <div key={e.id} className="summary-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
                 <div className="fw-600">
                   {formatTime12h(e.startTime)}
                   {e.endTime ? ` \u2013 ${formatTime12h(e.endTime)}` : ''} — {cause?.label ?? 'Unknown'}
                 </div>
+                {nearest && (
+                  <div className="text-secondary text-sm">
+                    Room at wake-up: {nearest.tempF.toFixed(1)}°F, {nearest.humidity.toFixed(0)}% humidity
+                  </div>
+                )}
                 <div className="text-secondary text-sm">
                   Fell back asleep: {e.fellBackAsleep}
                   {e.minutesToFallBackAsleep ? ` (${e.minutesToFallBackAsleep} min)` : ''}

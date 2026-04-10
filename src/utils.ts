@@ -136,6 +136,35 @@ export function timestampToHHMM(ts: number): string {
 }
 
 /**
+ * Find the RoomReading closest in time-of-day to a "HH:MM" target. Uses
+ * circular minute distance so a 03:10 target correctly matches a 03:12
+ * reading even when other readings fall on the previous evening side of
+ * midnight. Returns null if the list is empty. Safe on a single-night
+ * timeline (<24h of readings) — longer windows could produce collisions.
+ */
+export function findNearestRoomReading<T extends { timestamp: string }>(
+  targetHHMM: string,
+  readings: readonly T[]
+): T | null {
+  if (readings.length === 0) return null;
+  const [th, tm] = targetHHMM.split(':').map(Number);
+  const targetMin = th * 60 + tm;
+  let best: T | null = null;
+  let bestDist = Infinity;
+  for (const r of readings) {
+    const d = new Date(r.timestamp);
+    const rMin = d.getHours() * 60 + d.getMinutes();
+    const raw = Math.abs(rMin - targetMin);
+    const dist = Math.min(raw, 1440 - raw);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = r;
+    }
+  }
+  return best;
+}
+
+/**
  * Create a blank NightLog for a given date
  */
 export function createBlankNightLog(date: string, alarm: {
