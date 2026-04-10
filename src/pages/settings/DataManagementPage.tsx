@@ -49,6 +49,9 @@ export default function DataManagementPage() {
   const bedtimeReasonCount = useLiveQuery(() => db.bedtimeReasons.count());
   const sleepRuleCount = useLiveQuery(() => db.sleepRules.count());
   const alarmScheduleCount = useLiveQuery(() => db.alarmSchedules.count());
+  const routineStepCount = useLiveQuery(() => db.routineSteps.count());
+  const routineVariantCount = useLiveQuery(() => db.routineVariants.count());
+  const routineSessionCount = useLiveQuery(() => db.routineSessions.count());
 
   const [status, setStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -67,6 +70,8 @@ export default function DataManagementPage() {
     bedtimeReasons: await db.bedtimeReasons.toArray(),
     alarmSchedules: await db.alarmSchedules.toArray(),
     sleepRules: await db.sleepRules.toArray(),
+    routineSteps: await db.routineSteps.toArray(),
+    routineVariants: await db.routineVariants.toArray(),
   });
 
   const handleExport = async () => {
@@ -82,6 +87,9 @@ export default function DataManagementPage() {
         alarmSchedules: await db.alarmSchedules.toArray(),
         sleepRules: await db.sleepRules.toArray(),
         appSettings: await db.appSettings.toArray(),
+        routineSteps: await db.routineSteps.toArray(),
+        routineVariants: await db.routineVariants.toArray(),
+        routineSessions: await db.routineSessions.toArray(),
       };
 
       triggerJsonDownload(data, `nightstack-export-${todayISO()}.json`);
@@ -102,6 +110,7 @@ export default function DataManagementPage() {
         dateRange: null,
         nightLogs: await db.nightLogs.toArray(),
         weightEntries: await db.weightEntries.toArray(),
+        routineSessions: await db.routineSessions.toArray(),
         config,
       };
       triggerJsonDownload(payload, `nightstack-export-full-${todayISO()}.json`);
@@ -132,12 +141,17 @@ export default function DataManagementPage() {
         .where('date')
         .between(rangeStart, rangeEnd, true, true)
         .toArray();
+      const routineSessions = await db.routineSessions
+        .where('date')
+        .between(rangeStart, rangeEnd, true, true)
+        .toArray();
       const payload = {
         exportedAt: new Date().toISOString(),
         version: 1,
         dateRange: { start: rangeStart, end: rangeEnd },
         nightLogs,
         weightEntries,
+        routineSessions,
         config,
       };
       triggerJsonDownload(
@@ -198,6 +212,7 @@ export default function DataManagementPage() {
         db.nightLogs, db.supplementDefs, db.clothingItems, db.beddingItems,
         db.middayCopingItems, db.wakeUpCauses, db.bedtimeReasons, db.alarmSchedules,
         db.sleepRules, db.appSettings,
+        db.routineSteps, db.routineVariants, db.routineSessions,
       ], async () => {
           // Clear all tables
           await db.nightLogs.clear();
@@ -210,6 +225,9 @@ export default function DataManagementPage() {
           await db.alarmSchedules.clear();
           await db.sleepRules.clear();
           await db.appSettings.clear();
+          await db.routineSteps.clear();
+          await db.routineVariants.clear();
+          await db.routineSessions.clear();
 
           // Load imported data
           if (data.nightLogs?.length) await db.nightLogs.bulkAdd(data.nightLogs);
@@ -222,6 +240,27 @@ export default function DataManagementPage() {
           if (data.alarmSchedules?.length) await db.alarmSchedules.bulkAdd(data.alarmSchedules);
           if (data.sleepRules?.length) await db.sleepRules.bulkAdd(data.sleepRules);
           if (data.appSettings?.length) await db.appSettings.bulkAdd(data.appSettings);
+
+          // Routine data — accept either top-level or nested under config (full-export shape)
+          const importedRoutineSteps = data.routineSteps ?? data.config?.routineSteps;
+          const importedRoutineVariants = data.routineVariants ?? data.config?.routineVariants;
+          const importedRoutineSessions = data.routineSessions;
+          if (importedRoutineSteps?.length) await db.routineSteps.bulkAdd(importedRoutineSteps);
+          if (importedRoutineVariants?.length) await db.routineVariants.bulkAdd(importedRoutineVariants);
+          if (importedRoutineSessions?.length) await db.routineSessions.bulkAdd(importedRoutineSessions);
+
+          // Seed a default variant if none were imported, to keep the app in a valid state
+          if (!importedRoutineVariants?.length) {
+            await db.routineVariants.add({
+              id: crypto.randomUUID(),
+              name: 'Full',
+              description: '',
+              stepIds: [],
+              isDefault: true,
+              sortOrder: 1,
+              createdAt: Date.now(),
+            });
+          }
         }
       );
 
@@ -277,6 +316,18 @@ export default function DataManagementPage() {
         <div className="summary-row">
           <span className="summary-label">Alarm Schedules</span>
           <span className="summary-value">{alarmScheduleCount ?? 0}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-label">Routine Steps</span>
+          <span className="summary-value">{routineStepCount ?? 0}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-label">Routine Variants</span>
+          <span className="summary-value">{routineVariantCount ?? 0}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-label">Routine Sessions</span>
+          <span className="summary-value">{routineSessionCount ?? 0}</span>
         </div>
       </div>
 

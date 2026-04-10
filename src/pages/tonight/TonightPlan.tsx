@@ -14,6 +14,7 @@ import {
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { evaluateRules, type EvaluatedRule } from '../../services/rules';
 import type { ExternalWeather, MiddayCopingItem } from '../../types';
+import { RoutineStartCard } from './RoutineStartCard';
 
 export function TonightPlan() {
   const navigate = useNavigate();
@@ -137,6 +138,9 @@ export function TonightPlan() {
           Eating cutoff has passed ({formatTime12h(schedule.eatingCutoff)}). Avoid food from now on for better sleep.
         </div>
       )}
+
+      {/* Evening routine start card */}
+      <RoutineStartCard targetBedtimeHHMM={schedule.targetBedtime} />
 
       {/* Weather */}
       <div className="card">

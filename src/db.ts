@@ -3,6 +3,7 @@ import type {
   NightLog, SupplementDef, ClothingItem, BeddingItem,
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
   WeightEntry, MiddayCopingItem, MiddayStruggle,
+  RoutineStep, RoutineVariant, RoutineSession,
 } from './types';
 import { parseConditionString } from './services/rules';
 
@@ -18,6 +19,9 @@ export class NightStackDB extends Dexie {
   appSettings!: Table<AppSettings>;
   weightEntries!: Table<WeightEntry>;
   middayCopingItems!: Table<MiddayCopingItem>;
+  routineSteps!: Table<RoutineStep>;
+  routineVariants!: Table<RoutineVariant>;
+  routineSessions!: Table<RoutineSession>;
 
   constructor() {
     super('nightstack');
@@ -94,7 +98,32 @@ export class NightStackDB extends Dexie {
         await rulesTable.bulkAdd(newRules);
       }
     });
+    this.version(6).stores({
+      routineSteps: 'id, sortOrder',
+      routineVariants: 'id, sortOrder',
+      routineSessions: 'id, date, startedAt',
+    }).upgrade(async (tx) => {
+      // Ensure there's always at least one variant so sessions have somewhere
+      // to attach. Only seed if the table is empty (upgraders get this once).
+      const variantsTable = tx.table('routineVariants');
+      const variantCount = await variantsTable.count();
+      if (variantCount === 0) {
+        await variantsTable.add(buildDefaultRoutineVariant());
+      }
+    });
   }
+}
+
+function buildDefaultRoutineVariant(): RoutineVariant {
+  return {
+    id: crypto.randomUUID(),
+    name: 'Full',
+    description: '',
+    stepIds: [],
+    isDefault: true,
+    sortOrder: 1,
+    createdAt: Date.now(),
+  };
 }
 
 export function blankMiddayStruggle(): MiddayStruggle {
@@ -280,4 +309,11 @@ export async function seedDatabase(): Promise<void> {
     ...seedMiddayCopingRules(now),
   ];
   await db.sleepRules.bulkAdd(rules);
+
+  // Evening routine: seed a default variant so sessions always have an anchor.
+  // Steps are left empty — the user defines their own in settings.
+  const routineVariantCount = await db.routineVariants.count();
+  if (routineVariantCount === 0) {
+    await db.routineVariants.add(buildDefaultRoutineVariant());
+  }
 }

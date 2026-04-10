@@ -290,3 +290,51 @@ export interface AppSettings {
   startingWeightLbs: number | null;
   age: number | null;
 }
+
+// === Evening Routine Tracker ===
+
+export interface RoutineStep {
+  id: string;
+  name: string;
+  description: string; // optional long text
+  sortOrder: number;
+  isActive: boolean; // inactive steps never appear in sessions
+  createdAt: number;
+}
+
+export interface RoutineVariant {
+  id: string;
+  name: string; // e.g. "Full", "Quick", "Weeknight"
+  description: string;
+  stepIds: string[]; // ordered list (can override default sortOrder for this variant)
+  isDefault: boolean; // exactly one should be default
+  sortOrder: number;
+  createdAt: number;
+}
+
+export type RoutineStepStatus = 'completed' | 'skipped' | 'punted';
+
+export interface RoutineStepLog {
+  stepId: string;
+  stepName: string; // snapshot at time of session, for historical stability if step renamed/deleted
+  status: RoutineStepStatus;
+  startedAt: number | null; // epoch ms; null if never started (skipped from start)
+  endedAt: number | null;   // epoch ms
+  durationMs: number | null; // endedAt - startedAt; null if skipped/punted without running
+  pbAtStartMs: number | null; // PB that was loaded when the timer started (used to display negative deltas historically)
+  notes: string;
+}
+
+export interface RoutineSession {
+  id: string;
+  date: string; // ISO "YYYY-MM-DD" — the evening date the session belongs to
+  variantId: string | null; // null = no variant / ad-hoc
+  variantName: string; // snapshot
+  startedAt: number;
+  endedAt: number | null;  // null if still running
+  completedAt: number | null; // null if abandoned
+  totalDurationMs: number | null; // sum of step durations that were 'completed'; null if not finished
+  steps: RoutineStepLog[];
+  sessionNotes: string; // "what went well / poorly"
+  createdAt: number;
+}
