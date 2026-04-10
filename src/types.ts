@@ -333,7 +333,7 @@ export interface RoutineSession {
   startedAt: number;
   endedAt: number | null;  // null if still running
   completedAt: number | null; // null if abandoned
-  totalDurationMs: number | null; // sum of step durations that were 'completed'; null if not finished
+  totalDurationMs: number | null; // wall-clock: endedAt - startedAt; null if not finished
   steps: RoutineStepLog[];
   sessionNotes: string; // "what went well / poorly"
   createdAt: number;

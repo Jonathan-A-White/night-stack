@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
+  computeLatestStepEndedAt,
   computeStepPBs,
+  computeTodaySessionStartedAt,
   formatStopwatch,
   formatTotal,
 } from '../../services/routineAnalytics';
@@ -299,6 +301,15 @@ export default function RoutineTracker() {
     [sessions],
   );
 
+  // Immutable session start time for the day: once any session has been
+  // saved today, any later routine the user starts (to run newly-added
+  // items) must inherit this `startedAt` so the displayed total stays a
+  // true wall-clock measurement from the very first step of the evening.
+  const todaySessionStartedAt = useMemo(
+    () => computeTodaySessionStartedAt(sessions ?? [], getTodayDate()),
+    [sessions],
+  );
+
   // Count of steps in the currently-selected variant that were already done
   // (completed / skipped / punted) in a saved session from tonight.
   const todayAlreadyDoneCount = useMemo(() => {
@@ -310,13 +321,16 @@ export default function RoutineTracker() {
   }, [orderedSteps, todayStepStatuses]);
 
   // Best total of all completed sessions (for completion screen delta).
+  // Recomputed from startedAt/endedAt so older sessions — which stored
+  // `totalDurationMs` as the sum of step durations rather than wall-clock —
+  // are compared on the same scale as newly-saved sessions.
   const bestCompletedTotalMs = useMemo(() => {
     if (!sessions) return null;
     let best: number | null = null;
     for (const s of sessions) {
-      if (s.completedAt != null && s.totalDurationMs != null) {
-        if (best == null || s.totalDurationMs < best) best = s.totalDurationMs;
-      }
+      if (s.completedAt == null || s.endedAt == null) continue;
+      const total = Math.max(0, s.endedAt - s.startedAt);
+      if (best == null || total < best) best = total;
     }
     return best;
   }, [sessions]);
@@ -371,18 +385,15 @@ export default function RoutineTracker() {
     // in the variant was already completed earlier, jump straight to the
     // completion screen.
     const firstPendingIndex = steps.findIndex((s) => s.status === 'pending');
-    const earliestPriorStart = steps
-      .map((s) => s.startedAt)
-      .filter((t): t is number => t != null)
-      .reduce<number | null>(
-        (acc, t) => (acc == null || t < acc ? t : acc),
-        null,
-      );
+    // Immutable start-of-day: if any session has already been saved for
+    // tonight, inherit that session's startedAt so the wall-clock total
+    // stays anchored to the very first step of the evening even when the
+    // user runs a later sub-routine for newly-added items.
     const newWip: WipSession = {
       id: crypto.randomUUID(),
       variantId: selectedVariant.id,
       variantName: selectedVariant.name,
-      startedAt: earliestPriorStart ?? now,
+      startedAt: todaySessionStartedAt ?? now,
       currentStepIndex: firstPendingIndex === -1 ? steps.length : firstPendingIndex,
       currentStepStartedAt: firstPendingIndex === -1 ? null : now,
       steps,
@@ -633,9 +644,14 @@ export default function RoutineTracker() {
       pbAtStartMs: s.pbAtStartMs,
       notes: s.notes,
     }));
-    const totalDurationMs = stepLogs
-      .filter((s) => s.status === 'completed' && s.durationMs != null)
-      .reduce((acc, s) => acc + (s.durationMs as number), 0);
+    // Wall-clock session total: from the immutable session start to the
+    // latest step endedAt. This "bumps" forward when additional items are
+    // run in later sub-sessions the same evening while the start stays
+    // anchored. Falls back to `now` only if no step has an endedAt at all
+    // (e.g. every step skipped from the start screen).
+    const latestStepEndedAt = computeLatestStepEndedAt(stepLogs);
+    const effectiveEndedAt = latestStepEndedAt ?? now;
+    const totalDurationMs = Math.max(0, effectiveEndedAt - wip.startedAt);
 
     const today = getTodayDate();
     // Any already-saved sessions for today were merged into this WIP at
@@ -651,7 +667,7 @@ export default function RoutineTracker() {
       variantId: wip.variantId,
       variantName: wip.variantName,
       startedAt: wip.startedAt,
-      endedAt: now,
+      endedAt: effectiveEndedAt,
       completedAt: now,
       totalDurationMs,
       steps: stepLogs,
@@ -700,11 +716,15 @@ export default function RoutineTracker() {
 
   // ===== State 3: Completion screen =====
   if (isComplete && wip) {
-    const completedSteps = wip.steps.filter((s) => s.status === 'completed');
-    const totalMs = completedSteps.reduce(
-      (acc, s) => acc + (s.durationMs ?? 0),
-      0,
-    );
+    // Wall-clock total: from the immutable session start to the latest
+    // endedAt across any step (completed or otherwise). This naturally
+    // bumps forward when the user runs additional items in a later
+    // sub-session the same evening, while the start anchor stays fixed.
+    const latestStepEndedAt = computeLatestStepEndedAt(wip.steps);
+    const totalMs =
+      latestStepEndedAt != null
+        ? Math.max(0, latestStepEndedAt - wip.startedAt)
+        : 0;
     const bestDelta =
       bestCompletedTotalMs != null ? totalMs - bestCompletedTotalMs : null;
 
