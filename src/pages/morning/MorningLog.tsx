@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
+  addDaysToDate,
   getCurrentTime,
   getTodayDate,
   getYesterdayDate,
@@ -68,8 +69,13 @@ export function MorningLog() {
     () => db.bedtimeReasons.orderBy('sortOrder').filter((r) => r.isActive).toArray()
   );
   const settings = useLiveQuery(() => db.appSettings.get('default'));
+  // Normalize the "no entries" case to `null` so we can distinguish it from
+  // "query still loading" (which useLiveQuery represents as `undefined`).
+  // Without this, users who have never logged a weight would be stuck with
+  // `latestWeight === undefined` forever and the weight stepper would never
+  // initialize.
   const latestWeight = useLiveQuery(
-    () => db.weightEntries.orderBy('timestamp').reverse().first()
+    async () => (await db.weightEntries.orderBy('timestamp').reverse().first()) ?? null,
   );
 
   // Step 1: Sleep data import
@@ -434,11 +440,15 @@ export function MorningLog() {
     ? Math.max(...roomTimeline.map((r) => r.tempF))
     : null;
 
+  // The night log's stored `date` is the evening date (the day you went to
+  // bed). The morning log is for the morning *after* — always one day later.
+  const morningDate = addDaysToDate(nightLog.date, 1);
+
   return (
     <div>
       <div className="page-header">
         <h1>Morning Log</h1>
-        <p className="subtitle">Step {step} of {TOTAL_STEPS} &mdash; {nightLog.date}</p>
+        <p className="subtitle">Step {step} of {TOTAL_STEPS} &mdash; {morningDate}</p>
       </div>
 
       {/* Step progress bar */}

@@ -120,8 +120,13 @@ export function EveningLog() {
     () => db.nightLogs.orderBy('date').reverse().first(),
     []
   );
+  // Normalize the "no entries" case to `null` so we can distinguish it from
+  // "query still loading" (which useLiveQuery represents as `undefined`).
+  // Without this, users who have never logged a weight would be stuck with
+  // `latestWeight === undefined` forever and the weight stepper would never
+  // initialize.
   const latestWeight = useLiveQuery(
-    () => db.weightEntries.orderBy('timestamp').reverse().first()
+    async () => (await db.weightEntries.orderBy('timestamp').reverse().first()) ?? null,
   );
 
   // Step 1: Alarm
