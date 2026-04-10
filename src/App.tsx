@@ -39,9 +39,9 @@ export function App() {
           <Route path="/" element={<Navigate to="/tonight" replace />} />
           <Route path="/tonight" element={<TonightPlan />} />
           <Route path="/tonight/log" element={<EveningLog />} />
-          <Route path="/tonight/review/:date" element={<EveningReview />} />
+          <Route path="/tonight/review/:id" element={<EveningReview />} />
           <Route path="/morning" element={<MorningLog />} />
-          <Route path="/morning/review/:date" element={<MorningReview />} />
+          <Route path="/morning/review/:id" element={<MorningReview />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/insights" element={<Dashboard />} />
           <Route path="/insights/correlations" element={<Correlations />} />

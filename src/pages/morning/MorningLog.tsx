@@ -400,7 +400,7 @@ export function MorningLog() {
     // Clear draft on successful save
     sessionStorage.removeItem(MORNING_DRAFT_KEY);
 
-    navigate(`/morning/review/${nightLog.date}`);
+    navigate(`/morning/review/${nightLog.id}`);
   }
 
   // --- Rendering ---

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
+import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 
 function scoreClass(score: number): string {
   if (score >= 85) return 'score-excellent';
@@ -18,12 +19,12 @@ function formatDuration(mins: number): string {
 }
 
 export function MorningReview() {
-  const { date } = useParams<{ date: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const nightLog = useLiveQuery(
-    () => (date ? db.nightLogs.where('date').equals(date).first() : undefined),
-    [date]
+    () => (id ? db.nightLogs.get(id) : undefined),
+    [id]
   );
 
   const wakeUpCauses = useLiveQuery(() => db.wakeUpCauses.toArray());
@@ -51,8 +52,10 @@ export function MorningReview() {
     <div>
       <div className="page-header">
         <h1>Night Review</h1>
-        <div className="subtitle">{date}</div>
+        <div className="subtitle">{nightLog.date}</div>
       </div>
+
+      <NightLogDateEditor nightLog={nightLog} />
 
       {sd && (
         <>

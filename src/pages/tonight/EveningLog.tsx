@@ -313,13 +313,6 @@ export function EveningLog() {
       const date = logDate;
       const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
 
-      // If a night log for this date already exists (e.g. the user came back
-      // to edit the evening log, or backfilled after a morning log was saved),
-      // reuse its id so `put` updates in place instead of creating a duplicate
-      // row. Fields that only the morning flow sets are preserved from the
-      // existing entry.
-      const existing = await db.nightLogs.where('date').equals(date).first();
-
       const nightLog = createBlankNightLog(date, {
         expectedAlarmTime: defaultAlarm,
         actualAlarmTime: activeAlarm,
@@ -329,25 +322,12 @@ export function EveningLog() {
         supplementTime: schedule.supplementTime,
       });
 
-      if (existing) {
-        nightLog.id = existing.id;
-        nightLog.createdAt = existing.createdAt;
-        nightLog.sleepData = existing.sleepData;
-        nightLog.roomTimeline = existing.roomTimeline;
-        nightLog.wakeUpEvents = existing.wakeUpEvents;
-        nightLog.bedtimeExplanation = existing.bedtimeExplanation;
-        nightLog.morningNotes = existing.morningNotes;
-      }
-
       // The moment the user finishes the evening log is treated as their
       // actual bedtime — independent of whatever the watch sleep tracker
       // later reports. Backfilled entries (for a previous date) get null
       // because the finish time doesn't reflect when the user actually
-      // went to bed that night. When re-saving an existing log, preserve
-      // the original bedtime so a later edit doesn't overwrite it.
-      nightLog.loggedBedtime = isBackfill
-        ? null
-        : existing?.loggedBedtime ?? Date.now();
+      // went to bed that night.
+      nightLog.loggedBedtime = isBackfill ? null : Date.now();
 
       nightLog.stack = { baseStackUsed, deviations };
       nightLog.eveningIntake = {
@@ -404,7 +384,10 @@ export function EveningLog() {
       }
 
       sessionStorage.removeItem(DRAFT_KEY);
-      navigate(`/tonight/review/${date}`);
+      // Navigate by id — multiple night logs can legitimately share a date
+      // (e.g. a mis-filed backfill), so routing by id keeps each entry
+      // independently addressable.
+      navigate(`/tonight/review/${nightLog.id}`);
     } finally {
       setIsSaving(false);
     }
