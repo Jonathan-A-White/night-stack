@@ -111,6 +111,18 @@ export class NightStackDB extends Dexie {
         await variantsTable.add(buildDefaultRoutineVariant());
       }
     });
+    this.version(7).stores({
+      nightLogs: 'id, date',
+    }).upgrade(async (tx) => {
+      // Backfill `loggedBedtime` on existing night logs. Historical entries
+      // predate the field, so there's no accurate value to assign — leave
+      // them null and let the UI fall back to sleepData.sleepTime.
+      await tx.table('nightLogs').toCollection().modify((log: Partial<NightLog>) => {
+        if (log.loggedBedtime === undefined) {
+          log.loggedBedtime = null;
+        }
+      });
+    });
   }
 }
 

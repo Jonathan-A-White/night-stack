@@ -8,6 +8,7 @@ import {
   getYesterdayDate,
   formatTime12h,
   isTimeAfter,
+  timestampToHHMM,
 } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { WeightStepper } from '../../components/WeightStepper';
@@ -312,11 +313,19 @@ export function MorningLog() {
     setWakeUpEvents((prev) => prev.filter((ev) => ev.id !== id));
   }
 
+  // The evening log's finish time is the authoritative bedtime. Fall back
+  // to the watch-reported sleepTime only for legacy logs that predate
+  // loggedBedtime, so the Late Bedtime flow still works on old data.
+  const effectiveBedtime: string | null =
+    nightLog?.loggedBedtime != null
+      ? timestampToHHMM(nightLog.loggedBedtime)
+      : sleepData?.sleepTime ?? null;
+
   // Determine if bedtime explanation is needed
   const needsBedtimeExplanation =
-    sleepData !== null &&
+    effectiveBedtime !== null &&
     nightLog != null &&
-    isTimeAfter(sleepData.sleepTime, nightLog.alarm.targetBedtime);
+    isTimeAfter(effectiveBedtime, nightLog.alarm.targetBedtime);
 
   function goNext() {
     setStep((s) => {
@@ -339,7 +348,7 @@ export function MorningLog() {
 
     const bedtimeExplanation: BedtimeExplanation | null = needsBedtimeExplanation
       ? {
-          actualBedtime: sleepData!.sleepTime,
+          actualBedtime: effectiveBedtime!,
           targetBedtime: nightLog.alarm.targetBedtime,
           wasLate: true,
           reason: bedtimeReason,
@@ -875,7 +884,7 @@ export function MorningLog() {
           <div className="card">
             <div className="card-title">Late Bedtime</div>
             <div className="banner banner-warning mb-8">
-              You went to bed at {formatTime12h(sleepData!.sleepTime)}.
+              You went to bed at {formatTime12h(effectiveBedtime!)}.
               Target was {formatTime12h(nightLog.alarm.targetBedtime)}.
             </div>
             <div className="form-group">

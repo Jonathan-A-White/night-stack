@@ -116,6 +116,14 @@ export function getCurrentTime(): string {
 }
 
 /**
+ * Convert an epoch-ms timestamp to local "HH:MM".
+ */
+export function timestampToHHMM(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+/**
  * Create a blank NightLog for a given date
  */
 export function createBlankNightLog(date: string, alarm: {
@@ -132,6 +140,7 @@ export function createBlankNightLog(date: string, alarm: {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     alarm,
+    loggedBedtime: null,
     stack: { baseStackUsed: true, deviations: [] },
     eveningIntake: {
       lastMealTime: '',

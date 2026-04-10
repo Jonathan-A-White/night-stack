@@ -10,6 +10,7 @@ import {
   getTodayDate,
   getYesterdayDate,
   getEveningLogDate,
+  timestampToHHMM,
 } from '../utils';
 
 describe('formatTime12h', () => {
@@ -185,5 +186,19 @@ describe('createBlankNightLog', () => {
     expect(log.middayStruggle.hadStruggle).toBe(false);
     expect(log.middayStruggle.copingItemIds).toEqual([]);
     expect(log.middayStruggle.intensity).toBeNull();
+    expect(log.loggedBedtime).toBeNull();
+  });
+});
+
+describe('timestampToHHMM', () => {
+  it('formats a timestamp as zero-padded HH:MM in local time', () => {
+    // Construct from local-time components so the test is timezone-agnostic
+    const ts = new Date(2026, 3, 9, 22, 7, 33, 0).getTime();
+    expect(timestampToHHMM(ts)).toBe('22:07');
+  });
+
+  it('pads single-digit hours and minutes', () => {
+    const ts = new Date(2026, 3, 9, 3, 5, 0, 0).getTime();
+    expect(timestampToHHMM(ts)).toBe('03:05');
   });
 });

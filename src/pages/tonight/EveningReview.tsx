@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h, getCurrentTime, getTodayDate } from '../../utils';
+import { formatTime12h, getCurrentTime, getTodayDate, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 import type {
   NightLog,
@@ -85,8 +85,10 @@ export function EveningReview() {
     (middayCopingItems ?? []).map((m) => [m.id, m])
   );
 
-  const { alarm, stack, eveningIntake, environment, clothing, bedding, middayStruggle, eveningNotes } =
+  const { alarm, loggedBedtime, stack, eveningIntake, environment, clothing, bedding, middayStruggle, eveningNotes } =
     nightLog;
+
+  const loggedBedtimeHHMM = loggedBedtime !== null ? timestampToHHMM(loggedBedtime) : null;
 
   const minutesPastBedtime = (() => {
     if (!isToday) return null;
@@ -96,6 +98,19 @@ export function EveningReview() {
     if (diff < 0) diff += 24 * 60;
     // More than 12 hours means we're before bedtime, not after
     if (diff > 12 * 60 || diff === 0) return null;
+    return diff;
+  })();
+
+  // How late the user finished the evening log relative to target bedtime.
+  // Positive = late, zero/negative = on time or early. Null if no logged bedtime.
+  const loggedVsTarget = (() => {
+    if (loggedBedtimeHHMM === null) return null;
+    const [lh, lm] = loggedBedtimeHHMM.split(':').map(Number);
+    const [bh, bm] = alarm.targetBedtime.split(':').map(Number);
+    let diff = (lh * 60 + lm) - (bh * 60 + bm);
+    // Treat "early morning" logged bedtimes (e.g. 12:30 AM) as being after
+    // the prior evening's target — anything within 12 hours counts as "after".
+    if (diff < -12 * 60) diff += 24 * 60;
     return diff;
   })();
 
@@ -115,7 +130,20 @@ export function EveningReview() {
       </div>
 
       {/* Bedtime recommendation */}
-      {minutesPastBedtime !== null ? (
+      {loggedBedtimeHHMM !== null ? (
+        <div
+          className={`banner ${
+            loggedVsTarget !== null && loggedVsTarget > 0
+              ? 'banner-warning'
+              : 'banner-success'
+          }`}
+        >
+          Bedtime logged at {formatTime12h(loggedBedtimeHHMM)}
+          {loggedVsTarget !== null && loggedVsTarget > 0
+            ? ` — ${formatDuration(loggedVsTarget)} after your ${formatTime12h(alarm.targetBedtime)} target.`
+            : '.'}
+        </div>
+      ) : minutesPastBedtime !== null ? (
         <div className="banner banner-warning">
           Your ideal bedtime was {formatTime12h(alarm.targetBedtime)} ({formatDuration(minutesPastBedtime)} ago). Head to bed now!
         </div>
@@ -148,6 +176,25 @@ export function EveningReview() {
             {formatTime12h(alarm.targetBedtime)}
           </span>
         </div>
+        {loggedBedtimeHHMM !== null && (
+          <div className="summary-row">
+            <span className="summary-label">Logged bedtime</span>
+            <span
+              className={`summary-value ${
+                loggedVsTarget !== null && loggedVsTarget > 0
+                  ? 'text-warning'
+                  : 'text-success'
+              }`}
+            >
+              {formatTime12h(loggedBedtimeHHMM)}
+              {loggedVsTarget !== null && loggedVsTarget > 0 && (
+                <span className="text-secondary text-sm">
+                  {' '}(+{formatDuration(loggedVsTarget)})
+                </span>
+              )}
+            </span>
+          </div>
+        )}
         <div className="summary-row">
           <span className="summary-label">Eating cutoff</span>
           <span className="summary-value">

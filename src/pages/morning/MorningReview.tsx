@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h } from '../../utils';
+import { formatTime12h, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 
 function scoreClass(score: number): string {
@@ -179,6 +179,24 @@ export function MorningReview() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {nightLog.loggedBedtime !== null && !nightLog.bedtimeExplanation && (
+        <div className="card">
+          <div className="card-title">Logged Bedtime</div>
+          <div className="summary-row">
+            <span className="summary-label">Time to bed</span>
+            <span className="summary-value text-success">
+              {formatTime12h(timestampToHHMM(nightLog.loggedBedtime))}
+            </span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Target</span>
+            <span className="summary-value">
+              {formatTime12h(nightLog.alarm.targetBedtime)}
+            </span>
+          </div>
         </div>
       )}
 
