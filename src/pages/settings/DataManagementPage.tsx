@@ -55,6 +55,7 @@ export default function DataManagementPage() {
 
   const [status, setStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const routineFileInputRef = useRef<HTMLInputElement>(null);
 
   const [rangeStart, setRangeStart] = useState('');
   const [rangeEnd, setRangeEnd] = useState('');
@@ -273,6 +274,113 @@ export default function DataManagementPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleExportRoutines = async () => {
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        kind: 'nightstack-routines' as const,
+        includesSessions: false,
+        routineSteps: await db.routineSteps.toArray(),
+        routineVariants: await db.routineVariants.toArray(),
+      };
+      triggerJsonDownload(payload, `nightstack-routines-${todayISO()}.json`);
+      setStatus('Routine export complete.');
+      setTimeout(() => setStatus(''), 3000);
+    } catch {
+      setStatus('Routine export failed.');
+    }
+  };
+
+  const handleExportRoutinesWithHistory = async () => {
+    try {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 1,
+        kind: 'nightstack-routines' as const,
+        includesSessions: true,
+        routineSteps: await db.routineSteps.toArray(),
+        routineVariants: await db.routineVariants.toArray(),
+        routineSessions: await db.routineSessions.toArray(),
+      };
+      triggerJsonDownload(payload, `nightstack-routines-with-history-${todayISO()}.json`);
+      setStatus('Routine export (with history) complete.');
+      setTimeout(() => setStatus(''), 3000);
+    } catch {
+      setStatus('Routine export failed.');
+    }
+  };
+
+  const handleImportRoutines = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const resetInput = () => {
+      if (routineFileInputRef.current) routineFileInputRef.current.value = '';
+    };
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Accept either a routine-only export or the routine sections of a full export.
+      const steps = data.routineSteps ?? data.config?.routineSteps;
+      const variants = data.routineVariants ?? data.config?.routineVariants;
+      const sessions = data.routineSessions;
+
+      if (!Array.isArray(steps) || !Array.isArray(variants)) {
+        setStatus('Import failed: file is missing routineSteps or routineVariants.');
+        resetInput();
+        return;
+      }
+
+      const hasSessions = Array.isArray(sessions) && sessions.length > 0;
+      const confirmMsg = hasSessions
+        ? `This will replace your routine steps, variants, and ${sessions.length} session(s). Other data (night logs, weights, etc.) will not be touched. Continue?`
+        : 'This will replace your routine steps and variants. Existing routine session history will be cleared. Other data (night logs, weights, etc.) will not be touched. Continue?';
+
+      if (!window.confirm(confirmMsg)) {
+        resetInput();
+        return;
+      }
+
+      await db.transaction(
+        'rw',
+        [db.routineSteps, db.routineVariants, db.routineSessions],
+        async () => {
+          await db.routineSteps.clear();
+          await db.routineVariants.clear();
+          await db.routineSessions.clear();
+
+          if (steps.length) await db.routineSteps.bulkAdd(steps);
+          if (variants.length) await db.routineVariants.bulkAdd(variants);
+          if (hasSessions) await db.routineSessions.bulkAdd(sessions);
+
+          // Keep the app in a valid state: there must always be at least one variant,
+          // and exactly one default.
+          if (!variants.length) {
+            await db.routineVariants.add({
+              id: crypto.randomUUID(),
+              name: 'Full',
+              description: '',
+              stepIds: [],
+              isDefault: true,
+              sortOrder: 1,
+              createdAt: Date.now(),
+            });
+          }
+        },
+      );
+
+      setStatus('Routine import complete.');
+      setTimeout(() => setStatus(''), 3000);
+    } catch {
+      setStatus('Routine import failed. Please check the file format.');
+    }
+
+    resetInput();
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -355,6 +463,41 @@ export default function DataManagementPage() {
 
         <p className="text-secondary text-sm mt-16">
           Export saves all data as a JSON file. Import replaces all current data with the contents of a previously exported file.
+        </p>
+      </div>
+
+      {/* Routines Only */}
+      <div className="card">
+        <div className="card-title">Routines Only</div>
+
+        <button
+          className="btn btn-primary btn-full mb-8"
+          onClick={handleExportRoutines}
+        >
+          Export Routines
+        </button>
+
+        <button
+          className="btn btn-primary btn-full mb-8"
+          onClick={handleExportRoutinesWithHistory}
+        >
+          Export Routines + History
+        </button>
+
+        <label className="btn btn-secondary btn-full" style={{ cursor: 'pointer' }}>
+          Import Routines
+          <input
+            ref={routineFileInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImportRoutines}
+            style={{ display: 'none' }}
+          />
+        </label>
+
+        <p className="text-secondary text-sm mt-16">
+          Import/export just your evening routine — steps and variants, optionally with session history.
+          Importing replaces only routine tables; night logs, weights, and other settings are untouched.
         </p>
       </div>
 
