@@ -93,20 +93,78 @@ function formatClockHHMM(ts: number): string {
   return `${h12}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
 
+interface TodayStepSnapshot {
+  status: RoutineStepStatus;
+  startedAt: number | null;
+  endedAt: number | null;
+  durationMs: number | null;
+  pbAtStartMs: number | null;
+  notes: string;
+}
+
+/**
+ * Collect per-step statuses from today's already-saved sessions so a new
+ * routine started later the same evening can pre-mark steps as done without
+ * asking the user to repeat them. A 'completed' status from any earlier
+ * session wins over a later 'skipped'/'punted' for the same step.
+ */
+function computeTodayStepStatuses(
+  sessions: RoutineSession[],
+  todayDate: string,
+): Map<string, TodayStepSnapshot> {
+  const result = new Map<string, TodayStepSnapshot>();
+  const todaySessions = sessions
+    .filter((s) => s.date === todayDate)
+    .sort((a, b) => a.startedAt - b.startedAt);
+  for (const session of todaySessions) {
+    for (const log of session.steps) {
+      const existing = result.get(log.stepId);
+      if (existing && existing.status === 'completed' && log.status !== 'completed') {
+        continue;
+      }
+      result.set(log.stepId, {
+        status: log.status,
+        startedAt: log.startedAt,
+        endedAt: log.endedAt,
+        durationMs: log.durationMs,
+        pbAtStartMs: log.pbAtStartMs,
+        notes: log.notes,
+      });
+    }
+  }
+  return result;
+}
+
 function buildWipSteps(
   steps: RoutineStep[],
   pbs: Map<string, number>,
+  todayStatuses: Map<string, TodayStepSnapshot>,
 ): WipStep[] {
-  return steps.map((s) => ({
-    stepId: s.id,
-    stepName: s.name,
-    status: 'pending' as WipStepStatus,
-    startedAt: null,
-    endedAt: null,
-    durationMs: null,
-    pbAtStartMs: pbs.get(s.id) ?? null,
-    notes: '',
-  }));
+  return steps.map((s) => {
+    const prior = todayStatuses.get(s.id);
+    if (prior) {
+      return {
+        stepId: s.id,
+        stepName: s.name,
+        status: prior.status as WipStepStatus,
+        startedAt: prior.startedAt,
+        endedAt: prior.endedAt,
+        durationMs: prior.durationMs,
+        pbAtStartMs: prior.pbAtStartMs ?? pbs.get(s.id) ?? null,
+        notes: prior.notes,
+      };
+    }
+    return {
+      stepId: s.id,
+      stepName: s.name,
+      status: 'pending' as WipStepStatus,
+      startedAt: null,
+      endedAt: null,
+      durationMs: null,
+      pbAtStartMs: pbs.get(s.id) ?? null,
+      notes: '',
+    };
+  });
 }
 
 export default function RoutineTracker() {
@@ -121,6 +179,10 @@ export default function RoutineTracker() {
 
   // Selected variant id (starts as null, resolved once variants load).
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+
+  // Optional per-night reorder override of the selected variant's step order.
+  // Cleared when the variant changes. `null` means "use the variant's order".
+  const [tonightStepIds, setTonightStepIds] = useState<string[] | null>(null);
 
   // Work-in-progress session.
   const [wip, setWip] = useState<WipSession | null>(() => loadWip());
@@ -188,20 +250,57 @@ export default function RoutineTracker() {
     return variants.find((v) => v.id === selectedVariantId) ?? null;
   }, [variants, selectedVariantId]);
 
-  // Resolve the ordered list of steps for the selected variant.
+  // Resolve the ordered list of steps for the selected variant, honoring
+  // any in-memory nightly reorder override.
   const orderedSteps: RoutineStep[] = useMemo(() => {
     if (!selectedVariant || !allSteps) return [];
     const stepMap = new Map(allSteps.map((s) => [s.id, s]));
     const ordered: RoutineStep[] = [];
+    const seen = new Set<string>();
+    if (tonightStepIds != null) {
+      for (const id of tonightStepIds) {
+        const s = stepMap.get(id);
+        if (s && s.isActive) {
+          ordered.push(s);
+          seen.add(id);
+        }
+      }
+      // If the variant gained new active steps since the override was set,
+      // append them at the end so they still show up.
+      for (const id of selectedVariant.stepIds) {
+        if (seen.has(id)) continue;
+        const s = stepMap.get(id);
+        if (s && s.isActive) ordered.push(s);
+      }
+      return ordered;
+    }
     for (const id of selectedVariant.stepIds) {
       const s = stepMap.get(id);
       if (s && s.isActive) ordered.push(s);
     }
     return ordered;
-  }, [selectedVariant, allSteps]);
+  }, [selectedVariant, allSteps, tonightStepIds]);
 
   // PBs per step across all sessions.
   const pbs = useMemo(() => computeStepPBs(sessions ?? []), [sessions]);
+
+  // Per-step statuses from any sessions already saved for today — used to
+  // pre-mark steps as done when the user starts another routine later the
+  // same evening (e.g. because they added more items after finishing).
+  const todayStepStatuses = useMemo(
+    () => computeTodayStepStatuses(sessions ?? [], getTodayDate()),
+    [sessions],
+  );
+
+  // Count of steps in the currently-selected variant that were already done
+  // (completed / skipped / punted) in a saved session from tonight.
+  const todayAlreadyDoneCount = useMemo(() => {
+    let count = 0;
+    for (const step of orderedSteps) {
+      if (todayStepStatuses.has(step.id)) count += 1;
+    }
+    return count;
+  }, [orderedSteps, todayStepStatuses]);
 
   // Best total of all completed sessions (for completion screen delta).
   const bestCompletedTotalMs = useMemo(() => {
@@ -254,27 +353,68 @@ export default function RoutineTracker() {
       setShowResumeBanner(false);
     }
     setSelectedVariantId(variantId);
+    setTonightStepIds(null);
   };
 
   const handleStart = () => {
     if (orderedSteps.length === 0) return;
     const now = Date.now();
+    const steps = buildWipSteps(orderedSteps, pbs, todayStepStatuses);
+    // Start on the first step that isn't already done tonight. If every step
+    // in the variant was already completed earlier, jump straight to the
+    // completion screen.
+    const firstPendingIndex = steps.findIndex((s) => s.status === 'pending');
+    const earliestPriorStart = steps
+      .map((s) => s.startedAt)
+      .filter((t): t is number => t != null)
+      .reduce<number | null>(
+        (acc, t) => (acc == null || t < acc ? t : acc),
+        null,
+      );
     const newWip: WipSession = {
       id: crypto.randomUUID(),
       variantId: selectedVariant.id,
       variantName: selectedVariant.name,
-      startedAt: now,
-      currentStepIndex: 0,
-      currentStepStartedAt: now,
-      steps: buildWipSteps(orderedSteps, pbs),
+      startedAt: earliestPriorStart ?? now,
+      currentStepIndex: firstPendingIndex === -1 ? steps.length : firstPendingIndex,
+      currentStepStartedAt: firstPendingIndex === -1 ? null : now,
+      steps,
     };
-    // Stamp the first step's startedAt.
-    newWip.steps[0] = {
-      ...newWip.steps[0],
-      startedAt: now,
-    };
+    if (firstPendingIndex !== -1) {
+      newWip.steps[firstPendingIndex] = {
+        ...newWip.steps[firstPendingIndex],
+        startedAt: now,
+      };
+    }
     setWip(newWip);
     setShowResumeBanner(false);
+  };
+
+  /** Move a step up or down in tonight's start-screen ordering. */
+  const handleMoveStartStep = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= orderedSteps.length) return;
+    const ids = orderedSteps.map((s) => s.id);
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    setTonightStepIds(ids);
+  };
+
+  /**
+   * Reorder a pending step inside the running WIP session. Only pending
+   * steps can move, and they can only swap with another pending step —
+   * completed/skipped/punted rows and the currently-running step stay put.
+   */
+  const handleMoveWipStep = (index: number, direction: -1 | 1) => {
+    if (!wip) return;
+    const target = index + direction;
+    if (target < 0 || target >= wip.steps.length) return;
+    if (index === wip.currentStepIndex || target === wip.currentStepIndex) return;
+    const step = wip.steps[index];
+    const neighbor = wip.steps[target];
+    if (step.status !== 'pending' || neighbor.status !== 'pending') return;
+    const nextSteps = wip.steps.slice();
+    [nextSteps[index], nextSteps[target]] = [nextSteps[target], nextSteps[index]];
+    setWip({ ...wip, steps: nextSteps });
   };
 
   /** Mutate the WIP by index, producing a new WipSession. */
@@ -431,9 +571,17 @@ export default function RoutineTracker() {
       .filter((s) => s.status === 'completed' && s.durationMs != null)
       .reduce((acc, s) => acc + (s.durationMs as number), 0);
 
+    const today = getTodayDate();
+    // Any already-saved sessions for today were merged into this WIP at
+    // start time (pre-marked as completed). Delete them now so the newly
+    // saved session is the single canonical record for tonight.
+    const priorTodaySessionIds = (sessions ?? [])
+      .filter((s) => s.date === today)
+      .map((s) => s.id);
+
     const session: RoutineSession = {
       id: wip.id,
-      date: getTodayDate(),
+      date: today,
       variantId: wip.variantId,
       variantName: wip.variantName,
       startedAt: wip.startedAt,
@@ -445,10 +593,16 @@ export default function RoutineTracker() {
       createdAt: now,
     };
 
-    await db.routineSessions.add(session);
+    await db.transaction('rw', db.routineSessions, async () => {
+      if (priorTodaySessionIds.length > 0) {
+        await db.routineSessions.bulkDelete(priorTodaySessionIds);
+      }
+      await db.routineSessions.add(session);
+    });
     saveWip(null);
     setWip(null);
     setSessionNotes('');
+    setTonightStepIds(null);
     navigate('/tonight');
   };
 
@@ -667,6 +821,18 @@ export default function RoutineTracker() {
               if (s.status === 'punted') return 'routine-step-row punted';
               return 'routine-step-row';
             })();
+            const canMoveUp =
+              s.status === 'pending' &&
+              i !== idx &&
+              i > 0 &&
+              wip.steps[i - 1].status === 'pending' &&
+              i - 1 !== idx;
+            const canMoveDown =
+              s.status === 'pending' &&
+              i !== idx &&
+              i < wip.steps.length - 1 &&
+              wip.steps[i + 1].status === 'pending' &&
+              i + 1 !== idx;
             return (
               <div
                 key={`${s.stepId}-${i}`}
@@ -704,6 +870,38 @@ export default function RoutineTracker() {
                       {msToMMSS(s.pbAtStartMs)}
                     </span>
                   )}
+                {(canMoveUp || canMoveDown) && (
+                  <span className="routine-step-reorder">
+                    <button
+                      type="button"
+                      className="routine-step-reorder-btn"
+                      aria-label="Move step up"
+                      disabled={!canMoveUp}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveWipStep(i, -1);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      &#9650;
+                    </button>
+                    <button
+                      type="button"
+                      className="routine-step-reorder-btn"
+                      aria-label="Move step down"
+                      disabled={!canMoveDown}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveWipStep(i, 1);
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                    >
+                      &#9660;
+                    </button>
+                  </span>
+                )}
               </div>
             );
           })}
@@ -793,21 +991,64 @@ export default function RoutineTracker() {
             <Link to="/settings/evening-routine">Configure in Settings.</Link>
           </p>
         ) : (
-          orderedSteps.map((step, i) => {
-            const pb = pbs.get(step.id) ?? null;
-            return (
-              <div key={step.id} className="routine-step-row">
-                <span className="routine-step-name">
-                  {i + 1}. {step.name}
-                </span>
-                {pb != null ? (
-                  <span className="routine-step-time">{msToMMSS(pb)}</span>
-                ) : (
-                  <span className="text-secondary text-sm">no best yet</span>
-                )}
-              </div>
-            );
-          })
+          <>
+            {todayAlreadyDoneCount > 0 && (
+              <p className="text-secondary text-sm mb-8">
+                {todayAlreadyDoneCount} of {orderedSteps.length} already done tonight &mdash; you&rsquo;ll pick up on the first remaining step.
+              </p>
+            )}
+            {orderedSteps.map((step, i) => {
+              const pb = pbs.get(step.id) ?? null;
+              const prior = todayStepStatuses.get(step.id);
+              const rowClass = prior
+                ? prior.status === 'completed'
+                  ? 'routine-step-row done'
+                  : prior.status === 'skipped'
+                    ? 'routine-step-row skipped'
+                    : 'routine-step-row punted'
+                : 'routine-step-row';
+              return (
+                <div key={step.id} className={rowClass}>
+                  <span className="routine-step-name">
+                    {i + 1}. {step.name}
+                  </span>
+                  {prior && prior.status === 'completed' && prior.durationMs != null ? (
+                    <span className="routine-step-time">
+                      {msToMMSS(prior.durationMs)}
+                    </span>
+                  ) : prior && prior.status === 'skipped' ? (
+                    <span className="text-secondary text-sm">Skipped</span>
+                  ) : prior && prior.status === 'punted' ? (
+                    <span className="text-secondary text-sm">Punted</span>
+                  ) : pb != null ? (
+                    <span className="routine-step-time">{msToMMSS(pb)}</span>
+                  ) : (
+                    <span className="text-secondary text-sm">no best yet</span>
+                  )}
+                  <span className="routine-step-reorder">
+                    <button
+                      type="button"
+                      className="routine-step-reorder-btn"
+                      aria-label="Move step up"
+                      disabled={i === 0}
+                      onClick={() => handleMoveStartStep(i, -1)}
+                    >
+                      &#9650;
+                    </button>
+                    <button
+                      type="button"
+                      className="routine-step-reorder-btn"
+                      aria-label="Move step down"
+                      disabled={i === orderedSteps.length - 1}
+                      onClick={() => handleMoveStartStep(i, 1)}
+                    >
+                      &#9660;
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
 
