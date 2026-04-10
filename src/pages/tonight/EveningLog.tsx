@@ -310,6 +310,13 @@ export function EveningLog() {
       supplementTime: schedule.supplementTime,
     });
 
+    // The moment the user finishes the evening log is treated as their
+    // actual bedtime — independent of whatever the watch sleep tracker
+    // later reports. Backfilled entries (for a previous date) get null
+    // because the finish time doesn't reflect when the user actually
+    // went to bed that night.
+    nightLog.loggedBedtime = isBackfill ? null : Date.now();
+
     nightLog.stack = { baseStackUsed, deviations };
     nightLog.eveningIntake = {
       lastMealTime,

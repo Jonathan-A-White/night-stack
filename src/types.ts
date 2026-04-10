@@ -6,6 +6,14 @@ export interface NightLog {
   createdAt: number;
   updatedAt: number;
   alarm: AlarmInfo;
+  /**
+   * Epoch ms when the evening log was finalized. Treated as the user's
+   * authoritative "time to bed" — distinct from `sleepData.sleepTime`, which
+   * comes from the watch sleep tracker. Null when the log is still a draft,
+   * or when it was backfilled for a prior date (in which case the finish
+   * time doesn't reflect actual bedtime).
+   */
+  loggedBedtime: number | null;
   stack: StackEntry;
   eveningIntake: EveningIntake;
   environment: EnvironmentEntry;
