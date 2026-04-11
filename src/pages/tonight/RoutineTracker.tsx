@@ -228,7 +228,8 @@ export default function RoutineTracker() {
   // Refs for long-press timers.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persist WIP to sessionStorage on every change.
+  // Persist WIP to localStorage on every change so it survives the app
+  // being killed mid-routine.
   useEffect(() => {
     saveWip(wip);
   }, [wip]);
