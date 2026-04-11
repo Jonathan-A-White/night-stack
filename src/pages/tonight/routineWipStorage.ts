@@ -1,4 +1,4 @@
-import type { RoutineStepStatus } from '../../types';
+import type { RoutineStep, RoutineStepStatus, RoutineVariant } from '../../types';
 
 export type WipStepStatus = 'pending' | RoutineStepStatus;
 
@@ -48,4 +48,149 @@ export function saveWip(wip: WipSession | null): void {
   } catch {
     // best-effort — storage quota / private mode
   }
+}
+
+/**
+ * Reconcile a running WIP session with the latest state of its variant,
+ * so edits made in settings mid-session (adding, renaming, deleting, or
+ * deactivating steps) are reflected in the running routine without losing
+ * progress on steps the user has already handled.
+ *
+ * Rules:
+ *  - Existing WIP steps stay in place (preserves any mid-session drag
+ *    reorder and any completed/skipped/punted state) as long as the
+ *    underlying RoutineStep still exists and is active.
+ *  - If the underlying step was deleted or marked inactive, it's dropped.
+ *  - stepName is refreshed from the latest RoutineStep in case of rename.
+ *  - Any active step in the variant that isn't already in the WIP is
+ *    appended to the end as a new pending step, with pbAtStartMs taken
+ *    from the current pbs map.
+ *  - currentStepIndex is re-resolved by stepId so the user keeps tracking
+ *    the same step even if insertions/removals shifted its position. If
+ *    the current step itself got removed, we advance to the next pending
+ *    step, or to the completion screen if none remain.
+ *  - If the session was on the completion screen and new pending steps
+ *    arrived, we resume on the first newly-added pending step so the
+ *    user can run it.
+ *
+ * Returns the original wip reference if nothing actually changed, so
+ * callers can detect no-op updates with identity equality and avoid
+ * unnecessary renders or an infinite update loop.
+ */
+export function reconcileWipWithVariant(
+  wip: WipSession,
+  variant: RoutineVariant,
+  allSteps: RoutineStep[],
+  pbs: Map<string, number>,
+  now: number,
+): WipSession {
+  if (wip.variantId !== variant.id) return wip;
+
+  const stepMap = new Map(allSteps.map((s) => [s.id, s]));
+
+  const wasOnCompletion =
+    wip.steps.length > 0 && wip.currentStepIndex >= wip.steps.length;
+  const currentStepId = !wasOnCompletion
+    ? wip.steps[wip.currentStepIndex]?.stepId ?? null
+    : null;
+
+  // 1. Keep existing WIP steps whose underlying step still exists and is
+  //    active. Refresh stepName in case it was renamed in settings.
+  const kept: WipStep[] = [];
+  const keptIds = new Set<string>();
+  for (const wipStep of wip.steps) {
+    const underlying = stepMap.get(wipStep.stepId);
+    if (!underlying || !underlying.isActive) continue;
+    kept.push(
+      wipStep.stepName === underlying.name
+        ? wipStep
+        : { ...wipStep, stepName: underlying.name },
+    );
+    keptIds.add(wipStep.stepId);
+  }
+
+  // 2. Append any active steps from the variant that aren't already in
+  //    the WIP.
+  const added: WipStep[] = [];
+  for (const id of variant.stepIds) {
+    if (keptIds.has(id)) continue;
+    const s = stepMap.get(id);
+    if (!s || !s.isActive) continue;
+    added.push({
+      stepId: s.id,
+      stepName: s.name,
+      status: 'pending',
+      startedAt: null,
+      endedAt: null,
+      durationMs: null,
+      pbAtStartMs: pbs.get(s.id) ?? null,
+      notes: '',
+    });
+  }
+
+  const nextSteps: WipStep[] = [...kept, ...added];
+
+  // Fast path: nothing changed → return the original reference so the
+  // caller can identity-check.
+  const stepsUnchanged =
+    nextSteps.length === wip.steps.length &&
+    nextSteps.every((s, i) => s === wip.steps[i]);
+
+  // 3. Re-resolve currentStepIndex by stepId so we keep tracking the same
+  //    step regardless of insertions/removals.
+  let nextCurrentStepIndex = wip.currentStepIndex;
+  let nextCurrentStepStartedAt = wip.currentStepStartedAt;
+
+  if (currentStepId != null) {
+    const foundIdx = nextSteps.findIndex((s) => s.stepId === currentStepId);
+    if (foundIdx !== -1) {
+      nextCurrentStepIndex = foundIdx;
+    } else {
+      // Currently-running step was deleted or deactivated — advance to
+      // the next still-pending step, or to completion if none remain.
+      const nextPending = nextSteps.findIndex((s) => s.status === 'pending');
+      if (nextPending === -1) {
+        nextCurrentStepIndex = nextSteps.length;
+        nextCurrentStepStartedAt = null;
+      } else {
+        nextCurrentStepIndex = nextPending;
+        nextCurrentStepStartedAt = now;
+        nextSteps[nextPending] = {
+          ...nextSteps[nextPending],
+          startedAt: now,
+        };
+      }
+    }
+  } else if (wasOnCompletion && added.length > 0) {
+    // Session had reached the completion screen but new pending steps
+    // just arrived — resume on the first newly-added step.
+    const nextPending = nextSteps.findIndex((s) => s.status === 'pending');
+    if (nextPending !== -1) {
+      nextCurrentStepIndex = nextPending;
+      nextCurrentStepStartedAt = now;
+      nextSteps[nextPending] = {
+        ...nextSteps[nextPending],
+        startedAt: now,
+      };
+    }
+  } else if (wasOnCompletion) {
+    // Still on completion, but length may have shrunk (a trailing step
+    // got deleted). Keep "on completion" semantics.
+    nextCurrentStepIndex = nextSteps.length;
+  }
+
+  if (
+    stepsUnchanged &&
+    nextCurrentStepIndex === wip.currentStepIndex &&
+    nextCurrentStepStartedAt === wip.currentStepStartedAt
+  ) {
+    return wip;
+  }
+
+  return {
+    ...wip,
+    steps: nextSteps,
+    currentStepIndex: nextCurrentStepIndex,
+    currentStepStartedAt: nextCurrentStepStartedAt,
+  };
 }

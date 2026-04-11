@@ -23,6 +23,7 @@ import type {
 } from '../../types';
 import {
   loadWip,
+  reconcileWipWithVariant,
   saveWip,
   type WipSession,
   type WipStep,
@@ -333,6 +334,26 @@ export default function RoutineTracker() {
     }
     return count;
   }, [orderedSteps, todayStepStatuses]);
+
+  // Reconcile the running WIP with the current variant whenever the
+  // variant or its underlying steps change in the database. This is what
+  // makes edits to the variant from Settings (add/rename/delete/toggle)
+  // show up live in an already-running routine, without losing progress
+  // on steps the user has already handled. See
+  // `reconcileWipWithVariant` for the preservation rules.
+  useEffect(() => {
+    if (!wip) return;
+    if (!selectedVariant || !allSteps) return;
+    if (wip.variantId !== selectedVariant.id) return;
+    const next = reconcileWipWithVariant(
+      wip,
+      selectedVariant,
+      allSteps,
+      pbs,
+      Date.now(),
+    );
+    if (next !== wip) setWip(next);
+  }, [wip, selectedVariant, allSteps, pbs]);
 
   // Best total of all completed sessions (for completion screen delta).
   // Recomputed from startedAt/endedAt so older sessions — which stored
