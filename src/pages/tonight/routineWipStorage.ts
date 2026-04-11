@@ -12,6 +12,14 @@ export interface WipStep {
   durationMs: number | null;
   pbAtStartMs: number | null;
   notes: string;
+  /**
+   * Stashed copy of the step's previous `durationMs` saved when the step
+   * is skipped, so a later unskip can restore the recorded time. `null`
+   * means there's nothing to restore (the step was never completed before
+   * being skipped). See the long-press skip/unskip handlers in
+   * `RoutineTracker.tsx` for how this is consumed.
+   */
+  lastDurationMs: number | null;
 }
 
 export interface WipSession {
@@ -148,6 +156,7 @@ export function reconcileWipWithVariant(
       durationMs: null,
       pbAtStartMs: pbs.get(s.id) ?? null,
       notes: '',
+      lastDurationMs: null,
     });
   }
 

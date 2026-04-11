@@ -104,6 +104,11 @@ interface TodayStepSnapshot {
   durationMs: number | null;
   pbAtStartMs: number | null;
   notes: string;
+  lastDurationMs: number | null;
+  // Tracks which saved session this snapshot came from so the start-screen
+  // long-press menu can edit the right session in place when toggling a
+  // step's skip status after a sub-session has been saved.
+  sourceSessionId: string;
 }
 
 /**
@@ -133,6 +138,8 @@ function computeTodayStepStatuses(
         durationMs: log.durationMs,
         pbAtStartMs: log.pbAtStartMs,
         notes: log.notes,
+        lastDurationMs: log.lastDurationMs ?? null,
+        sourceSessionId: session.id,
       });
     }
   }
@@ -156,6 +163,7 @@ function buildWipSteps(
         durationMs: prior.durationMs,
         pbAtStartMs: prior.pbAtStartMs ?? pbs.get(s.id) ?? null,
         notes: prior.notes,
+        lastDurationMs: prior.lastDurationMs,
       };
     }
     return {
@@ -167,6 +175,7 @@ function buildWipSteps(
       durationMs: null,
       pbAtStartMs: pbs.get(s.id) ?? null,
       notes: '',
+      lastDurationMs: null,
     };
   });
 }
@@ -211,6 +220,12 @@ export default function RoutineTracker() {
 
   // Long-press menu target step index.
   const [longPressStepIndex, setLongPressStepIndex] = useState<number | null>(null);
+
+  // Long-press menu target on the start screen — identified by step ID
+  // because the start screen reads its rows from the saved-sessions snapshot
+  // (`todayStepStatuses`) rather than from the WIP, so an index would be
+  // ambiguous if the same step appears in multiple variants.
+  const [longPressStartStepId, setLongPressStartStepId] = useState<string | null>(null);
 
   // Session-level notes (only used on completion screen).
   const [sessionNotes, setSessionNotes] = useState('');
@@ -624,6 +639,13 @@ export default function RoutineTracker() {
     const step = wip.steps[index];
     const isCurrent = index === wip.currentStepIndex;
 
+    // If the step had a recorded completion time, stash it so a later
+    // unskip can restore it. Skipping a previously-completed step would
+    // otherwise drop the time on the floor — including PB-worthy runs the
+    // user didn't mean to discard.
+    const stashed =
+      step.durationMs != null ? step.durationMs : step.lastDurationMs;
+
     let patch: Partial<WipStep>;
     if (isCurrent) {
       const startedAt = step.startedAt ?? wip.currentStepStartedAt ?? now;
@@ -632,12 +654,14 @@ export default function RoutineTracker() {
         startedAt,
         endedAt: now,
         durationMs: null,
+        lastDurationMs: stashed,
       };
     } else {
       patch = {
         status,
         endedAt: now,
         durationMs: null,
+        lastDurationMs: stashed,
       };
     }
 
@@ -661,7 +685,15 @@ export default function RoutineTracker() {
   };
 
   /**
-   * Undo a skip: revert a previously-skipped step back to `'pending'` so it
+   * Undo a skip on a wip step.
+   *
+   * If the step had a stashed `lastDurationMs` from a prior completion, the
+   * stash is restored: the step goes back to `'completed'` with that exact
+   * duration so the user doesn't lose a real time (e.g. a PB run) just
+   * because they tapped skip. The stash itself is cleared so a subsequent
+   * skip-then-unskip cycle measures from the new state.
+   *
+   * If there's nothing stashed, the step reverts to `'pending'` so it
    * re-enters the routine and can be run (or re-skipped) later. This does
    * NOT make the step the current active step — use "Restart timer" for
    * that. Timestamps are cleared so a subsequent run measures only the
@@ -670,12 +702,21 @@ export default function RoutineTracker() {
   const handleLongPressUnskip = () => {
     if (longPressStepIndex == null || !wip) return;
     const idx = longPressStepIndex;
-    const next = updateStep(wip, idx, {
-      status: 'pending',
-      startedAt: null,
-      endedAt: null,
-      durationMs: null,
-    });
+    const step = wip.steps[idx];
+    const stashed = step.lastDurationMs;
+    const next = stashed != null
+      ? updateStep(wip, idx, {
+          status: 'completed',
+          durationMs: stashed,
+          lastDurationMs: null,
+        })
+      : updateStep(wip, idx, {
+          status: 'pending',
+          startedAt: null,
+          endedAt: null,
+          durationMs: null,
+          lastDurationMs: null,
+        });
     setWip(next);
     setLongPressStepIndex(null);
   };
@@ -719,6 +760,100 @@ export default function RoutineTracker() {
     setLongPressStepIndex(null);
   };
 
+  /**
+   * Start-screen skip: edit the saved sub-session that already recorded a
+   * status for this step so its log is rewritten as `'skipped'`. The
+   * previous `durationMs` (if any) is stashed onto `lastDurationMs` so a
+   * later unskip — from the start screen or from inside a follow-up
+   * session — can put the time back. The session's `endedAt` and
+   * `totalDurationMs` are recomputed so analytics stay consistent.
+   */
+  const handleStartScreenSkip = async () => {
+    if (longPressStartStepId == null) return;
+    const stepId = longPressStartStepId;
+    const snapshot = todayStepStatuses.get(stepId);
+    if (!snapshot) {
+      setLongPressStartStepId(null);
+      return;
+    }
+    const session = (sessions ?? []).find((s) => s.id === snapshot.sourceSessionId);
+    if (!session) {
+      setLongPressStartStepId(null);
+      return;
+    }
+    const nextSteps = session.steps.map((log) => {
+      if (log.stepId !== stepId) return log;
+      const stashed =
+        log.durationMs != null ? log.durationMs : log.lastDurationMs ?? null;
+      return {
+        ...log,
+        status: 'skipped' as RoutineStepStatus,
+        durationMs: null,
+        lastDurationMs: stashed,
+      };
+    });
+    const latestEnded = computeLatestStepEndedAt(nextSteps);
+    const effectiveEnd = latestEnded ?? session.endedAt ?? session.startedAt;
+    await db.routineSessions.update(session.id, {
+      steps: nextSteps,
+      endedAt: effectiveEnd,
+      totalDurationMs: Math.max(0, effectiveEnd - session.startedAt),
+    });
+    setLongPressStartStepId(null);
+  };
+
+  /**
+   * Start-screen unskip: reverse of `handleStartScreenSkip`. Rewrites the
+   * saved sub-session's log for the step so it's `'completed'` again with
+   * the previously-stashed `lastDurationMs`. Falls back to `'skipped'` →
+   * `'completed'` with no duration if there's nothing stashed (e.g. the
+   * step was skipped before this feature existed). The session's
+   * `endedAt` and `totalDurationMs` are recomputed.
+   */
+  const handleStartScreenUnskip = async () => {
+    if (longPressStartStepId == null) return;
+    const stepId = longPressStartStepId;
+    const snapshot = todayStepStatuses.get(stepId);
+    if (!snapshot) {
+      setLongPressStartStepId(null);
+      return;
+    }
+    const session = (sessions ?? []).find((s) => s.id === snapshot.sourceSessionId);
+    if (!session) {
+      setLongPressStartStepId(null);
+      return;
+    }
+    const nextSteps = session.steps.map((log) => {
+      if (log.stepId !== stepId) return log;
+      const stashed = log.lastDurationMs ?? null;
+      if (stashed == null) {
+        // Nothing to restore — leave the row as completed-with-no-duration
+        // so analytics stop counting it as skipped, but be conservative and
+        // not invent a fake time.
+        return {
+          ...log,
+          status: 'completed' as RoutineStepStatus,
+          durationMs: null,
+          lastDurationMs: null,
+        };
+      }
+      return {
+        ...log,
+        status: 'completed' as RoutineStepStatus,
+        durationMs: stashed,
+        lastDurationMs: null,
+      };
+    });
+    const latestEnded = computeLatestStepEndedAt(nextSteps);
+    const effectiveEnd = latestEnded ?? session.endedAt ?? session.startedAt;
+    await db.routineSessions.update(session.id, {
+      steps: nextSteps,
+      endedAt: effectiveEnd,
+      totalDurationMs: Math.max(0, effectiveEnd - session.startedAt),
+    });
+    setLongPressStartStepId(null);
+  };
+
   const cancelLongPressTimer = () => {
     if (longPressTimer.current != null) {
       clearTimeout(longPressTimer.current);
@@ -730,6 +865,14 @@ export default function RoutineTracker() {
     cancelLongPressTimer();
     longPressTimer.current = setTimeout(() => {
       setLongPressStepIndex(index);
+      longPressTimer.current = null;
+    }, LONGPRESS_MS);
+  };
+
+  const startLongPressStartScreen = (stepId: string) => {
+    cancelLongPressTimer();
+    longPressTimer.current = setTimeout(() => {
+      setLongPressStartStepId(stepId);
       longPressTimer.current = null;
     }, LONGPRESS_MS);
   };
@@ -772,6 +915,7 @@ export default function RoutineTracker() {
       durationMs: s.durationMs,
       pbAtStartMs: s.pbAtStartMs,
       notes: s.notes,
+      lastDurationMs: s.lastDurationMs,
     }));
     // Wall-clock session total: from the immutable session start to the
     // latest step endedAt. This "bumps" forward when additional items are
@@ -1141,7 +1285,9 @@ export default function RoutineTracker() {
                   className="btn btn-secondary btn-full mt-16"
                   onClick={handleLongPressUnskip}
                 >
-                  Unskip this step
+                  {wip.steps[longPressStepIndex]?.lastDurationMs != null
+                    ? `Unskip (restore ${msToMMSS(wip.steps[longPressStepIndex].lastDurationMs as number)})`
+                    : 'Unskip this step'}
                 </button>
               ) : (
                 <button
@@ -1239,12 +1385,32 @@ export default function RoutineTracker() {
               const rowClass = isDragging
                 ? `${baseRowClass} dragging`
                 : baseRowClass;
+              // Only enable long-press on rows backed by a saved sub-session
+              // for tonight — there's nothing to mutate for a pending step
+              // with no recorded snapshot yet.
+              const longPressable = prior != null;
               return (
                 <div
                   key={step.id}
                   className={rowClass}
                   data-step-index={i}
                   data-drag-context="start"
+                  onMouseDown={
+                    longPressable
+                      ? () => startLongPressStartScreen(step.id)
+                      : undefined
+                  }
+                  onMouseUp={longPressable ? cancelLongPressTimer : undefined}
+                  onMouseLeave={longPressable ? cancelLongPressTimer : undefined}
+                  onTouchStart={
+                    longPressable
+                      ? () => startLongPressStartScreen(step.id)
+                      : undefined
+                  }
+                  onTouchEnd={longPressable ? cancelLongPressTimer : undefined}
+                  onTouchCancel={
+                    longPressable ? cancelLongPressTimer : undefined
+                  }
                 >
                   <span className="routine-step-name">
                     {i + 1}. {step.name}
@@ -1267,6 +1433,8 @@ export default function RoutineTracker() {
                     aria-label="Drag to reorder"
                     role="button"
                     onPointerDown={(e) => handleDragStart('start', i, e)}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
                   >
                     <span className="routine-step-drag-dots" aria-hidden="true">
                       &#x22EE;&#x22EE;
@@ -1286,6 +1454,55 @@ export default function RoutineTracker() {
       >
         Start Routine
       </button>
+
+      {longPressStartStepId != null && (() => {
+        const snapshot = todayStepStatuses.get(longPressStartStepId);
+        if (!snapshot) return null;
+        const stepName =
+          orderedSteps.find((s) => s.id === longPressStartStepId)?.name ??
+          'Step';
+        const isSkipped = snapshot.status === 'skipped';
+        const stashedAvailable = snapshot.lastDurationMs != null;
+        return (
+          <div
+            className="routine-longpress-menu"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setLongPressStartStepId(null);
+            }}
+          >
+            <div className="card">
+              <div className="card-title">{stepName}</div>
+              {isSkipped ? (
+                <button
+                  className="btn btn-secondary btn-full mt-16"
+                  onClick={() => {
+                    void handleStartScreenUnskip();
+                  }}
+                >
+                  {stashedAvailable
+                    ? `Unskip (restore ${msToMMSS(snapshot.lastDurationMs as number)})`
+                    : 'Unskip this step'}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-full mt-16"
+                  onClick={() => {
+                    void handleStartScreenSkip();
+                  }}
+                >
+                  Skip this step
+                </button>
+              )}
+              <button
+                className="btn btn-danger btn-full mt-16"
+                onClick={() => setLongPressStartStepId(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

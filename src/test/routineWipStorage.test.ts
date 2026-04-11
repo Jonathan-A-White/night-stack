@@ -50,6 +50,7 @@ function makeWipStep(
     durationMs: null,
     pbAtStartMs: null,
     notes: '',
+    lastDurationMs: null,
     ...extra,
   };
 }
@@ -459,6 +460,37 @@ describe('reconcileWipWithVariant', () => {
     expect(result.steps[2].stepId).toBe('c');
     expect(result.currentStepIndex).toBe(1);
     expect(result.currentStepStartedAt).toBe(500);
+  });
+
+  it('preserves lastDurationMs on a kept skipped step across reconcile', () => {
+    // A step that was skipped during the session (with its previous time
+    // stashed onto lastDurationMs) must keep that stash when the variant
+    // is reconciled — otherwise a mid-session settings change would clobber
+    // the user's restorable time.
+    const stepA = makeStep({ id: 'a', name: 'A' });
+    const stepB = makeStep({ id: 'b', name: 'B' });
+    const variant = makeVariant({ stepIds: ['a', 'b'] });
+    const wip = makeWip({
+      currentStepIndex: 1,
+      steps: [
+        makeWipStep('a', 'A', 'skipped', {
+          startedAt: 0,
+          endedAt: 150,
+          durationMs: null,
+          lastDurationMs: 7_500, // PB stashed before the skip
+        }),
+        makeWipStep('b', 'B', 'pending', { startedAt: 200 }),
+      ],
+    });
+    const result = reconcileWipWithVariant(
+      wip,
+      variant,
+      [stepA, stepB],
+      new Map(),
+      1_000,
+    );
+    expect(result.steps[0].lastDurationMs).toBe(7_500);
+    expect(result.steps[0].status).toBe('skipped');
   });
 });
 
