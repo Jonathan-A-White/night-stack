@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   loadWip,
+  mergeReorderedActiveStepIds,
   reconcileWipWithVariant,
   saveWip,
+  stepIdsEqual,
   WIP_KEY,
   type WipSession,
   type WipStep,
@@ -457,5 +459,71 @@ describe('reconcileWipWithVariant', () => {
     expect(result.steps[2].stepId).toBe('c');
     expect(result.currentStepIndex).toBe(1);
     expect(result.currentStepStartedAt).toBe(500);
+  });
+});
+
+describe('mergeReorderedActiveStepIds', () => {
+  it('applies a straight reorder when every existing id is in the reorder', () => {
+    const merged = mergeReorderedActiveStepIds(
+      ['a', 'b', 'c'],
+      ['c', 'a', 'b'],
+    );
+    expect(merged).toEqual(['c', 'a', 'b']);
+  });
+
+  it('preserves the positions of ids not in the reorder list (e.g. inactive steps)', () => {
+    // `b` is hidden from the drag UI (inactive), so only a, c, d appear in
+    // the reorder list. `b` should stay in its original slot while the
+    // others are permuted in-place.
+    const merged = mergeReorderedActiveStepIds(
+      ['a', 'b', 'c', 'd'],
+      ['d', 'a', 'c'],
+    );
+    expect(merged).toEqual(['d', 'b', 'a', 'c']);
+  });
+
+  it('appends ids from the reorder list that were not in the variant', () => {
+    const merged = mergeReorderedActiveStepIds(
+      ['a', 'b'],
+      ['b', 'a', 'new1', 'new2'],
+    );
+    expect(merged).toEqual(['b', 'a', 'new1', 'new2']);
+  });
+
+  it('is a no-op when the reorder matches the existing order', () => {
+    const merged = mergeReorderedActiveStepIds(['a', 'b', 'c'], ['a', 'b', 'c']);
+    expect(merged).toEqual(['a', 'b', 'c']);
+  });
+
+  it('leaves any id not in the reorder list at its original slot', () => {
+    // `d` isn't in the reorder list (e.g. it's inactive, or got filtered
+    // out of the drag UI for another reason), so it keeps its original
+    // position while a/b/c are permuted around it.
+    const merged = mergeReorderedActiveStepIds(
+      ['a', 'b', 'c', 'd'],
+      ['c', 'a', 'b'],
+    );
+    expect(merged).toEqual(['c', 'a', 'b', 'd']);
+  });
+
+  it('handles empty inputs', () => {
+    expect(mergeReorderedActiveStepIds([], [])).toEqual([]);
+    expect(mergeReorderedActiveStepIds([], ['x'])).toEqual(['x']);
+    expect(mergeReorderedActiveStepIds(['a', 'b'], [])).toEqual(['a', 'b']);
+  });
+});
+
+describe('stepIdsEqual', () => {
+  it('returns true for identical arrays', () => {
+    expect(stepIdsEqual(['a', 'b', 'c'], ['a', 'b', 'c'])).toBe(true);
+    expect(stepIdsEqual([], [])).toBe(true);
+  });
+
+  it('returns false when order differs', () => {
+    expect(stepIdsEqual(['a', 'b'], ['b', 'a'])).toBe(false);
+  });
+
+  it('returns false when length differs', () => {
+    expect(stepIdsEqual(['a', 'b'], ['a', 'b', 'c'])).toBe(false);
   });
 });
