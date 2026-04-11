@@ -194,3 +194,57 @@ export function reconcileWipWithVariant(
     currentStepStartedAt: nextCurrentStepStartedAt,
   };
 }
+
+/**
+ * Merge a reordered list of active step IDs back into a variant's full
+ * stepIds array so the new order can be persisted to the variant without
+ * losing any IDs that weren't visible to the reorder UI (e.g. steps that
+ * were filtered out because they're inactive at the global level).
+ *
+ * Walks the variant's existing stepIds: each slot whose ID appears in
+ * `newActiveOrder` is filled with the next ID from that list (in order);
+ * slots whose IDs aren't in the reorder list stay exactly where they are.
+ * Any IDs in `newActiveOrder` that weren't in `existingStepIds` at all
+ * (e.g. a step added to the variant mid-drag) are appended at the end.
+ *
+ * The helper is defensive about the drag UI handing us fewer IDs than
+ * there are matching slots: surplus slots are dropped rather than padded
+ * with `undefined`, which keeps the resulting array well-formed even in
+ * edge cases that shouldn't normally happen.
+ */
+export function mergeReorderedActiveStepIds(
+  existingStepIds: string[],
+  newActiveOrder: string[],
+): string[] {
+  const reorderSet = new Set(newActiveOrder);
+  const existingSet = new Set(existingStepIds);
+  const result: string[] = [];
+  let activeIdx = 0;
+  for (const id of existingStepIds) {
+    if (reorderSet.has(id)) {
+      if (activeIdx < newActiveOrder.length) {
+        result.push(newActiveOrder[activeIdx]);
+        activeIdx += 1;
+      }
+      // else: more matching slots than reordered IDs — drop the slot.
+    } else {
+      result.push(id);
+    }
+  }
+  // Append any IDs from newActiveOrder that weren't in existingStepIds at all.
+  while (activeIdx < newActiveOrder.length) {
+    const id = newActiveOrder[activeIdx];
+    if (!existingSet.has(id)) result.push(id);
+    activeIdx += 1;
+  }
+  return result;
+}
+
+/** True when two stepIds arrays are element-wise equal. */
+export function stepIdsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}

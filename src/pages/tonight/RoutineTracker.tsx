@@ -23,8 +23,10 @@ import type {
 } from '../../types';
 import {
   loadWip,
+  mergeReorderedActiveStepIds,
   reconcileWipWithVariant,
   saveWip,
+  stepIdsEqual,
   type WipSession,
   type WipStep,
   type WipStepStatus,
@@ -453,6 +455,11 @@ export default function RoutineTracker() {
    * past previously-handled ones. The currently-running step can also be
    * dragged; its timer keeps tracking it via stepId lookup as positions
    * shift.
+   *
+   * On drag end the final order is also persisted back to the selected
+   * variant's `stepIds` so the rearrangement sticks for next time — both
+   * for the default variant and for any other variant the user is
+   * currently running.
    */
   const handleDragStart = (
     context: 'start' | 'session',
@@ -465,6 +472,10 @@ export default function RoutineTracker() {
     if (context === 'session' && !wip) return;
 
     let currentIndex = index;
+    let didReorder = false;
+    // Capture the variant this drag started against, so a mid-drag variant
+    // switch (shouldn't happen, but be safe) doesn't write to the wrong row.
+    const variantAtDragStart = selectedVariant;
     // Closure-local working copies so consecutive pointermoves don't race
     // against React's render cycle.
     const workingIds: string[] | null =
@@ -512,6 +523,7 @@ export default function RoutineTracker() {
         setWip({ ...workingWip, steps: workingWip.steps.slice() });
       }
       currentIndex = toIndex;
+      didReorder = true;
       setDragInfo({ context, index: toIndex });
     };
 
@@ -520,6 +532,30 @@ export default function RoutineTracker() {
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleEnd);
       window.removeEventListener('pointercancel', handleEnd);
+
+      // Persist the new order back to the selected variant so the
+      // rearrangement sticks for next time. Only write if the drag
+      // actually moved something and we still have the variant it
+      // started against.
+      if (!didReorder || !variantAtDragStart) return;
+      const finalActiveOrder =
+        context === 'start' && workingIds
+          ? workingIds
+          : context === 'session' && workingWip
+            ? workingWip.steps.map((s) => s.stepId)
+            : null;
+      if (!finalActiveOrder) return;
+      const merged = mergeReorderedActiveStepIds(
+        variantAtDragStart.stepIds,
+        finalActiveOrder,
+      );
+      if (stepIdsEqual(merged, variantAtDragStart.stepIds)) return;
+      // Fire-and-forget: the live-query will propagate the new order to
+      // any other view. A failed write (quota, etc.) is non-fatal — the
+      // in-memory reorder is still honored for tonight.
+      void db.routineVariants.update(variantAtDragStart.id, {
+        stepIds: merged,
+      });
     };
 
     window.addEventListener('pointermove', handleMove, { passive: false });
@@ -644,26 +680,39 @@ export default function RoutineTracker() {
   };
 
   /**
-   * Restart a step's timer. Makes the target step the current (active) step
-   * and resets its timer state so the next `handleDone` measures only the
+   * Restart the routine's active timer. Resets the long-pressed step's
+   * status/timer, then jumps to the closest open (pending) step from the top
+   * of the list and starts its timer. This lets the user "go back to where I
+   * should be" — if they skipped or raced past an earlier step, restart picks
+   * it up again rather than re-running the step they long-pressed. Timer state
+   * on the reset step is cleared so the next `handleDone` measures only the
    * fresh attempt — NOT the wall-clock span from the original session start,
    * which would otherwise happen if the step was carried over from a prior
-   * session tonight (its old startedAt would still be set). Available for any
-   * step regardless of prior status.
+   * session tonight (its old startedAt would still be set).
    */
   const handleLongPressRestart = () => {
     if (longPressStepIndex == null || !wip) return;
-    const idx = longPressStepIndex;
     const now = Date.now();
-    const next = updateStep(wip, idx, {
+    // Clear any prior status/timer state on the long-pressed step so it
+    // becomes eligible as a "pending" candidate below.
+    let next = updateStep(wip, longPressStepIndex, {
       status: 'pending',
-      startedAt: now,
+      startedAt: null,
       endedAt: null,
       durationMs: null,
     });
+    // Start the closest open step from the top of the list.
+    const firstPendingIndex = next.steps.findIndex(
+      (s) => s.status === 'pending',
+    );
+    if (firstPendingIndex === -1) {
+      setLongPressStepIndex(null);
+      return;
+    }
+    next = updateStep(next, firstPendingIndex, { startedAt: now });
     setWip({
       ...next,
-      currentStepIndex: idx,
+      currentStepIndex: firstPendingIndex,
       currentStepStartedAt: now,
     });
     setLongPressStepIndex(null);
