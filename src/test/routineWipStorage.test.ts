@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  loadWip,
   reconcileWipWithVariant,
+  saveWip,
+  WIP_KEY,
   type WipSession,
   type WipStep,
   type WipStepStatus,
@@ -62,6 +65,11 @@ function makeWip(partial: Partial<WipSession> & { steps: WipStep[] }): WipSessio
 }
 
 describe('reconcileWipWithVariant', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
   it('returns the same reference when nothing changed', () => {
     const stepA = makeStep({ id: 'a', name: 'A' });
     const stepB = makeStep({ id: 'b', name: 'B' });
@@ -333,6 +341,84 @@ describe('reconcileWipWithVariant', () => {
       1_000,
     );
     expect(result).toBe(wip);
+  });
+
+  it('survives a simulated app kill and reload', () => {
+    // Simulate the user starting a routine, the app being killed, and the
+    // page being re-loaded fresh. localStorage persists across reloads
+    // (sessionStorage does not), so loadWip() must be able to recover the
+    // session it just saved.
+    localStorage.clear();
+    sessionStorage.clear();
+    const startedAt = new Date('2026-04-11T22:00:00').getTime();
+    const wip = makeWip({
+      startedAt,
+      currentStepIndex: 0,
+      currentStepStartedAt: startedAt,
+      steps: [
+        makeWipStep('a', 'Wash Dishes', 'pending', { startedAt }),
+        makeWipStep('b', 'Do Vitamins'),
+      ],
+    });
+    saveWip(wip);
+    // Nothing in sessionStorage — that's the bug we're fixing.
+    expect(sessionStorage.getItem(WIP_KEY)).toBeNull();
+    // localStorage holds the WIP across the simulated kill.
+    const reloaded = loadWip(new Date('2026-04-11T22:05:00'));
+    expect(reloaded).not.toBeNull();
+    expect(reloaded?.id).toBe(wip.id);
+    expect(reloaded?.steps).toHaveLength(2);
+    expect(reloaded?.steps[0].stepName).toBe('Wash Dishes');
+    expect(reloaded?.currentStepIndex).toBe(0);
+  });
+
+  it('resumes a routine that crossed midnight when reopened in the early morning', () => {
+    // 11:50pm start, user kills app, comes back at 7am next morning. Both
+    // moments belong to the same evening (per getEveningLogDate semantics),
+    // so the WIP should still resume.
+    localStorage.clear();
+    const startedAt = new Date('2026-04-11T23:50:00').getTime();
+    saveWip(
+      makeWip({
+        startedAt,
+        currentStepIndex: 0,
+        currentStepStartedAt: startedAt,
+        steps: [makeWipStep('a', 'A', 'pending', { startedAt })],
+      }),
+    );
+    const reloaded = loadWip(new Date('2026-04-12T07:00:00'));
+    expect(reloaded).not.toBeNull();
+    expect(reloaded?.startedAt).toBe(startedAt);
+  });
+
+  it('drops a stale WIP from a previous evening', () => {
+    // Routine started two evenings ago and never finished. Reopening the
+    // app the next afternoon should NOT silently resurface it.
+    localStorage.clear();
+    const startedAt = new Date('2026-04-09T22:00:00').getTime();
+    saveWip(
+      makeWip({
+        startedAt,
+        steps: [makeWipStep('a', 'A')],
+      }),
+    );
+    const reloaded = loadWip(new Date('2026-04-11T15:00:00'));
+    expect(reloaded).toBeNull();
+    // And the stale entry has been cleaned out of storage.
+    expect(localStorage.getItem(WIP_KEY)).toBeNull();
+  });
+
+  it('saveWip(null) clears the persisted WIP', () => {
+    localStorage.clear();
+    saveWip(
+      makeWip({
+        startedAt: Date.now(),
+        steps: [makeWipStep('a', 'A')],
+      }),
+    );
+    expect(localStorage.getItem(WIP_KEY)).not.toBeNull();
+    saveWip(null);
+    expect(localStorage.getItem(WIP_KEY)).toBeNull();
   });
 
   it('preserves per-step progress fields on kept steps', () => {

@@ -62,7 +62,7 @@ export function RoutineStartCard({ targetBedtimeHHMM }: Props) {
   const [permission, setPermission] = useState<NotificationPermissionState>(() =>
     getNotificationPermission(),
   );
-  // Tracks the in-progress session stored in sessionStorage by RoutineTracker.
+  // Tracks the in-progress session stored in localStorage by RoutineTracker.
   // Re-read on mount and whenever the window regains focus so navigating back
   // from the tracker surfaces the current state without a full reload.
   const [wip, setWip] = useState(() => loadWip());
@@ -74,7 +74,7 @@ export function RoutineStartCard({ targetBedtimeHHMM }: Props) {
   }, []);
 
   // Re-read WIP whenever the tab regains focus (e.g. after returning from the
-  // tracker route). sessionStorage is synchronous and cheap to poll.
+  // tracker route). localStorage is synchronous and cheap to poll.
   useEffect(() => {
     const refresh = () => setWip(loadWip());
     window.addEventListener('focus', refresh);

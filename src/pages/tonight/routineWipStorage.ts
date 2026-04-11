@@ -1,4 +1,5 @@
 import type { RoutineStep, RoutineStepStatus, RoutineVariant } from '../../types';
+import { getEveningLogDate } from '../../utils';
 
 export type WipStepStatus = 'pending' | RoutineStepStatus;
 
@@ -25,13 +26,35 @@ export interface WipSession {
 
 export const WIP_KEY = 'routine-session-wip';
 
-export function loadWip(): WipSession | null {
+/**
+ * Persist the in-progress routine in localStorage so it survives the app
+ * being killed (PWA force-stopped from Android recents, browser tab closed,
+ * device restarted, etc). sessionStorage was previously used here, but it
+ * gets wiped whenever the page session ends — which is exactly what happens
+ * when the user kills the app mid-routine, defeating the resume affordance.
+ *
+ * To keep stale sessions from a previous evening from resurfacing days
+ * later, the WIP is treated as expired if its `startedAt` falls on a
+ * different evening (per `getEveningLogDate`) than "now". This is the
+ * same evening-rollover semantics the rest of the app uses, so a routine
+ * started at 10pm and resumed the next morning at 8am still counts as the
+ * same evening — but a routine left dangling for a full day or more is
+ * silently dropped.
+ */
+export function loadWip(now: Date = new Date()): WipSession | null {
   try {
-    const raw = sessionStorage.getItem(WIP_KEY);
+    const raw = localStorage.getItem(WIP_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WipSession;
     if (!parsed || typeof parsed !== 'object') return null;
     if (!Array.isArray(parsed.steps)) return null;
+    if (typeof parsed.startedAt !== 'number') return null;
+    if (
+      getEveningLogDate(new Date(parsed.startedAt)) !== getEveningLogDate(now)
+    ) {
+      localStorage.removeItem(WIP_KEY);
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -41,10 +64,10 @@ export function loadWip(): WipSession | null {
 export function saveWip(wip: WipSession | null): void {
   try {
     if (wip == null) {
-      sessionStorage.removeItem(WIP_KEY);
+      localStorage.removeItem(WIP_KEY);
       return;
     }
-    sessionStorage.setItem(WIP_KEY, JSON.stringify(wip));
+    localStorage.setItem(WIP_KEY, JSON.stringify(wip));
   } catch {
     // best-effort — storage quota / private mode
   }
