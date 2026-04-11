@@ -624,26 +624,39 @@ export default function RoutineTracker() {
   };
 
   /**
-   * Restart a step's timer. Makes the target step the current (active) step
-   * and resets its timer state so the next `handleDone` measures only the
+   * Restart the routine's active timer. Resets the long-pressed step's
+   * status/timer, then jumps to the closest open (pending) step from the top
+   * of the list and starts its timer. This lets the user "go back to where I
+   * should be" — if they skipped or raced past an earlier step, restart picks
+   * it up again rather than re-running the step they long-pressed. Timer state
+   * on the reset step is cleared so the next `handleDone` measures only the
    * fresh attempt — NOT the wall-clock span from the original session start,
    * which would otherwise happen if the step was carried over from a prior
-   * session tonight (its old startedAt would still be set). Available for any
-   * step regardless of prior status.
+   * session tonight (its old startedAt would still be set).
    */
   const handleLongPressRestart = () => {
     if (longPressStepIndex == null || !wip) return;
-    const idx = longPressStepIndex;
     const now = Date.now();
-    const next = updateStep(wip, idx, {
+    // Clear any prior status/timer state on the long-pressed step so it
+    // becomes eligible as a "pending" candidate below.
+    let next = updateStep(wip, longPressStepIndex, {
       status: 'pending',
-      startedAt: now,
+      startedAt: null,
       endedAt: null,
       durationMs: null,
     });
+    // Start the closest open step from the top of the list.
+    const firstPendingIndex = next.steps.findIndex(
+      (s) => s.status === 'pending',
+    );
+    if (firstPendingIndex === -1) {
+      setLongPressStepIndex(null);
+      return;
+    }
+    next = updateStep(next, firstPendingIndex, { startedAt: now });
     setWip({
       ...next,
-      currentStepIndex: idx,
+      currentStepIndex: firstPendingIndex,
       currentStepStartedAt: now,
     });
     setLongPressStepIndex(null);
