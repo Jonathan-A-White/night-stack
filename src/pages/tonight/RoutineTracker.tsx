@@ -624,6 +624,26 @@ export default function RoutineTracker() {
   };
 
   /**
+   * Undo a skip: revert a previously-skipped step back to `'pending'` so it
+   * re-enters the routine and can be run (or re-skipped) later. This does
+   * NOT make the step the current active step — use "Restart timer" for
+   * that. Timestamps are cleared so a subsequent run measures only the
+   * fresh attempt.
+   */
+  const handleLongPressUnskip = () => {
+    if (longPressStepIndex == null || !wip) return;
+    const idx = longPressStepIndex;
+    const next = updateStep(wip, idx, {
+      status: 'pending',
+      startedAt: null,
+      endedAt: null,
+      durationMs: null,
+    });
+    setWip(next);
+    setLongPressStepIndex(null);
+  };
+
+  /**
    * Restart a step's timer. Makes the target step the current (active) step
    * and resets its timer state so the next `handleDone` measures only the
    * fresh attempt — NOT the wall-clock span from the original session start,
@@ -1066,12 +1086,21 @@ export default function RoutineTracker() {
               >
                 Restart timer
               </button>
-              <button
-                className="btn btn-secondary btn-full mt-16"
-                onClick={handleLongPressSkip}
-              >
-                Skip this step
-              </button>
+              {wip.steps[longPressStepIndex]?.status === 'skipped' ? (
+                <button
+                  className="btn btn-secondary btn-full mt-16"
+                  onClick={handleLongPressUnskip}
+                >
+                  Unskip this step
+                </button>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-full mt-16"
+                  onClick={handleLongPressSkip}
+                >
+                  Skip this step
+                </button>
+              )}
               <button
                 className="btn btn-secondary btn-full mt-16"
                 onClick={handleLongPressPunt}
