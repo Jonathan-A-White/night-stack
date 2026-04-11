@@ -11,6 +11,7 @@ import {
   getYesterdayDate,
   getEveningLogDate,
   timestampToHHMM,
+  findNearestRoomReading,
 } from '../utils';
 
 describe('formatTime12h', () => {
@@ -200,5 +201,58 @@ describe('timestampToHHMM', () => {
   it('pads single-digit hours and minutes', () => {
     const ts = new Date(2026, 3, 9, 3, 5, 0, 0).getTime();
     expect(timestampToHHMM(ts)).toBe('03:05');
+  });
+});
+
+describe('findNearestRoomReading', () => {
+  // Build an ISO timestamp from local-time components so tests stay
+  // timezone-agnostic (the helper reads local hours/minutes).
+  const ts = (y: number, mo: number, d: number, h: number, m: number): string =>
+    new Date(y, mo, d, h, m).toISOString();
+
+  const reading = (time: string, tempF: number, humidity = 50) => {
+    const [h, m] = time.split(':').map(Number);
+    return { timestamp: ts(2026, 3, 9, h, m), tempF, humidity };
+  };
+
+  it('returns null for an empty timeline', () => {
+    expect(findNearestRoomReading('03:10', [])).toBeNull();
+  });
+
+  it('picks the reading closest to the target time', () => {
+    const readings = [
+      reading('22:00', 64.0),
+      reading('02:55', 65.5),
+      reading('03:20', 66.2),
+      reading('06:30', 63.1),
+    ];
+    // 03:10 is 15 min from 02:55 but only 10 min from 03:20.
+    expect(findNearestRoomReading('03:10', readings)?.tempF).toBe(66.2);
+    // 03:00 is 5 min from 02:55 and 20 min from 03:20.
+    expect(findNearestRoomReading('03:00', readings)?.tempF).toBe(65.5);
+  });
+
+  it('handles midnight wrap with circular distance', () => {
+    // Target is 23:55; a reading at 00:05 is only 10 minutes away even
+    // though raw subtraction would say 23h50m.
+    const readings = [
+      reading('22:00', 63.0),
+      reading('00:05', 65.0),
+    ];
+    expect(findNearestRoomReading('23:55', readings)?.tempF).toBe(65.0);
+  });
+
+  it('returns the single reading when only one exists', () => {
+    const readings = [reading('02:30', 64.7)];
+    expect(findNearestRoomReading('05:00', readings)?.tempF).toBe(64.7);
+  });
+
+  it('breaks ties by returning the first equidistant reading', () => {
+    const readings = [
+      reading('03:00', 64.0),
+      reading('03:20', 66.0),
+    ];
+    // 03:10 is exactly 10 minutes from both — first wins.
+    expect(findNearestRoomReading('03:10', readings)?.tempF).toBe(64.0);
   });
 });
