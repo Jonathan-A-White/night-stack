@@ -111,19 +111,6 @@ export function RoutineStartCard({ targetBedtimeHHMM }: Props) {
     setPermission(result);
   };
 
-  // Resolve the default variant's active step ids — used to decide whether a
-  // saved session covers every step the user expects to run tonight, or if
-  // there are newly-added / still-pending steps.
-  const defaultVariantStepIds = useMemo<string[] | null>(() => {
-    if (!variants || !allSteps) return null;
-    const variant = variants.find((v) => v.isDefault) ?? variants[0];
-    if (!variant) return null;
-    const activeIds = new Set(
-      allSteps.filter((s) => s.isActive).map((s) => s.id),
-    );
-    return variant.stepIds.filter((id) => activeIds.has(id));
-  }, [variants, allSteps]);
-
   // Today's saved session (handleSave in the tracker upserts a single session
   // per day, so there's at most one).
   const todaySession = useMemo(() => {
@@ -132,6 +119,24 @@ export function RoutineStartCard({ targetBedtimeHHMM }: Props) {
     return sessions.find((s) => s.date === today) ?? null;
   }, [sessions]);
 
+  // Active step ids for the variant the saved session was actually run with.
+  // We check coverage against THIS variant rather than the default — otherwise
+  // finishing a non-default variant (e.g. "Friday Night" with 14 steps) would
+  // still look incomplete whenever the default variant has more steps, and
+  // the card would show "Continue routine" forever.
+  const sessionVariantStepIds = useMemo<string[] | null>(() => {
+    if (!variants || !allSteps || !todaySession) return null;
+    const variant =
+      todaySession.variantId != null
+        ? variants.find((v) => v.id === todaySession.variantId) ?? null
+        : null;
+    if (!variant) return null;
+    const activeIds = new Set(
+      allSteps.filter((s) => s.isActive).map((s) => s.id),
+    );
+    return variant.stepIds.filter((id) => activeIds.has(id));
+  }, [variants, allSteps, todaySession]);
+
   // Render states.
   const noData = bufferedTotalMs == null;
 
@@ -139,12 +144,19 @@ export function RoutineStartCard({ targetBedtimeHHMM }: Props) {
   const isRunning = wip != null;
 
   // Is there a saved session from tonight, and does it cover every step in
-  // the current default variant? If not, there's still work to do.
+  // the variant it was run with? If not, there's still work to do.
+  // Ad-hoc sessions (variantId == null) or sessions whose variant has since
+  // been deleted are treated as self-contained — we have no other yardstick
+  // to measure them against, and stranding them in "Continue routine" forever
+  // is worse than calling them done.
   const savedCoversAllSteps = useMemo(() => {
-    if (!todaySession || !defaultVariantStepIds) return false;
+    if (!todaySession) return false;
+    if (todaySession.variantId == null) return true;
+    if (!variants || !allSteps) return false;
+    if (sessionVariantStepIds == null) return true;
     const handled = new Set(todaySession.steps.map((s) => s.stepId));
-    return defaultVariantStepIds.every((id) => handled.has(id));
-  }, [todaySession, defaultVariantStepIds]);
+    return sessionVariantStepIds.every((id) => handled.has(id));
+  }, [todaySession, sessionVariantStepIds, variants, allSteps]);
 
   const isDone = !isRunning && todaySession != null && savedCoversAllSteps;
   const isIncomplete =
