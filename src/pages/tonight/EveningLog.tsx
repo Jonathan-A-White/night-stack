@@ -82,6 +82,12 @@ export function EveningLog() {
 
   const DRAFT_KEY = `evening-log-draft-${logDate}`;
 
+  // Check if an existing log already exists for this date (editing scenario)
+  const existingLog = useLiveQuery(
+    () => db.nightLogs.where('date').equals(logDate).first(),
+    [logDate]
+  );
+
   // Restore draft from sessionStorage on mount
   const [draft] = useState<Record<string, unknown> | null>(() => {
     try {
@@ -211,6 +217,57 @@ export function EveningLog() {
     setWeightInitialized(true);
   }, [settings, latestWeight, weightInitialized]);
 
+  // Seed form state from an existing log when editing (no draft in
+  // sessionStorage). This runs once after the DB query resolves.
+  const [seededFromExisting, setSeededFromExisting] = useState(draft != null);
+  useEffect(() => {
+    if (seededFromExisting) return;
+    if (existingLog === undefined) return; // query still loading
+    if (!existingLog) {
+      // No existing log — nothing to seed from, prevent re-runs.
+      setSeededFromExisting(true);
+      return;
+    }
+    setSeededFromExisting(true);
+
+    // Alarm override
+    if (existingLog.alarm.isOverridden) {
+      setOverrideTime(existingLog.alarm.actualAlarmTime);
+    }
+
+    // Stack
+    setBaseStackUsed(existingLog.stack.baseStackUsed);
+    setDeviations(existingLog.stack.deviations);
+
+    // Food & drink
+    setLastMealTime(existingLog.eveningIntake.lastMealTime);
+    setFoodDescription(existingLog.eveningIntake.foodDescription);
+    setFlags(existingLog.eveningIntake.flags);
+    if (existingLog.eveningIntake.alcohol) {
+      setHasAlcohol(true);
+      setAlcohol(existingLog.eveningIntake.alcohol);
+    }
+    setLiquidIntake(existingLog.eveningIntake.liquidIntake);
+
+    // Midday struggle
+    setHadStruggle(existingLog.middayStruggle.hadStruggle);
+    setSelectedCoping(existingLog.middayStruggle.copingItemIds);
+    setStruggleTime(existingLog.middayStruggle.struggleTime);
+    setStruggleIntensity(existingLog.middayStruggle.intensity ?? '');
+    setStruggleNotes(existingLog.middayStruggle.notes);
+
+    // Environment
+    setRoomTempF(existingLog.environment.roomTempF?.toString() ?? '');
+    setRoomHumidity(existingLog.environment.roomHumidity?.toString() ?? '');
+
+    // Clothing & bedding
+    setSelectedClothing(existingLog.clothing);
+    setSelectedBedding(existingLog.bedding);
+
+    // Notes
+    setEveningNotes(existingLog.eveningNotes);
+  }, [existingLog, seededFromExisting]);
+
   // Persist form state to sessionStorage so it survives navigation
   useEffect(() => {
     const data = {
@@ -313,21 +370,39 @@ export function EveningLog() {
       const date = logDate;
       const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
 
-      const nightLog = createBlankNightLog(date, {
+      // When editing an existing log, preserve its identity and any
+      // morning-side data (sleepData, roomTimeline, etc.) that the
+      // evening form doesn't touch. For new logs, start blank.
+      const nightLog = existingLog
+        ? { ...existingLog }
+        : createBlankNightLog(date, {
+            expectedAlarmTime: defaultAlarm,
+            actualAlarmTime: activeAlarm,
+            isOverridden,
+            targetBedtime: schedule.targetBedtime,
+            eatingCutoff: schedule.eatingCutoff,
+            supplementTime: schedule.supplementTime,
+          });
+
+      nightLog.alarm = {
         expectedAlarmTime: defaultAlarm,
         actualAlarmTime: activeAlarm,
         isOverridden,
         targetBedtime: schedule.targetBedtime,
         eatingCutoff: schedule.eatingCutoff,
         supplementTime: schedule.supplementTime,
-      });
+      };
+      nightLog.updatedAt = Date.now();
 
       // The moment the user finishes the evening log is treated as their
       // actual bedtime — independent of whatever the watch sleep tracker
       // later reports. Backfilled entries (for a previous date) get null
       // because the finish time doesn't reflect when the user actually
-      // went to bed that night.
-      nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      // went to bed that night. When editing, preserve the original
+      // loggedBedtime so it isn't overwritten.
+      if (!existingLog) {
+        nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      }
 
       nightLog.stack = { baseStackUsed, deviations };
       nightLog.eveningIntake = {
@@ -412,7 +487,11 @@ export function EveningLog() {
         <p className="subtitle">Step {step} of {TOTAL_STEPS}{showLogDate ? ` \u2014 ${logDate}` : ''}</p>
       </div>
 
-      {isBackfill ? (
+      {existingLog && isBackfill ? (
+        <div className="banner banner-warning mb-8">
+          Editing evening log for {logDate}
+        </div>
+      ) : isBackfill ? (
         <div className="banner banner-warning mb-8">
           Backfilling evening log for {logDate}
         </div>
