@@ -82,10 +82,12 @@ export function EveningLog() {
 
   const DRAFT_KEY = `evening-log-draft-${logDate}`;
 
-  // Restore draft from sessionStorage on mount
+  // Restore draft from localStorage on mount. localStorage survives app
+  // restarts (unlike sessionStorage which is wiped when the PWA is killed
+  // or the tab is closed), so backfill progress isn't lost.
   const [draft] = useState<Record<string, unknown> | null>(() => {
     try {
-      const saved = sessionStorage.getItem(`evening-log-draft-${logDate}`);
+      const saved = localStorage.getItem(DRAFT_KEY);
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -211,7 +213,7 @@ export function EveningLog() {
     setWeightInitialized(true);
   }, [settings, latestWeight, weightInitialized]);
 
-  // Persist form state to sessionStorage so it survives navigation
+  // Persist form state to localStorage so it survives app restarts
   useEffect(() => {
     const data = {
       step, overrideTime, baseStackUsed, deviations,
@@ -220,7 +222,7 @@ export function EveningLog() {
       roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
       weightLbs, weightSkipped,
     };
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
     step, overrideTime, baseStackUsed, deviations,
     lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
@@ -383,7 +385,7 @@ export function EveningLog() {
         scheduleNotifications(nightLog.alarm, settings.notificationPreferences);
       }
 
-      sessionStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY);
       // Navigate by id — multiple night logs can legitimately share a date
       // (e.g. a mis-filed backfill), so routing by id keeps each entry
       // independently addressable.
