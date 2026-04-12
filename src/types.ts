@@ -331,6 +331,14 @@ export interface RoutineStepLog {
   durationMs: number | null; // endedAt - startedAt; null if skipped/punted without running
   pbAtStartMs: number | null; // PB that was loaded when the timer started (used to display negative deltas historically)
   notes: string;
+  /**
+   * The duration the step had recorded before it was last skipped, so an
+   * unskip can restore it. Set automatically when a previously-completed
+   * step gets skipped (in-session via long-press, or on the start screen
+   * when editing a prior sub-session). Optional for backwards compat with
+   * sessions saved before this field existed.
+   */
+  lastDurationMs?: number | null;
 }
 
 export interface RoutineSession {
