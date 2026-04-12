@@ -156,6 +156,7 @@ interface SleepData {
   lightSleep: number; // minutes
   awakeDuration: number; // minutes
   avgHeartRate: number; // bpm
+  minHeartRate: number | null; // bpm — lowest HR observed overnight; null when unavailable
   avgRespiratoryRate: number; // breaths/min
   bloodOxygenAvg: number; // percent
   skinTempRange: string; // e.g., "-7.5 to -1.3°F"
@@ -774,6 +775,7 @@ The user creates the JSON externally by sending a Samsung Health screenshot to a
   "lightSleep": 179,
   "awakeDuration": 21,
   "avgHeartRate": 48,
+  "minHeartRate": 42,
   "avgRespiratoryRate": 15.1,
   "bloodOxygenAvg": 93,
   "skinTempRange": "-2.5 to +2.1°F",
@@ -984,6 +986,7 @@ When given a screenshot from Samsung Health's sleep tracking screen, extract the
   "lightSleep": "integer (minutes)",
   "awakeDuration": "integer (minutes)",
   "avgHeartRate": "integer (bpm)",
+  "minHeartRate": "integer (bpm), optional — omit or set to null when unavailable",
   "avgRespiratoryRate": "float (breaths/min)",
   "bloodOxygenAvg": "integer (percent)",
   "skinTempRange": "string (e.g., '-2.5 to +2.1°F')",
