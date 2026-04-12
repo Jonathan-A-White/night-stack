@@ -240,10 +240,10 @@ export function EveningLog() {
   // Fetch weather
   useEffect(() => {
     if (!settings) return;
-    fetchOvernightWeather(settings.latitude, settings.longitude)
+    fetchOvernightWeather(settings.latitude, settings.longitude, logDate)
       .then(setWeather)
       .catch(() => {});
-  }, [settings]);
+  }, [settings, logDate]);
 
   // Helper: is supplement on today for every_other_day
   function isEveryOtherDayOn(supp: SupplementDef): boolean {
