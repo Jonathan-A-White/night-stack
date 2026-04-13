@@ -37,8 +37,16 @@ const MORNING_DRAFT_KEY = 'morning-log-draft';
 
 function loadDraft(): Record<string, unknown> | null {
   try {
-    const raw = sessionStorage.getItem(MORNING_DRAFT_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(MORNING_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Discard drafts saved on a different date so a stale morning draft
+    // from days ago doesn't resurface after an app restart.
+    if (parsed?.savedDate && parsed.savedDate !== getTodayDate()) {
+      localStorage.removeItem(MORNING_DRAFT_KEY);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -168,7 +176,7 @@ export function MorningLog() {
   }, [settings, latestWeight, weightInitialized]);
 
   // Seed form state from existing morning data when editing (no draft in
-  // sessionStorage). This runs once after the nightLog query resolves.
+  // localStorage). This runs once after the nightLog query resolves.
   const [seededFromExisting, setSeededFromExisting] = useState(draft != null);
   useEffect(() => {
     if (seededFromExisting) return;
@@ -207,8 +215,10 @@ export function MorningLog() {
     }
   }, [nightLog, seededFromExisting]);
 
-  // Persist every step of the morning log to sessionStorage so switching away
-  // (settings, insights, closing the app) doesn't lose work.
+  // Persist every step of the morning log to localStorage so switching away
+  // (settings, insights, closing the app, or restarting) doesn't lose work.
+  // localStorage survives app restarts unlike sessionStorage which is wiped
+  // when the PWA is killed or the tab is closed.
   useEffect(() => {
     const data = {
       step,
@@ -221,11 +231,12 @@ export function MorningLog() {
       morningNotes,
       weightLbs,
       weightSkipped,
+      savedDate: today,
     };
     try {
-      sessionStorage.setItem(MORNING_DRAFT_KEY, JSON.stringify(data));
+      localStorage.setItem(MORNING_DRAFT_KEY, JSON.stringify(data));
     } catch {
-      // sessionStorage can be full or disabled — fail silently, the user will
+      // localStorage can be full or disabled — fail silently, the user will
       // just lose their draft if they navigate away.
     }
   }, [
@@ -447,7 +458,7 @@ export function MorningLog() {
     }
 
     // Clear draft on successful save
-    sessionStorage.removeItem(MORNING_DRAFT_KEY);
+    localStorage.removeItem(MORNING_DRAFT_KEY);
 
     navigate(`/morning/review/${nightLog.id}`);
   }

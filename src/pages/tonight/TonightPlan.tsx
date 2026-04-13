@@ -19,11 +19,23 @@ import { RoutineStartCard } from './RoutineStartCard';
 
 export function TonightPlan() {
   const navigate = useNavigate();
-  const tomorrowDow = getTomorrowDayOfWeek();
+
+  // Late bedtime detection: if it's early morning (before 6 AM) and there's
+  // no evening log for last night yet, the user is probably still up and
+  // going to bed late. Show this morning's alarm instead of tomorrow's.
+  const eveningDate = getEveningLogDate();
+  const existingEveningLog = useLiveQuery(
+    async () =>
+      (await db.nightLogs.where('date').equals(eveningDate).first()) ?? null,
+    [eveningDate],
+  );
+  const now = new Date();
+  const isLateBedtime = now.getHours() < 6 && existingEveningLog === null;
+  const alarmDow = isLateBedtime ? now.getDay() : getTomorrowDayOfWeek();
 
   const alarmSchedule = useLiveQuery(
-    () => db.alarmSchedules.where('dayOfWeek').equals(tomorrowDow).first(),
-    [tomorrowDow]
+    () => db.alarmSchedules.where('dayOfWeek').equals(alarmDow).first(),
+    [alarmDow],
   );
 
   const settings = useLiveQuery(() => db.appSettings.get('default'));
@@ -46,11 +58,11 @@ export function TonightPlan() {
 
   // Detect an in-progress evening log draft so the CTA can read
   // "Resume Evening Log" instead of "Start Evening Log". EveningLog persists
-  // its wizard state to sessionStorage under this key and clears it on submit.
+  // its wizard state to localStorage under this key and clears it on submit.
   const [hasEveningLogDraft, setHasEveningLogDraft] = useState(() => {
     try {
       return (
-        sessionStorage.getItem(`evening-log-draft-${getEveningLogDate()}`) !==
+        localStorage.getItem(`evening-log-draft-${getEveningLogDate()}`) !==
         null
       );
     } catch {
@@ -64,7 +76,7 @@ export function TonightPlan() {
     function refresh() {
       try {
         setHasEveningLogDraft(
-          sessionStorage.getItem(
+          localStorage.getItem(
             `evening-log-draft-${getEveningLogDate()}`,
           ) !== null,
         );
@@ -84,6 +96,19 @@ export function TonightPlan() {
   const schedule = calculateSchedule(activeAlarm);
   const currentTime = getCurrentTime();
   const isPastCutoff = isTimeAfter(currentTime, schedule.eatingCutoff);
+
+  // In late mode, compute approximate time until alarm
+  const alarmCountdown = (() => {
+    if (!isLateBedtime) return null;
+    const [h, m] = activeAlarm.split(':').map(Number);
+    const target = new Date();
+    target.setHours(h, m, 0, 0);
+    if (target.getTime() <= Date.now()) target.setDate(target.getDate() + 1);
+    const diffMs = target.getTime() - Date.now();
+    const hours = Math.floor(diffMs / 3600000);
+    const mins = Math.floor((diffMs % 3600000) / 60000);
+    return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  })();
 
   // Fetch weather on mount
   useEffect(() => {
@@ -120,7 +145,9 @@ export function TonightPlan() {
       <div className="page-header">
         <h1>Tonight</h1>
         <p className="subtitle">
-          Alarm for {DAY_NAMES[tomorrowDow]}
+          {isLateBedtime
+            ? 'Going to bed late'
+            : `Alarm for ${DAY_NAMES[alarmDow]}`}
         </p>
       </div>
 
@@ -146,34 +173,46 @@ export function TonightPlan() {
         </div>
       </div>
 
-      {/* Calculated schedule */}
-      <div className="card">
-        <div className="card-title">Schedule</div>
-        <div className="metrics-row">
-          <div className="metric-card">
-            <div className="metric-value">{formatTime12h(schedule.targetBedtime)}</div>
-            <div className="metric-label">Bedtime</div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-value">{formatTime12h(schedule.eatingCutoff)}</div>
-            <div className="metric-label">Eating Cutoff</div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-value">{formatTime12h(schedule.supplementTime)}</div>
-            <div className="metric-label">Supplements</div>
+      {/* Late bedtime banner */}
+      {isLateBedtime && (
+        <div className="banner banner-warning">
+          It's late &mdash; your {DAY_NAMES[alarmDow]} alarm rings in {alarmCountdown}.
+          Log your evening before bed.
+        </div>
+      )}
+
+      {/* Calculated schedule (hidden in late mode — all times have passed) */}
+      {!isLateBedtime && (
+        <div className="card">
+          <div className="card-title">Schedule</div>
+          <div className="metrics-row">
+            <div className="metric-card">
+              <div className="metric-value">{formatTime12h(schedule.targetBedtime)}</div>
+              <div className="metric-label">Bedtime</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value">{formatTime12h(schedule.eatingCutoff)}</div>
+              <div className="metric-label">Eating Cutoff</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-value">{formatTime12h(schedule.supplementTime)}</div>
+              <div className="metric-label">Supplements</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Past cutoff warning */}
-      {isPastCutoff && (
+      {!isLateBedtime && isPastCutoff && (
         <div className="banner banner-danger">
           Eating cutoff has passed ({formatTime12h(schedule.eatingCutoff)}). Avoid food from now on for better sleep.
         </div>
       )}
 
-      {/* Evening routine start card */}
-      <RoutineStartCard targetBedtimeHHMM={schedule.targetBedtime} />
+      {/* Evening routine start card (hidden in late mode) */}
+      {!isLateBedtime && (
+        <RoutineStartCard targetBedtimeHHMM={schedule.targetBedtime} />
+      )}
 
       {/* Weather */}
       <div className="card">
