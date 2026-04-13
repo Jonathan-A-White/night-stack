@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
@@ -54,6 +54,7 @@ function loadDraft(): Record<string, unknown> | null {
 
 export function MorningLog() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const draft = useRef(loadDraft()).current;
 
   const [step, setStep] = useState<number>((draft?.step as number) ?? 1);
@@ -61,13 +62,21 @@ export function MorningLog() {
   const today = getTodayDate();
   const yesterday = getYesterdayDate();
 
-  // Find the evening log — could be today's date or yesterday's
+  // Support ?date=YYYY-MM-DD for editing a specific night's morning data
+  // from the calendar. The date is the NightLog.date (the evening date).
+  const targetDate = searchParams.get('date');
+
+  // Find the evening log — explicit date from calendar, or today/yesterday
   const nightLog = useLiveQuery(async () => {
+    if (targetDate) {
+      const log = await db.nightLogs.where('date').equals(targetDate).first();
+      return log ?? null;
+    }
     const todayLog = await db.nightLogs.where('date').equals(today).first();
     if (todayLog) return todayLog;
     const yLog = await db.nightLogs.where('date').equals(yesterday).first();
     return yLog ?? null;
-  }, [today, yesterday]);
+  }, [targetDate, today, yesterday]);
 
   // Config data
   const wakeUpCauses = useLiveQuery(
@@ -165,6 +174,46 @@ export function MorningLog() {
     setWeightLbs(defaultLbs);
     setWeightInitialized(true);
   }, [settings, latestWeight, weightInitialized]);
+
+  // Seed form state from existing morning data when editing (no draft in
+  // localStorage). This runs once after the nightLog query resolves.
+  const [seededFromExisting, setSeededFromExisting] = useState(draft != null);
+  useEffect(() => {
+    if (seededFromExisting) return;
+    if (nightLog === undefined) return; // query still loading
+    if (!nightLog) {
+      setSeededFromExisting(true);
+      return;
+    }
+    setSeededFromExisting(true);
+
+    // Sleep data
+    if (nightLog.sleepData) {
+      setSleepData(nightLog.sleepData);
+    }
+
+    // Room timeline
+    if (nightLog.roomTimeline) {
+      setRoomTimeline(nightLog.roomTimeline);
+    }
+
+    // Wake-up events
+    if (nightLog.wakeUpEvents.length > 0) {
+      setHadWakeUps(true);
+      setWakeUpEvents(nightLog.wakeUpEvents);
+    }
+
+    // Bedtime explanation
+    if (nightLog.bedtimeExplanation) {
+      setBedtimeReason(nightLog.bedtimeExplanation.reason);
+      setBedtimeNotes(nightLog.bedtimeExplanation.notes);
+    }
+
+    // Morning notes
+    if (nightLog.morningNotes) {
+      setMorningNotes(nightLog.morningNotes);
+    }
+  }, [nightLog, seededFromExisting]);
 
   // Persist every step of the morning log to localStorage so switching away
   // (settings, insights, closing the app, or restarting) doesn't lose work.
@@ -461,6 +510,12 @@ export function MorningLog() {
         <h1>Morning Log</h1>
         <p className="subtitle">Step {step} of {TOTAL_STEPS} &mdash; {morningDate}</p>
       </div>
+
+      {targetDate && nightLog.sleepData && (
+        <div className="banner banner-warning mb-8">
+          Editing morning log for {morningDate}
+        </div>
+      )}
 
       {/* Step progress bar */}
       <div className="step-progress">

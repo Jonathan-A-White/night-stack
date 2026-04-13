@@ -371,7 +371,9 @@ export function CalendarPage() {
                   </button>
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={() => navigate('/morning')}
+                    onClick={() =>
+                      navigate(`/morning?date=${selectedPriorDate}`)
+                    }
                   >
                     Edit
                   </button>
@@ -379,7 +381,9 @@ export function CalendarPage() {
               ) : canLogMorning ? (
                 <button
                   className="btn btn-primary btn-sm"
-                  onClick={() => navigate('/morning')}
+                  onClick={() =>
+                    navigate(`/morning?date=${selectedPriorDate}`)
+                  }
                 >
                   Log morning
                 </button>
