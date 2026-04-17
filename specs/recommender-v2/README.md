@@ -19,6 +19,7 @@ are ordered by dependency, not priority.
 
 | File | Scope | Blocks / Blocked by |
 |---|---|---|
+| `questions.md` | Cross-cutting open questions (Q1–Q10). Read first. | — |
 | `logging-fixes.md` | Ensure the UI actually captures the fields the recommender needs. Zero defects caused all the dead-field findings in §d of the analysis. | Blocks every other workstream |
 | `bugfixes.md` | Root-cause the duplicate `sleepData` + overwritten `roomTimeline` on 4/15 ≡ 4/16. Without fixing this, historical nights double-count and fresh data gets stale on re-import. | Independent; do in parallel with logging-fixes |
 | `derived-features.md` | New feature derivations: `hoursSinceLastMeal`, `coolingRate1to4F`, pulling `roomHumidity` through. | Blocked by logging-fixes for `lastMealTime` coverage. Blocks distance-function. |
@@ -58,66 +59,13 @@ landed.
 
 ## Cross-cutting open questions
 
-These affect multiple workstreams. Resolve before the relevant agent
-starts.
+Resolved separately in **`questions.md`** (Q1–Q10) to keep this file
+focused on orchestration. Read `questions.md` before starting any
+workstream — most of its questions have defaults documented, but a
+few (Q1, Q2, Q7) should be answered by the user before agents begin.
 
-1. **Is the window AC installed yet?** The user's original framing said
-   "we *will* have a window AC." The April export shows `acCurveProfile
-   === 'off'` on 11/11 nights. If AC isn't live:
-   - `distance-function.md` already gates AC distance on both sides
-     non-`off`, which handles this gracefully.
-   - `logging-fixes.md` should *not* make AC fields required.
-   - Consider a `settings.acInstalled: boolean` so the UI can hide AC
-     inputs until the user opts in. Not currently specced — flag for
-     decision.
-
-2. **Proxy-derived labels: auto-apply or ask?** `backfill.md` proposes
-   deriving `thermalComfort` from wake-cause IDs for historical nights.
-   Two options:
-   - (a) Automatically stamp every historical night with the derived
-     label and mark `thermalComfortSource === 'proxy'`.
-   - (b) Offer the user a one-screen "review and confirm" flow where
-     each proposed label is editable before commit.
-   Recommendation: (b). Decide before starting `backfill.md`.
-
-3. **`thermalComfortSource` provenance field.** If we keep
-   proxy-derived labels distinct from user-entered ones, the schema
-   needs a new field. Questions:
-   - Values: `'user' | 'proxy'` — enough, or do we also need `'import'`
-     for future third-party tags?
-   - Does the recommender weight them the same, or discount proxy
-     labels (lower weight in neighbor voting)?
-
-4. **Starting-room-from-forecast-low fit.** Analysis gives
-   `startingRoom ≈ 0.436·weatherLow + 49.91, R²=0.831`. Options:
-   - (a) Hardcode the coefficients as a constant in the UX prefill.
-   - (b) Recompute per-user from their own past logs once they have
-     ≥10 nights with both fields populated.
-   - (c) Skip the prefill entirely and keep the field required.
-   Recommendation: (b) with (a) as the bootstrap. Decide before
-   starting `ux.md`.
-
-5. **"Mixed" `thermalComfort` — operational definition.** Schema has
-   `'mixed'` but nothing in the code classifies anything as mixed. For
-   the proxy rule in `backfill.md` and for user guidance in the morning
-   log: is "mixed" = (≥1 hot wake AND ≥1 cold wake in the same night)?
-   Should mixed nights be excluded from recommender neighbor voting,
-   used as negative examples, or just labeled and surfaced?
-
-6. **Tests.** The existing codebase runs `vitest` and has 170 tests.
-   Should each workstream ship unit tests? Recommendation: yes — at
-   minimum `nightDistance`, `logToInputs`, and the derivation helpers.
-   Individual specs call this out but don't prescribe coverage
-   percentages.
-
-7. **`plannedAcCurve` with value `'off'` in the tonight form.** Today
-   the dropdown includes `'off'`, and the recommender treats `'off'` ≠
-   `'off'` matches as a match. Under the new AC-curve conditional
-   (both must be non-`off`), a user who selects `'off'` intentionally
-   will get *no* AC-curve distance contribution. Is that the right
-   semantic — "AC off is the baseline and not a discriminating
-   feature" — or should `'off'` vs a running curve add distance? Flag
-   for UX review.
+Per-workstream "Known unknowns" sections remain inside each spec file
+for questions scoped to a single workstream.
 
 ## Not in scope
 
