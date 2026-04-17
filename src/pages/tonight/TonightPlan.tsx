@@ -78,8 +78,6 @@ export function TonightPlan() {
   const [plannedRoomTemp, setPlannedRoomTemp] = useState<string>('');
   const [plannedAcCurve, setPlannedAcCurve] = useState<AcCurveProfile | ''>('');
   const [plannedAcSetpoint, setPlannedAcSetpoint] = useState<string>('');
-  const [ateLate, setAteLate] = useState(false);
-  const [overate, setOverate] = useState(false);
   const [hadAlcohol, setHadAlcohol] = useState(false);
 
   // Detect an in-progress evening log draft so the CTA can read
@@ -174,9 +172,6 @@ export function TonightPlan() {
       roomHumidity: null,
       hoursSinceLastMeal: null,
       coolingRate1to4F: null,
-      ateLate,
-      overate,
-      highSalt: false,
       alcohol: hadAlcohol,
       plannedAcCurve: plannedAcCurve || null,
       plannedAcSetpointF: plannedAcSetpoint ? parseFloat(plannedAcSetpoint) : null,
@@ -330,21 +325,16 @@ export function TonightPlan() {
           </div>
         )}
 
+        {/*
+         * Evening-intake dials. The `ateLate`/`overate` toggles were removed
+         * in recommender v2 (distance-function.md T1 + T7) — they were
+         * zero-signal in the 2026-04-17 analysis. The continuous replacement
+         * `hoursSinceLastMeal` will get its own control in `ux.md`; until
+         * then the recommender defaults it to null (half-penalty).
+         */}
         <div className="form-group">
-          <label className="form-label">What you ate / drank tonight</label>
+          <label className="form-label">What you drank tonight</label>
           <div className="toggle-grid">
-            <button
-              className={`toggle-btn${ateLate ? ' active' : ''}`}
-              onClick={() => setAteLate((v) => !v)}
-            >
-              Ate late
-            </button>
-            <button
-              className={`toggle-btn${overate ? ' active' : ''}`}
-              onClick={() => setOverate((v) => !v)}
-            >
-              Overate
-            </button>
             <button
               className={`toggle-btn${hadAlcohol ? ' active' : ''}`}
               onClick={() => setHadAlcohol((v) => !v)}

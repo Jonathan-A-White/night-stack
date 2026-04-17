@@ -41,15 +41,6 @@ export interface RecommenderInputs {
    * `specs/recommender-v2/derived-features.md` T2. EXPLORATORY.
    */
   coolingRate1to4F: number | null;
-  /**
-   * DEPRECATED binary food flags — dropped from `logToInputs` in
-   * derived-features T4 (always false now). The interface still lists
-   * them so downstream callers (TonightPlan) compile until
-   * `distance-function.md` T1 lands the interface reshape.
-   */
-  ateLate: boolean;
-  overate: boolean;
-  highSalt: boolean;
   /** Alcohol consumed this evening. */
   alcohol: boolean;
   /** Planned AC curve + setpoint for tonight. Null = undecided. */
@@ -102,17 +93,39 @@ const K_NEIGHBORS = 5;
 
 /**
  * Weighted L1 distance. Weights come from how directly each input drives
- * thermal comfort: room temp and forecast low dominate, food flags nudge.
+ * thermal comfort: room temp and forecast low dominate, humidity and
+ * meal-timing nudge. Re-weighted in recommender v2 per
+ * `specs/recommender-v2/distance-function.md` T2.
+ *
+ * Scales rationale:
+ * - overnightLowF scale 15 °F: 15° between-night difference = "very different."
+ * - startingRoomTempF scale 5 °F: unchanged; weight raised 3 → 4 because the
+ *   analysis showed room temp at bedtime is the single strongest signal.
+ * - roomHumidity scale 10 pp: matches the observed between-night spread.
+ * - hoursSinceLastMeal scale 3h: ~the full range observed in the 11-night
+ *   export (replaces binary `ateLate`).
+ * - coolingRate1to4F scale 0.6 °F/h: ±0.6 °F/h ≈ "very different" per the
+ *   analysis's rank separation (EXPLORATORY — re-tune at larger n).
+ * - plannedAcSetpointF scale 5 °F: unchanged.
+ * - alcohol weight 0.5: lowered from 1 because alcohol is rare in the
+ *   observed data; kept as a boolean nudge.
+ * - AC curve block (1.5): see T3 — only contributes when both sides are
+ *   non-null and non-`'off'`.
  */
 export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): number {
   let d = 0;
   let totalWeight = 0;
 
+  /**
+   * Missing dimension gets a half-penalty (`weight * 0.5`) so logs with
+   * missing data aren't free-matched but also aren't ruled out. This is the
+   * intended behavior for every new numeric dimension too — don't "fix" it
+   * by dropping the penalty for null-heavy dims without re-reading
+   * `distance-function.md` T4.
+   */
   function addDim(av: number | null, bv: number | null, weight: number, scale: number) {
     totalWeight += weight;
     if (av == null || bv == null) {
-      // Missing dimension gets half-penalty so logs with missing data aren't
-      // free-matched but also aren't ruled out.
       d += weight * 0.5;
       return;
     }
@@ -120,7 +133,10 @@ export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): numbe
   }
 
   addDim(a.overnightLowF, b.overnightLowF, 3, 15); // 15°F = "very different"
-  addDim(a.startingRoomTempF, b.startingRoomTempF, 3, 5);
+  addDim(a.startingRoomTempF, b.startingRoomTempF, 4, 5); // weight raised 3 → 4 in v2
+  addDim(a.roomHumidity, b.roomHumidity, 1, 10); // NEW in v2
+  addDim(a.hoursSinceLastMeal, b.hoursSinceLastMeal, 1, 3); // NEW — replaces ateLate
+  addDim(a.coolingRate1to4F, b.coolingRate1to4F, 1, 0.6); // NEW — EXPLORATORY
   addDim(a.plannedAcSetpointF, b.plannedAcSetpointF, 1, 5);
 
   // Boolean flags — distance 0 or 1.
@@ -128,17 +144,21 @@ export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): numbe
     totalWeight += weight;
     if (av !== bv) d += weight;
   }
-  addBool(a.ateLate, b.ateLate, 1);
-  addBool(a.overate, b.overate, 1);
-  addBool(a.highSalt, b.highSalt, 0.5);
-  addBool(a.alcohol, b.alcohol, 1);
+  addBool(a.alcohol, b.alcohol, 0.5); // weight lowered 1 → 0.5 in v2
 
-  // AC curve profile — 0 if same, 1 if different, skipped if either side null.
-  totalWeight += 1.5;
-  if (a.plannedAcCurve && b.plannedAcCurve) {
+  // AC curve profile — Q6 semantics: `'off'` is an inert baseline.
+  // Only contribute to distance (and totalWeight) when BOTH sides are
+  // non-null and non-`'off'`. Two `'off'` logs add nothing; one side
+  // `'off'` and the other running also adds nothing. We don't penalize
+  // mismatched AC use on a curve we have no data to compare.
+  if (
+    a.plannedAcCurve &&
+    b.plannedAcCurve &&
+    a.plannedAcCurve !== 'off' &&
+    b.plannedAcCurve !== 'off'
+  ) {
+    totalWeight += 1.5;
     if (a.plannedAcCurve !== b.plannedAcCurve) d += 1.5;
-  } else {
-    d += 0.75;
   }
 
   return d / totalWeight;
@@ -272,13 +292,6 @@ export function logToInputs(log: NightLog): RecommenderInputs {
     roomHumidity: log.environment.roomHumidity,
     hoursSinceLastMeal: computeHoursSinceLastMeal(log),
     coolingRate1to4F: computeCoolingRate1to4F(log),
-    // Keep the three binary food flags in the output (hardcoded false) to
-    // avoid breaking the build until `distance-function.md` T1 reshapes
-    // `RecommenderInputs`. The underlying derivations are dropped now —
-    // the flags no longer contribute any signal regardless of log state.
-    ateLate: false,
-    overate: false,
-    highSalt: false,
     alcohol: log.eveningIntake.alcohol != null,
     plannedAcCurve: log.environment.acCurveProfile,
     plannedAcSetpointF: log.environment.acSetpointF,
