@@ -29,11 +29,49 @@ interface Props {
   log: Pick<NightLog, 'id' | 'date' | 'thermalComfort' | 'thermalComfortSource'>;
   /** Disable the click-to-edit jump (e.g. already on the morning log). */
   readOnly?: boolean;
+  /**
+   * When true, render a neutral "—" chip for nights with no label instead
+   * of returning null. Used on the Insights dashboard (ux.md T6) where
+   * every night row should have a chip, even unlabeled ones, so the row
+   * layout stays consistent. Defaults to false so existing callers
+   * (e.g. MorningReview) continue to hide the chip on unlabeled nights.
+   */
+  renderEmpty?: boolean;
 }
 
-export function ThermalComfortChip({ log, readOnly = false }: Props) {
+export function ThermalComfortChip({ log, readOnly = false, renderEmpty = false }: Props) {
   const navigate = useNavigate();
-  if (!log.thermalComfort) return null;
+
+  // Empty-state chip (ux.md T6): keeps the dashboard row layout aligned
+  // and invites the user to click through and label the night.
+  if (!log.thermalComfort) {
+    if (!renderEmpty) return null;
+    const emptyClasses = ['thermal-chip', 'thermal-chip--empty']
+      .filter(Boolean)
+      .join(' ');
+    const emptyHandle = (e: React.MouseEvent) => {
+      if (readOnly) return;
+      e.stopPropagation();
+      navigate(`/morning?date=${encodeURIComponent(log.date)}`);
+    };
+    return (
+      <span
+        className={emptyClasses}
+        title="Not labeled yet — click to set in the morning log."
+        role={readOnly ? undefined : 'button'}
+        tabIndex={readOnly ? undefined : 0}
+        onClick={emptyHandle}
+        onKeyDown={(e) => {
+          if (!readOnly && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            emptyHandle(e as unknown as React.MouseEvent);
+          }
+        }}
+      >
+        &mdash;
+      </span>
+    );
+  }
 
   const isProxy = log.thermalComfortSource === 'proxy';
   const classes = [

@@ -963,3 +963,11 @@ textarea.form-input {
 .thermal-chip--cold   { border-color: #4a86e8; }
 .thermal-chip--just   { border-color: var(--color-success); }
 .thermal-chip--mixed  { border-color: var(--color-warning); }
+/* Empty-state chip for unlabeled nights (ux.md T6). Grey border + dim
+   text so the dashboard row layout stays consistent without drawing the
+   eye — it's a "placeholder until you tag this night" affordance. */
+.thermal-chip--empty  {
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
