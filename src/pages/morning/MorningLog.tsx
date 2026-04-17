@@ -572,6 +572,10 @@ export function MorningLog() {
       bedtimeExplanation,
       morningNotes,
       thermalComfort,
+      // Stamp provenance whenever we write a non-null label — the user is
+      // the author here. If they clear the label (null), drop the source
+      // back to null so a later backfill proxy can take over if applicable.
+      thermalComfortSource: thermalComfort ? 'user' : null,
       updatedAt: Date.now(),
     });
 

@@ -263,5 +263,7 @@ export function createBlankNightLog(date: string, alarm: {
     eveningNotes: '',
     morningNotes: '',
     thermalComfort: null,
+    thermalComfortSource: null,
+    thermalProxyDismissed: false,
   };
 }

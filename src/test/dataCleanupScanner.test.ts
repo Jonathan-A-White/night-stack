@@ -82,6 +82,8 @@ function makeLog(
     eveningNotes: '',
     morningNotes: '',
     thermalComfort: null,
+    thermalComfortSource: null,
+    thermalProxyDismissed: false,
   };
 }
 
