@@ -5,6 +5,7 @@ import type {
   BeddingItem,
   ThermalComfort,
 } from '../types';
+import { findNearestRoomReading } from '../utils';
 import { getOvernightLow } from './weather';
 
 /**
@@ -22,10 +23,24 @@ export interface RecommenderInputs {
   overnightLowF: number | null;
   /** Starting room temp at bedtime, °F. Null when not measured. */
   startingRoomTempF: number | null;
-  /** Today's evening food flags that matter for thermal load. */
-  ateLate: boolean;
-  overate: boolean;
-  highSalt: boolean;
+  /**
+   * Room humidity (%) at bedtime, 0–100. Null when not measured. Added in
+   * recommender v2 (AUC 0.800 in the 2026-04-17 analysis — higher signal
+   * than any of the dropped binary food flags).
+   */
+  roomHumidity: number | null;
+  /**
+   * Continuous replacement for the binary `ateLate` flag — hours between
+   * the last meal and the bedtime anchor. See
+   * `specs/recommender-v2/derived-features.md` T1.
+   */
+  hoursSinceLastMeal: number | null;
+  /**
+   * °F/hour drift of the room temp between ~01:00 and ~04:00 local. Derived
+   * from `roomTimeline`. Negative = cooling; positive = warming. See
+   * `specs/recommender-v2/derived-features.md` T2. EXPLORATORY.
+   */
+  coolingRate1to4F: number | null;
   /** Alcohol consumed this evening. */
   alcohol: boolean;
   /** Planned AC curve + setpoint for tonight. Null = undecided. */
@@ -72,23 +87,112 @@ export interface Recommendation {
   warning: string;
   /** Count of total past nights with a thermalComfort label. */
   totalLabeledNights: number;
+  /**
+   * How confident the `items` list is. `'consensus'` = derived from
+   * `goodNeighbors` (the normal path). `'exploratory'` = no good neighbors
+   * but the bad neighbors leaned strongly one direction, so we picked the
+   * least-bad neighbor's stack as a starting point. See
+   * `specs/recommender-v2/ux.md` T4.
+   */
+  mode: 'consensus' | 'exploratory';
 }
 
 const K_NEIGHBORS = 5;
 
 /**
+ * Linear fit from the 2026-04-17 analysis:
+ * `startingRoom ≈ 0.436 × weatherLow + 49.91`, R²=0.831 (n=11).
+ *
+ * Used to prefill the Tonight form's starting-room temp from the overnight
+ * forecast low — see `specs/recommender-v2/ux.md` T2. Per questions.md Q4
+ * option (a), the coefficients are hardcoded for the v2 ship; a per-user
+ * re-fit is deferred until the user has ≥10 nights with both fields
+ * populated.
+ *
+ * NOTE: valid for the original user's apartment/weather pattern only. Flag
+ * before multi-user rollout — the intercept (49.91) and slope (0.436)
+ * encode this building's insulation + the user's baseline comfort setpoint,
+ * which won't generalize.
+ */
+export function estimateStartingRoomTemp(overnightLowF: number): number {
+  return Math.round(0.436 * overnightLowF + 49.91);
+}
+
+/**
+ * "Pressure" = how much colder tonight is forecast to get than the room
+ * starts at. A large negative value means the room has a lot of room to
+ * drop. See `specs/recommender-v2/ux.md` T3. Thresholds are tuned from the
+ * n=11 export (cold nights around −30; hot nights around −17) — re-tune at
+ * larger n.
+ */
+export type PressureBand = 'little' | 'moderate' | 'strong' | 'extreme';
+
+export interface PressureDescription {
+  band: PressureBand;
+  /** Plain-English suffix describing what to expect. */
+  text: string;
+}
+
+export function describePressure(pressure: number): PressureDescription {
+  if (pressure >= -5) {
+    return {
+      band: 'little',
+      text: "Little cooling pressure tonight — room won't drop much.",
+    };
+  }
+  if (pressure > -15) {
+    return {
+      band: 'moderate',
+      text: 'Moderate cooling — expect the room to fall a few degrees.',
+    };
+  }
+  if (pressure > -30) {
+    return {
+      band: 'strong',
+      text: 'Strong cooling — room will fall sharply.',
+    };
+  }
+  return {
+    band: 'extreme',
+    text: 'Extreme cooling — consider closing the window / running the heater early.',
+  };
+}
+
+/**
  * Weighted L1 distance. Weights come from how directly each input drives
- * thermal comfort: room temp and forecast low dominate, food flags nudge.
+ * thermal comfort: room temp and forecast low dominate, humidity and
+ * meal-timing nudge. Re-weighted in recommender v2 per
+ * `specs/recommender-v2/distance-function.md` T2.
+ *
+ * Scales rationale:
+ * - overnightLowF scale 15 °F: 15° between-night difference = "very different."
+ * - startingRoomTempF scale 5 °F: unchanged; weight raised 3 → 4 because the
+ *   analysis showed room temp at bedtime is the single strongest signal.
+ * - roomHumidity scale 10 pp: matches the observed between-night spread.
+ * - hoursSinceLastMeal scale 3h: ~the full range observed in the 11-night
+ *   export (replaces binary `ateLate`).
+ * - coolingRate1to4F scale 0.6 °F/h: ±0.6 °F/h ≈ "very different" per the
+ *   analysis's rank separation (EXPLORATORY — re-tune at larger n).
+ * - plannedAcSetpointF scale 5 °F: unchanged.
+ * - alcohol weight 0.5: lowered from 1 because alcohol is rare in the
+ *   observed data; kept as a boolean nudge.
+ * - AC curve block (1.5): see T3 — only contributes when both sides are
+ *   non-null and non-`'off'`.
  */
 export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): number {
   let d = 0;
   let totalWeight = 0;
 
+  /**
+   * Missing dimension gets a half-penalty (`weight * 0.5`) so logs with
+   * missing data aren't free-matched but also aren't ruled out. This is the
+   * intended behavior for every new numeric dimension too — don't "fix" it
+   * by dropping the penalty for null-heavy dims without re-reading
+   * `distance-function.md` T4.
+   */
   function addDim(av: number | null, bv: number | null, weight: number, scale: number) {
     totalWeight += weight;
     if (av == null || bv == null) {
-      // Missing dimension gets half-penalty so logs with missing data aren't
-      // free-matched but also aren't ruled out.
       d += weight * 0.5;
       return;
     }
@@ -96,7 +200,10 @@ export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): numbe
   }
 
   addDim(a.overnightLowF, b.overnightLowF, 3, 15); // 15°F = "very different"
-  addDim(a.startingRoomTempF, b.startingRoomTempF, 3, 5);
+  addDim(a.startingRoomTempF, b.startingRoomTempF, 4, 5); // weight raised 3 → 4 in v2
+  addDim(a.roomHumidity, b.roomHumidity, 1, 10); // NEW in v2
+  addDim(a.hoursSinceLastMeal, b.hoursSinceLastMeal, 1, 3); // NEW — replaces ateLate
+  addDim(a.coolingRate1to4F, b.coolingRate1to4F, 1, 0.6); // NEW — EXPLORATORY
   addDim(a.plannedAcSetpointF, b.plannedAcSetpointF, 1, 5);
 
   // Boolean flags — distance 0 or 1.
@@ -104,34 +211,154 @@ export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): numbe
     totalWeight += weight;
     if (av !== bv) d += weight;
   }
-  addBool(a.ateLate, b.ateLate, 1);
-  addBool(a.overate, b.overate, 1);
-  addBool(a.highSalt, b.highSalt, 0.5);
-  addBool(a.alcohol, b.alcohol, 1);
+  addBool(a.alcohol, b.alcohol, 0.5); // weight lowered 1 → 0.5 in v2
 
-  // AC curve profile — 0 if same, 1 if different, skipped if either side null.
-  totalWeight += 1.5;
-  if (a.plannedAcCurve && b.plannedAcCurve) {
+  // AC curve profile — Q6 semantics: `'off'` is an inert baseline.
+  // Only contribute to distance (and totalWeight) when BOTH sides are
+  // non-null and non-`'off'`. Two `'off'` logs add nothing; one side
+  // `'off'` and the other running also adds nothing. We don't penalize
+  // mismatched AC use on a curve we have no data to compare.
+  if (
+    a.plannedAcCurve &&
+    b.plannedAcCurve &&
+    a.plannedAcCurve !== 'off' &&
+    b.plannedAcCurve !== 'off'
+  ) {
+    totalWeight += 1.5;
     if (a.plannedAcCurve !== b.plannedAcCurve) d += 1.5;
-  } else {
-    d += 0.75;
   }
 
   return d / totalWeight;
 }
 
+/**
+ * Combine a "YYYY-MM-DD" evening date and a "HH:MM" local time into an
+ * epoch ms anchor. If the HH:MM is before noon, the anchor lands on the
+ * day *after* the evening date (the meal/bedtime happened across midnight
+ * into the morning). Returns null for malformed inputs.
+ */
+function anchorMsFromDateAndTime(dateStr: string, hhmm: string): number | null {
+  if (!dateStr || !hhmm) return null;
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
+  if (!dateMatch || !timeMatch) return null;
+  const [, y, mo, d] = dateMatch;
+  const [, hh, mm] = timeMatch;
+  const hours = Number(hh);
+  const minutes = Number(mm);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  // Midnight rule: HH:MM before 12:00 means the *next* local calendar day.
+  const dayOffset = hours < 12 ? 1 : 0;
+  const dt = new Date(Number(y), Number(mo) - 1, Number(d) + dayOffset, hours, minutes);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Pick the bedtime anchor in ms for a night log. Precedence:
+ *   1. `loggedBedtime` (epoch ms, when the user finalized the evening log)
+ *   2. `alarm.targetBedtime` combined with `log.date` (planned bedtime)
+ *   3. `sleepData.sleepTime` combined with `log.date` (watch-detected onset)
+ *
+ * Known error bound (±45 min): `loggedBedtime` is the moment the evening log
+ * was saved, which can precede actual lights-out. `targetBedtime` is a plan.
+ * `sleepData.sleepTime` is the watch's estimate. None is exact — they're all
+ * within ~45 minutes of real bedtime for this user, which is fine for the
+ * hours-since-meal derivation (a coarse bucket).
+ */
+function pickBedtimeAnchorMs(log: NightLog): number | null {
+  if (log.loggedBedtime != null) return log.loggedBedtime;
+  const fromTarget = anchorMsFromDateAndTime(log.date, log.alarm?.targetBedtime ?? '');
+  if (fromTarget != null) return fromTarget;
+  const sleepTime = log.sleepData?.sleepTime ?? '';
+  return anchorMsFromDateAndTime(log.date, sleepTime);
+}
+
+/**
+ * Hours between the evening's last meal and the bedtime anchor, as a
+ * continuous feature replacing the binary `ateLate` flag (see
+ * `specs/recommender-v2/derived-features.md` T1, AUC 0.75 vs 0.50 for the
+ * binary). Returns null when either side is missing or when the computed
+ * value falls outside `[0, 12]` (sanity bound — negatives or absurd gaps
+ * indicate malformed / cross-day-mismatched data).
+ */
+export function computeHoursSinceLastMeal(log: NightLog): number | null {
+  const bedtimeMs = pickBedtimeAnchorMs(log);
+  const lastMealMs = anchorMsFromDateAndTime(log.date, log.eveningIntake?.lastMealTime ?? '');
+  if (bedtimeMs == null || lastMealMs == null) return null;
+  const hours = (bedtimeMs - lastMealMs) / 3_600_000;
+  if (!Number.isFinite(hours)) return null;
+  if (hours < 0 || hours > 12) return null;
+  return hours;
+}
+
+/**
+ * Cooling rate (°F per hour) from a ~01:00 reading to a ~04:00 reading on
+ * the `roomTimeline`. Negative = room cooling; positive = room warming.
+ *
+ * EXPLORATORY FEATURE: the analysis found this to have AUC 1.0 for
+ * separating too_hot vs too_cold, but that was computed against n_cold = 1.
+ * Expect to re-weight / re-tune this once more labels accumulate. See
+ * `specs/recommender-v2/derived-features.md` T2.
+ *
+ * Fixed window 01:00–04:00: chosen because hot wakes cluster at 03:00–03:45
+ * in the observed data. Revisit if the feature drops in ranked importance.
+ *
+ * Guards:
+ * - Returns null when `roomTimeline` is null or has fewer than two readings
+ *   in the 00:00–06:00 window.
+ * - Requires the chosen t1 reading to fall in [00:30, 02:00] local time so
+ *   `findNearestRoomReading`'s modular-distance quirk doesn't pick a 23:00
+ *   reading for a 01:00 target.
+ * - Requires the chosen t4 reading to fall in [03:00, 05:00].
+ * - Requires the wall-clock gap between t1 and t4 to be ≥ 2 hours; rejects
+ *   sparse timelines.
+ * - Rejects the degenerate case where `findNearestRoomReading` returns the
+ *   same reading for both targets.
+ */
+export function computeCoolingRate1to4F(log: NightLog): number | null {
+  const timeline = log.roomTimeline;
+  if (timeline == null) return null;
+
+  // Require at least two readings in the 00:00–06:00 early-morning window.
+  const inEarlyWindow = timeline.filter((r) => {
+    const d = new Date(r.timestamp);
+    const min = d.getHours() * 60 + d.getMinutes();
+    return min >= 0 && min < 6 * 60;
+  });
+  if (inEarlyWindow.length < 2) return null;
+
+  const t1 = findNearestRoomReading('01:00', timeline);
+  const t4 = findNearestRoomReading('04:00', timeline);
+  if (!t1 || !t4) return null;
+  if (t1 === t4) return null;
+
+  const t1Date = new Date(t1.timestamp);
+  const t4Date = new Date(t4.timestamp);
+  const t1Min = t1Date.getHours() * 60 + t1Date.getMinutes();
+  const t4Min = t4Date.getHours() * 60 + t4Date.getMinutes();
+
+  // Tighten the selector: t1 must be in [00:30, 02:00], t4 in [03:00, 05:00].
+  if (t1Min < 30 || t1Min > 2 * 60) return null;
+  if (t4Min < 3 * 60 || t4Min > 5 * 60) return null;
+
+  const hoursBetween = (t4Date.getTime() - t1Date.getTime()) / 3_600_000;
+  if (!Number.isFinite(hoursBetween) || hoursBetween < 2) return null;
+
+  return (t4.tempF - t1.tempF) / hoursBetween;
+}
+
 export function logToInputs(log: NightLog): RecommenderInputs {
-  const flagsOn = (type: string) =>
-    log.eveningIntake.flags.some((f) => f.type === type && f.active);
   const overnightLowF = log.environment.externalWeather
     ? getOvernightLow(log.environment.externalWeather)
     : null;
   return {
     overnightLowF,
     startingRoomTempF: log.environment.roomTempF,
-    ateLate: flagsOn('late_meal'),
-    overate: flagsOn('overate'),
-    highSalt: flagsOn('high_salt'),
+    roomHumidity: log.environment.roomHumidity,
+    hoursSinceLastMeal: computeHoursSinceLastMeal(log),
+    coolingRate1to4F: computeCoolingRate1to4F(log),
     alcohol: log.eveningIntake.alcohol != null,
     plannedAcCurve: log.environment.acCurveProfile,
     plannedAcSetpointF: log.environment.acSetpointF,
@@ -165,6 +392,11 @@ export function recommendForTonight(
   clothingItems: readonly ClothingItem[],
   beddingItems: readonly BeddingItem[],
 ): Recommendation {
+  // Q3 decision (recommender-v2/questions.md): proxy-derived labels
+  // (thermalComfortSource === 'proxy') vote equally with user-entered labels
+  // here. If the user's own labels start disagreeing with proxy labels,
+  // revisit and add a weighting factor (e.g. proxy × 0.5 + user × 1.0) to
+  // the neighbor-support calculation below.
   const labeled = pastLogs.filter((l) => l.thermalComfort != null);
   const scored: ScoredNight[] = labeled
     .map((log) => ({
@@ -184,6 +416,7 @@ export function recommendForTonight(
   const beddingById = new Map(beddingItems.map((b) => [b.id, b.name]));
 
   const items: RecommendationItem[] = [];
+  let mode: 'consensus' | 'exploratory' = 'consensus';
 
   if (goodNeighbors.length > 0) {
     // Vote across clothing items used by just_right neighbors.
@@ -254,10 +487,44 @@ export function recommendForTonight(
       if (Math.abs(a.support - b.support) > 0.01) return b.support - a.support;
       return catOrder[a.category] - catOrder[b.category];
     });
+  } else {
+    // Exploratory fallback: no "just_right" neighbors exist but the bad
+    // neighbors leaned strongly one direction. Pick the least-bad night
+    // from the *less-skewed* side and surface its stack as a starting
+    // point. See `specs/recommender-v2/ux.md` T4.
+    const exploratoryPick = pickExploratoryNeighbor(neighbors, badNeighbors);
+    if (exploratoryPick) {
+      mode = 'exploratory';
+      const n = 1;
+      for (const c of exploratoryPick.log.clothing) {
+        const name = clothingById.get(c);
+        if (!name) continue;
+        items.push({ category: 'clothing', label: name, support: 1, n });
+      }
+      for (const b of exploratoryPick.log.bedding) {
+        const name = beddingById.get(b);
+        if (!name) continue;
+        items.push({ category: 'bedding', label: name, support: 1, n });
+      }
+      const curve = exploratoryPick.log.environment.acCurveProfile;
+      items.push({
+        category: 'ac',
+        label: AC_CURVE_LABEL[curve],
+        support: 1,
+        n,
+      });
+      const fan = exploratoryPick.log.environment.fanSpeed;
+      items.push({
+        category: 'fan',
+        label: FAN_LABEL[fan as keyof typeof FAN_LABEL] ?? fan,
+        support: 1,
+        n,
+      });
+    }
   }
 
-  const summary = buildSummary(goodNeighbors, badNeighbors, neighbors);
-  const warning = buildWarning(badNeighbors, neighbors.length);
+  const summary = buildSummary(goodNeighbors, badNeighbors, neighbors, mode);
+  const warning = buildWarning(badNeighbors, neighbors.length, mode);
 
   return {
     neighbors,
@@ -267,16 +534,86 @@ export function recommendForTonight(
     summary,
     warning,
     totalLabeledNights: labeled.length,
+    mode,
   };
+}
+
+/**
+ * Exploratory-fallback selection logic (ux.md T4).
+ *
+ * Trigger conditions: `goodNeighbors.length === 0` (already ensured by the
+ * caller), `badNeighbors.length >= 0.6 * neighbors.length`, and ≥60% of
+ * bad neighbors skew one direction.
+ *
+ * Pick strategy:
+ *   1. Prefer the neighbor with the highest `sleepData.sleepScore` from the
+ *      *less-skewed* direction (e.g. if 3/5 were too_hot, look at
+ *      too_cold + mixed + null nights).
+ *   2. If no less-skewed neighbor exists, pick the mildest neighbor from
+ *      the dominant direction — the one with the fewest wake events
+ *      matching the dominant cause (hot wakes for 'too_hot', cold wakes
+ *      for 'too_cold'). Tie-break by total wake count ascending.
+ */
+function pickExploratoryNeighbor(
+  neighbors: ScoredNight[],
+  badNeighbors: ScoredNight[],
+): ScoredNight | null {
+  if (neighbors.length === 0) return null;
+  if (badNeighbors.length < 0.6 * neighbors.length) return null;
+
+  const tooHot = badNeighbors.filter((n) => n.comfort === 'too_hot');
+  const tooCold = badNeighbors.filter((n) => n.comfort === 'too_cold');
+  const badTotal = badNeighbors.length;
+
+  let dominant: 'too_hot' | 'too_cold' | null = null;
+  if (tooHot.length / badTotal >= 0.6) dominant = 'too_hot';
+  else if (tooCold.length / badTotal >= 0.6) dominant = 'too_cold';
+  if (dominant === null) return null;
+
+  // Step 1: any neighbor not in the dominant direction → pick highest
+  // sleep score.
+  const offDirection = neighbors.filter((n) => n.comfort !== dominant);
+  if (offDirection.length > 0) {
+    const withScores = offDirection
+      .map((n) => ({ n, score: n.log.sleepData?.sleepScore ?? -Infinity }))
+      .sort((a, b) => b.score - a.score);
+    return withScores[0].n;
+  }
+
+  // Step 2: every neighbor is in the dominant direction. Pick the mildest.
+  // Proxy: count wake events whose `wasSweating` (for too_hot) or
+  // `feltCold` (for too_cold) is true; lowest count wins. Tie-break by
+  // fewer total wake events overall.
+  const dominantNeighbors = neighbors.filter((n) => n.comfort === dominant);
+  if (dominantNeighbors.length === 0) return null;
+
+  const scored = dominantNeighbors.map((n) => {
+    const dominantWakes = n.log.wakeUpEvents.filter((w) =>
+      dominant === 'too_hot' ? w.wasSweating : w.feltCold,
+    ).length;
+    const totalWakes = n.log.wakeUpEvents.length;
+    return { n, dominantWakes, totalWakes };
+  });
+  scored.sort((a, b) => {
+    if (a.dominantWakes !== b.dominantWakes) {
+      return a.dominantWakes - b.dominantWakes;
+    }
+    return a.totalWakes - b.totalWakes;
+  });
+  return scored[0].n;
 }
 
 function buildSummary(
   good: ScoredNight[],
   _bad: ScoredNight[],
   all: ScoredNight[],
+  mode: 'consensus' | 'exploratory' = 'consensus',
 ): string {
   if (all.length === 0) {
     return 'No past nights tagged yet — start labeling mornings with "too hot / too cold / just right" to seed recommendations.';
+  }
+  if (mode === 'exploratory') {
+    return `No past nights with inputs this similar ended "just right." Starting point below is from the least-bad similar night — treat it as a guess.`;
   }
   if (good.length === 0) {
     return `None of the ${all.length} most-similar past nights ended in "just right" — inputs this similar have historically gone sideways. Experiment cautiously.`;
@@ -284,8 +621,24 @@ function buildSummary(
   return `${good.length} of the ${all.length} most-similar past nights ended "just right". The stack below is what those nights had in common.`;
 }
 
-function buildWarning(bad: ScoredNight[], neighborCount: number): string {
+function buildWarning(
+  bad: ScoredNight[],
+  neighborCount: number,
+  mode: 'consensus' | 'exploratory' = 'consensus',
+): string {
   if (neighborCount === 0) return '';
+  if (mode === 'exploratory') {
+    const tooHot = bad.filter((n) => n.comfort === 'too_hot').length;
+    const tooCold = bad.filter((n) => n.comfort === 'too_cold').length;
+    const total = neighborCount;
+    if (tooHot / total >= 0.5) {
+      return `Most similar nights ran hot. The starting point is experimental — lean lighter, not heavier.`;
+    }
+    if (tooCold / total >= 0.5) {
+      return `Most similar nights ran cold. The starting point is experimental — add a layer you can shed easily.`;
+    }
+    return 'Experimental starting point — no clear direction from past similar nights.';
+  }
   const tooHot = bad.filter((n) => n.comfort === 'too_hot').length;
   const tooCold = bad.filter((n) => n.comfort === 'too_cold').length;
   const total = neighborCount;

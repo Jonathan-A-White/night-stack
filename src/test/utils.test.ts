@@ -5,6 +5,7 @@ import {
   addMinutes,
   calculateSchedule,
   isTimeAfter,
+  isSaveBeforeEatingCutoff,
   createBlankNightLog,
   toLocalDateString,
   getTodayDate,
@@ -12,7 +13,26 @@ import {
   getEveningLogDate,
   timestampToHHMM,
   findNearestRoomReading,
+  resolveLastMealTimeForSave,
 } from '../utils';
+
+describe('isSaveBeforeEatingCutoff (bugfixes T5)', () => {
+  it('returns true when now is before the eating cutoff', () => {
+    expect(isSaveBeforeEatingCutoff('17:30', '19:00', false)).toBe(true);
+  });
+
+  it('returns false when now is after the eating cutoff', () => {
+    expect(isSaveBeforeEatingCutoff('21:30', '19:00', false)).toBe(false);
+  });
+
+  it('returns false at exactly the eating cutoff (no strict-inequality warning)', () => {
+    expect(isSaveBeforeEatingCutoff('19:00', '19:00', false)).toBe(false);
+  });
+
+  it('never warns in backfill mode', () => {
+    expect(isSaveBeforeEatingCutoff('10:00', '19:00', true)).toBe(false);
+  });
+});
 
 describe('formatTime12h', () => {
   it('formats midnight', () => {
@@ -254,5 +274,57 @@ describe('findNearestRoomReading', () => {
     ];
     // 03:10 is exactly 10 minutes from both — first wins.
     expect(findNearestRoomReading('03:10', readings)?.tempF).toBe(64.0);
+  });
+});
+
+describe('resolveLastMealTimeForSave', () => {
+  it('returns the user-entered value when non-empty', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '18:00',
+        eatingCutoff: '20:00',
+        userInteracted: true,
+      }),
+    ).toBe('18:00');
+  });
+
+  it('prefills blank with eating cutoff when the user never touched the field', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '20:00',
+        userInteracted: false,
+      }),
+    ).toBe('20:00');
+  });
+
+  it('respects an explicit clear (userInteracted=true, value blank)', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '20:00',
+        userInteracted: true,
+      }),
+    ).toBe('');
+  });
+
+  it('returns blank if no eating cutoff is available to prefill with', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '',
+        userInteracted: false,
+      }),
+    ).toBe('');
+  });
+
+  it('treats whitespace-only as empty', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '   ',
+        eatingCutoff: '20:00',
+        userInteracted: false,
+      }),
+    ).toBe('20:00');
   });
 });

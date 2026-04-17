@@ -148,6 +148,32 @@ export class NightStackDB extends Dexie {
         }
       });
     });
+    this.version(9).stores({
+      appSettings: 'id',
+    }).upgrade(async (tx) => {
+      // Default existing installs to acInstalled=false so the evening log
+      // stops prompting for an AC curve the user can't supply. The user
+      // can flip this in Settings → Sleep Environment once an AC is in.
+      await tx.table('appSettings').toCollection().modify((s: Partial<AppSettings>) => {
+        if (s.acInstalled === undefined) s.acInstalled = false;
+      });
+    });
+    this.version(10).stores({
+      nightLogs: 'id, date',
+    }).upgrade(async (tx) => {
+      // Backfill workstream T1 + T6 fields on existing NightLogs:
+      //   - `thermalComfortSource`: provenance for `thermalComfort`. Defaults
+      //     to null (matches the existing `thermalComfort === null` rows).
+      //     The proxy-backfill review UI stamps 'proxy' when it writes; the
+      //     MorningLog save handler stamps 'user'.
+      //   - `thermalProxyDismissed`: sticky "user said no thanks" flag for
+      //     the backfill flow, so dismissed rows don't re-surface. Permanent
+      //     (Q10 option a) — does not reset on proxy-rule changes.
+      await tx.table('nightLogs').toCollection().modify((log: Partial<NightLog>) => {
+        if (log.thermalComfortSource === undefined) log.thermalComfortSource = null;
+        if (log.thermalProxyDismissed === undefined) log.thermalProxyDismissed = false;
+      });
+    });
   }
 }
 
@@ -247,6 +273,7 @@ export async function seedDatabase(): Promise<void> {
     heightInches: null,
     startingWeightLbs: null,
     age: null,
+    acInstalled: false,
   });
 
   // Alarm schedule

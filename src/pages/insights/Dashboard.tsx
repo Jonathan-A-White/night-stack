@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -7,6 +7,15 @@ import {
 import { db } from '../../db';
 import { formatTime12h } from '../../utils';
 import type { NightLog } from '../../types';
+import { ThermalComfortChip } from '../../components/ThermalComfortChip';
+
+/**
+ * localStorage key for the one-time backfill onboarding card (Q9 option c).
+ * Stored as the ISO timestamp when the user first dismissed / acted on the
+ * card, so we can tell "never shown" from "dismissed". Any truthy value
+ * suppresses future appearances — the card is genuinely one-time.
+ */
+const BACKFILL_ONBOARDING_KEY = 'insights-backfill-onboarding-seen';
 
 function SubNav({ active }: { active: 'dashboard' | 'correlations' | 'best-nights' }) {
   return (
@@ -55,6 +64,47 @@ export function Dashboard() {
     () => db.nightLogs.orderBy('date').reverse().limit(90).toArray(),
     []
   );
+
+  // Backfill workstream T3 / Q9: count unlabeled, non-dismissed nights so
+  // we can show the persistent "Label past nights" button + a one-time
+  // onboarding card the first time the user lands on Insights after this
+  // ships. The card is suppressed once dismissed or once the user visits
+  // the review flow.
+  const backfillCandidateCount = useLiveQuery(
+    async () => {
+      const all = await db.nightLogs
+        .filter(
+          (l) => l.thermalComfort == null && !l.thermalProxyDismissed,
+        )
+        .count();
+      return all;
+    },
+    [],
+    0,
+  );
+
+  const [showOnboardingCard, setShowOnboardingCard] = useState(false);
+  useEffect(() => {
+    // Read localStorage once on mount. If the user hasn't dismissed and
+    // there are candidates, surface the card. We don't re-check on every
+    // render — one read is enough, the user dismissing below sets state
+    // directly.
+    const seen = localStorage.getItem(BACKFILL_ONBOARDING_KEY);
+    setShowOnboardingCard(!seen);
+  }, []);
+
+  function dismissOnboarding() {
+    localStorage.setItem(BACKFILL_ONBOARDING_KEY, String(Date.now()));
+    setShowOnboardingCard(false);
+  }
+
+  function goToBackfill() {
+    // Visiting the flow counts as acknowledging the card; no need to see
+    // it again even if the user hits "Cancel" without applying labels.
+    localStorage.setItem(BACKFILL_ONBOARDING_KEY, String(Date.now()));
+    setShowOnboardingCard(false);
+    navigate('/insights/backfill');
+  }
 
   const last14 = useMemo(() => {
     if (!allLogs) return [];
@@ -112,6 +162,44 @@ export function Dashboard() {
       </div>
 
       <SubNav active="dashboard" />
+
+      {/* Backfill: one-time onboarding card (Q9 option c). Surfaces the
+          first time the user lands here post-ship, if there's anything to
+          label. Dismissible; "Label now" jumps straight to the review. */}
+      {showOnboardingCard && backfillCandidateCount > 0 && (
+        <div className="card">
+          <div className="card-title">Label your past nights</div>
+          <p className="text-secondary text-sm">
+            We can guess how each past night went (too hot, too cold, just
+            right) from the wake-ups you already logged. That gives the
+            recommender something to work with on night one — no need to
+            wait two weeks to build up ground truth.
+          </p>
+          <div className="flex gap-8 mt-16">
+            <button className="btn btn-primary" onClick={goToBackfill}>
+              Label now
+            </button>
+            <button className="btn btn-secondary" onClick={dismissOnboarding}>
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Backfill: persistent entry point (Q9 option a). Shown whenever
+          there's still anything to review, even after the onboarding card
+          has been dismissed. Hidden when the queue is empty to avoid
+          dead-ended buttons. */}
+      {backfillCandidateCount > 0 && (
+        <div className="flex mb-16">
+          <button
+            className="btn btn-secondary"
+            onClick={() => navigate('/insights/backfill')}
+          >
+            Label past nights ({backfillCandidateCount})
+          </button>
+        </div>
+      )}
 
       {allLogs.length === 0 ? (
         <div className="empty-state">
@@ -228,7 +316,13 @@ export function Dashboard() {
                   onClick={() => navigate(`/morning/review/${log.id}`)}
                 >
                   <div>
-                    <div className="fw-600">{log.date}</div>
+                    <div className="flex items-center gap-8">
+                      <span className="fw-600">{log.date}</span>
+                      {/* ux.md T6: render a chip on every row — grey "—"
+                          for nights with no label so the layout stays
+                          even and the user has an affordance to label. */}
+                      <ThermalComfortChip log={log} renderEmpty />
+                    </div>
                     {flags.length > 0 && (
                       <div className="text-secondary text-sm mt-8">
                         {flags.join(' \u00b7 ')}

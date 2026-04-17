@@ -12,6 +12,7 @@ import {
   timestampToHHMM,
 } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
+import { findDuplicateSleepData } from '../../services/sleepDataDedupe';
 import { WeightStepper } from '../../components/WeightStepper';
 import {
   formatWeight,
@@ -105,6 +106,20 @@ export function MorningLog() {
   );
   const [importError, setImportError] = useState<string | null>(null);
   const [showManualEntry, setShowManualEntry] = useState(false);
+  /**
+   * Warning surfaced after an import when the parsed session looks like it
+   * belongs to a different night (either its dated `sleepStartTime`
+   * disagrees with `nightLog.date`, or the cross-log dedupe in the save
+   * handler found a ±3 day match). `kind` drives which banner renders and
+   * whether the user has to explicitly confirm overwrite before save.
+   * See bugfixes T1 / T2.
+   */
+  const [importWarning, setImportWarning] = useState<
+    | { kind: 'date-mismatch'; sessionDate: string; targetDate: string }
+    | { kind: 'duplicate'; otherDate: string }
+    | null
+  >(null);
+  const [duplicateOverrideConfirmed, setDuplicateOverrideConfirmed] = useState(false);
   const sleepFileRef = useRef<HTMLInputElement>(null);
 
   // Manual entry fields
@@ -152,6 +167,11 @@ export function MorningLog() {
 
   // Step 5: Morning notes
   const [morningNotes, setMorningNotes] = useState((draft?.morningNotes as string) ?? '');
+
+  // T6: confirmation banner shown when the user tries to save with any
+  // wake missing a cause. Lives on step 5 (the final step) so we can
+  // gate the "Save Morning Log" button.
+  const [showBlankCauseConfirm, setShowBlankCauseConfirm] = useState(false);
 
   // Weight entry (only surfaced if user weighs in the morning)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
@@ -301,13 +321,37 @@ export function MorningLog() {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const result = parseSamsungHealthJSON(reader.result as string);
+      // Thread the currently-open night log's date through so the parser can
+      // reject / pick the right session in a multi-session export (bugfixes T1).
+      const result = parseSamsungHealthJSON(
+        reader.result as string,
+        nightLog?.date,
+      );
       if (result.error) {
         setImportError(result.error);
         setSleepData(null);
+        setImportWarning(null);
       } else {
         setSleepData(result.data);
         setImportError(null);
+        // If the JSON carried date-bearing fields and they disagree with the
+        // open night log's date, surface a confirmation banner. We don't
+        // block the import — the user may legitimately be backfilling — but
+        // we make sure they see the mismatch before saving.
+        if (
+          result.sessionDate &&
+          nightLog?.date &&
+          result.sessionDate !== nightLog.date
+        ) {
+          setImportWarning({
+            kind: 'date-mismatch',
+            sessionDate: result.sessionDate,
+            targetDate: nightLog.date,
+          });
+        } else {
+          setImportWarning(null);
+        }
+        setDuplicateOverrideConfirmed(false);
         // Auto-populate wake-up events from JSON if present
         if (result.wakeUpEvents.length > 0) {
           const resolved = resolveWakeUpEvents(result.wakeUpEvents);
@@ -355,11 +399,41 @@ export function MorningLog() {
   function handleGoveeFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !nightLog) return;
+    // Snapshot nightLog.date at click time. If `useLiveQuery` re-resolves
+    // between picking a file and the FileReader.onload callback, the parser
+    // could run against a different night's window — one of the two
+    // hypotheses for bugfixes T3. Capturing here locks the evaluation to
+    // the log the user actually had open.
+    const targetNightDate = nightLog.date;
     const reader = new FileReader();
     reader.onload = () => {
-      const result = parseGoveeCSV(reader.result as string, nightLog.date);
+      const csv = reader.result as string;
+      const result = parseGoveeCSV(csv, targetNightDate);
+      // Diagnostic log (bugfixes T3): the spec asks for a first / last
+      // timestamp dump so future regressions can distinguish the
+      // wrong-nightLog case from a timezone-range miss without requiring
+      // the user to re-produce with a fresh CSV.
+      const headerEnd = csv.indexOf('\n');
+      const firstRow = headerEnd >= 0 ? csv.slice(headerEnd + 1).split('\n')[0] : '';
+      const lastRow = csv.trimEnd().split('\n').pop() ?? '';
+      // eslint-disable-next-line no-console
+      console.debug(
+        '[govee-import]',
+        'targetNightDate=', targetNightDate,
+        'firstCsvRow=', firstRow.slice(0, 120),
+        'lastCsvRow=', lastRow.slice(0, 120),
+        'passedFilter=', result.data?.length ?? 0,
+      );
       if (result.error) {
         setGoveeError(result.error);
+        setRoomTimeline(null);
+      } else if (!result.data || result.data.length === 0) {
+        // Zero readings after the window filter is its own class of error,
+        // not silent success. Before this the UI rendered "0 data points"
+        // as if the import succeeded.
+        setGoveeError(
+          `No readings found for the overnight window (${targetNightDate} 21:00 \u2192 next-morning 07:00). Check the CSV covers this night.`,
+        );
         setRoomTimeline(null);
       } else {
         setRoomTimeline(result.data);
@@ -435,8 +509,51 @@ export function MorningLog() {
     });
   }
 
-  async function handleSave() {
+  // Count of wakes with a blank cause — drives the T6 confirmation banner
+  // on save. A blank cause starves the thermal proxy classifier (see
+  // backfill.md), so we prompt the user before accepting it.
+  const blankCauseCount = hadWakeUps
+    ? wakeUpEvents.filter((w) => !w.cause).length
+    : 0;
+
+  async function resolveUnknownCauseId(): Promise<string> {
+    // The seed includes an 'Unknown' cause at sortOrder 8, but a user can
+    // deactivate or rename it. Look it up by label (case-insensitive);
+    // if genuinely absent, create it so the save path never has to leave
+    // a blank string behind.
+    const existing = await db.wakeUpCauses
+      .filter((c) => c.label.toLowerCase() === 'unknown')
+      .first();
+    if (existing) return existing.id;
+    const id = crypto.randomUUID();
+    await db.wakeUpCauses.add({
+      id,
+      label: 'Unknown',
+      sortOrder: 999,
+      isActive: true,
+    });
+    return id;
+  }
+
+  async function performSave(resolvedWakes: WakeUpEvent[]) {
     if (!nightLog) return;
+
+    // Cross-log dedupe (bugfixes T2): block saves where this sleepData is
+    // byte-identical to another night within ±3 days. The user has to
+    // explicitly click "Overwrite anyway" in the banner to proceed. This
+    // is defense-in-depth on top of T1's import-time filter — T2 catches
+    // drafts, manual entries, and retries that skipped the import path.
+    if (sleepData && !duplicateOverrideConfirmed) {
+      const allLogs = await db.nightLogs.toArray();
+      const duplicate = findDuplicateSleepData(sleepData, nightLog.date, allLogs, {
+        excludeLogId: nightLog.id,
+      });
+      if (duplicate) {
+        setImportWarning({ kind: 'duplicate', otherDate: duplicate.date });
+        setStep(1);
+        return;
+      }
+    }
 
     const bedtimeExplanation: BedtimeExplanation | null = needsBedtimeExplanation
       ? {
@@ -451,10 +568,14 @@ export function MorningLog() {
     await db.nightLogs.update(nightLog.id, {
       sleepData,
       roomTimeline,
-      wakeUpEvents: hadWakeUps ? wakeUpEvents : [],
+      wakeUpEvents: hadWakeUps ? resolvedWakes : [],
       bedtimeExplanation,
       morningNotes,
       thermalComfort,
+      // Stamp provenance whenever we write a non-null label — the user is
+      // the author here. If they clear the label (null), drop the source
+      // back to null so a later backfill proxy can take over if applicable.
+      thermalComfortSource: thermalComfort ? 'user' : null,
       updatedAt: Date.now(),
     });
 
@@ -488,6 +609,31 @@ export function MorningLog() {
     localStorage.removeItem(draftKey);
 
     navigate(`/morning/review/${nightLog.id}`);
+  }
+
+  async function handleSave() {
+    if (!nightLog) return;
+    // If any wake has a blank cause, ask the user before stamping
+    // 'Unknown'. We don't want to silently relabel wakes the user just
+    // forgot to set — the cause feeds the thermal proxy classifier and
+    // misattribution is worse than missing data.
+    if (blankCauseCount > 0) {
+      setShowBlankCauseConfirm(true);
+      return;
+    }
+    await performSave(wakeUpEvents);
+  }
+
+  async function handleSaveAnyway() {
+    // User confirmed: stamp all blank causes with the 'Unknown' ID and
+    // save. The lookup/create is async so we resolve the ID before
+    // building the resolvedWakes array.
+    const unknownId = await resolveUnknownCauseId();
+    const resolvedWakes = wakeUpEvents.map((w) =>
+      w.cause ? w : { ...w, cause: unknownId },
+    );
+    setShowBlankCauseConfirm(false);
+    await performSave(resolvedWakes);
   }
 
   // --- Rendering ---
@@ -591,6 +737,65 @@ export function MorningLog() {
                   </button>
                 </>
               )}
+            </div>
+          )}
+
+          {importWarning?.kind === 'date-mismatch' && (
+            <div className="banner banner-warning mb-8">
+              <div className="fw-600">This sleep data is for a different night.</div>
+              <div className="text-sm mt-8">
+                The JSON session date is {importWarning.sessionDate}, but
+                you're editing the morning log for {importWarning.targetDate}.
+                Save anyway to attach it to this night, or clear it and
+                re-import with the right log open.
+              </div>
+              <div className="flex gap-8 mt-8">
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setImportWarning(null)}
+                >
+                  Save anyway
+                </button>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={() => {
+                    setSleepData(null);
+                    setImportWarning(null);
+                    setDuplicateOverrideConfirmed(false);
+                  }}
+                >
+                  Clear import
+                </button>
+              </div>
+            </div>
+          )}
+
+          {importWarning?.kind === 'duplicate' && (
+            <div className="banner banner-danger mb-8">
+              <div className="fw-600">
+                This sleep data is already saved to the {importWarning.otherDate} night log.
+              </div>
+              <div className="text-sm mt-8">
+                Saving it here too will create a duplicate. Most likely you
+                imported the same JSON onto the wrong morning log view.
+              </div>
+              <div className="flex gap-8 mt-8">
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setImportWarning(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={() => {
+                    setDuplicateOverrideConfirmed(true);
+                    setImportWarning(null);
+                  }}
+                >
+                  Overwrite anyway
+                </button>
+              </div>
             </div>
           )}
 
@@ -713,7 +918,12 @@ export function MorningLog() {
                   <button
                     className="btn btn-secondary"
                     style={{ flex: 1 }}
-                    onClick={() => { setSleepData(null); setImportError(null); }}
+                    onClick={() => {
+                      setSleepData(null);
+                      setImportError(null);
+                      setImportWarning(null);
+                      setDuplicateOverrideConfirmed(false);
+                    }}
                   >
                     Try again
                   </button>
@@ -1196,6 +1406,39 @@ export function MorningLog() {
               </div>
             )}
           </div>
+
+          {showBlankCauseConfirm && (
+            <div className="banner banner-warning mb-8">
+              <div className="fw-600 mb-8">
+                {blankCauseCount} wake{blankCauseCount === 1 ? '' : 's'}{' '}
+                {blankCauseCount === 1 ? 'has' : 'have'} no cause.
+              </div>
+              <div className="text-sm mb-8">
+                Saving anyway will stamp {blankCauseCount === 1 ? 'it' : 'them'} with the
+                “Unknown” cause so the recommender isn’t confused by empty
+                strings. You can still go back and fix.
+              </div>
+              <div className="flex gap-8">
+                <button
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setShowBlankCauseConfirm(false);
+                    setStep(3);
+                  }}
+                >
+                  Back to fix
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={handleSaveAnyway}
+                >
+                  Save anyway
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="step-nav">
             <button className="btn btn-secondary" onClick={goBack}>

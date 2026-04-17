@@ -12,6 +12,7 @@ import { Dashboard } from './pages/insights/Dashboard';
 import { Correlations } from './pages/insights/Correlations';
 import { BestNights } from './pages/insights/BestNights';
 import { MetricDetail } from './pages/insights/MetricDetail';
+import { ThermalBackfillReview } from './pages/insights/ThermalBackfillReview';
 import { CalendarPage } from './pages/calendar/CalendarPage';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
@@ -23,7 +24,9 @@ import WakeUpCausesPage from './pages/settings/WakeUpCausesPage';
 import BedtimeReasonsPage from './pages/settings/BedtimeReasonsPage';
 import SleepRulesPage from './pages/settings/SleepRulesPage';
 import LocationPage from './pages/settings/LocationPage';
+import SleepEnvironmentPage from './pages/settings/SleepEnvironmentPage';
 import DataManagementPage from './pages/settings/DataManagementPage';
+import DataCleanupPage from './pages/settings/DataCleanupPage';
 import AboutPage from './pages/settings/AboutPage';
 import WeightProfilePage from './pages/settings/WeightProfilePage';
 import { useTheme } from './hooks/useTheme';
@@ -48,6 +51,7 @@ export function App() {
           <Route path="/insights/correlations" element={<Correlations />} />
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/insights/metric/:type" element={<MetricDetail />} />
+          <Route path="/insights/backfill" element={<ThermalBackfillReview />} />
           <Route path="/settings" element={<SettingsHome />} />
           <Route path="/settings/evening-routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><EveningRoutineSettingsPage /></Suspense>} />
           <Route path="/tonight/routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><RoutineTracker /></Suspense>} />
@@ -60,8 +64,10 @@ export function App() {
           <Route path="/settings/bedtime-reasons" element={<BedtimeReasonsPage />} />
           <Route path="/settings/sleep-rules" element={<SleepRulesPage />} />
           <Route path="/settings/location" element={<LocationPage />} />
+          <Route path="/settings/sleep-environment" element={<SleepEnvironmentPage />} />
           <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
+          <Route path="/settings/data/cleanup" element={<DataCleanupPage />} />
           <Route path="/settings/about" element={<AboutPage />} />
         </Routes>
       </div>

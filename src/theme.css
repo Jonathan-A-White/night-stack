@@ -934,3 +934,40 @@ textarea.form-input {
   color: var(--color-bg);
   border-color: var(--color-accent);
 }
+
+/* Thermal-comfort chip (backfill T4). A labeled chip showing the night's
+   thermal tag. The `.thermal-chip--proxy` modifier adds a dashed border
+   so the user can see at a glance which labels were inferred by the
+   backfill proxy vs entered manually — clicking jumps to the morning log
+   so the user can correct the label. */
+.thermal-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.thermal-chip--proxy {
+  border-style: dashed;
+  /* Proxy chips read as "less committed" — the user hasn't confirmed
+     them yet. A lighter text color signals that visually without
+     changing the color semantics (hot/cold/just-right) of the label. */
+  color: var(--color-text-secondary);
+}
+.thermal-chip--hot    { border-color: var(--color-danger); }
+.thermal-chip--cold   { border-color: #4a86e8; }
+.thermal-chip--just   { border-color: var(--color-success); }
+.thermal-chip--mixed  { border-color: var(--color-warning); }
+/* Empty-state chip for unlabeled nights (ux.md T6). Grey border + dim
+   text so the dashboard row layout stays consistent without drawing the
+   eye — it's a "placeholder until you tag this night" affordance. */
+.thermal-chip--empty  {
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}

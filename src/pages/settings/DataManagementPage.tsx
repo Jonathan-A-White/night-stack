@@ -560,6 +560,19 @@ export default function DataManagementPage() {
         </p>
       </div>
 
+      {/* Data Cleanup (bugfixes T4) */}
+      <div className="card">
+        <div className="card-title">Data Cleanup</div>
+        <p className="text-secondary text-sm mb-8">
+          Scan your night logs for duplicate sleepData and stale
+          roomTimeline rows (the two defects the 2026-04-17 export
+          surfaced). You review each match before anything is cleared.
+        </p>
+        <Link to="/settings/data/cleanup" className="btn btn-secondary btn-full">
+          Open Data Cleanup
+        </Link>
+      </div>
+
       {/* Full Export (AI-ready) */}
       <div className="card">
         <div className="card-title">Full Export (AI-ready)</div>

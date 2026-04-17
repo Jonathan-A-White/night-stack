@@ -136,6 +136,25 @@ export function timestampToHHMM(ts: number): string {
 }
 
 /**
+ * bugfixes T5 pure check: true when the evening log is being finalized
+ * before its own eating cutoff, which would seed a negative
+ * hours-since-meal anchor in the recommender. Skipped in backfill mode —
+ * those saves don't represent actual bedtime.
+ *
+ * `nowHHMM` is the local wall-clock time the user clicked save at;
+ * `eatingCutoff` is the computed cutoff for the night. Returns true when
+ * the user should be warned.
+ */
+export function isSaveBeforeEatingCutoff(
+  nowHHMM: string,
+  eatingCutoff: string,
+  isBackfill: boolean,
+): boolean {
+  if (isBackfill) return false;
+  return isTimeAfter(eatingCutoff, nowHHMM);
+}
+
+/**
  * Find the RoomReading closest in time-of-day to a "HH:MM" target. Uses
  * circular minute distance so a 03:10 target correctly matches a 03:12
  * reading even when other readings fall on the previous evening side of
@@ -162,6 +181,30 @@ export function findNearestRoomReading<T extends { timestamp: string }>(
     }
   }
   return best;
+}
+
+/**
+ * Decide what `lastMealTime` value should be persisted when the evening log
+ * is saved. The recommender's `hoursSinceLastMeal` feature (see
+ * derived-features.md) cannot be computed without a meal time, so we prefill
+ * blank values with the eating cutoff the user was already prompted with.
+ * The prefill is only applied if the user never interacted with the field —
+ * if they intentionally cleared it, leave it blank so the recommender flags
+ * the night as unknown rather than pretending to have data.
+ *
+ * Pure helper so the save-path behavior can be unit-tested without mounting
+ * the EveningLog component.
+ */
+export function resolveLastMealTimeForSave(params: {
+  currentValue: string;
+  eatingCutoff: string;
+  userInteracted: boolean;
+}): string {
+  const { currentValue, eatingCutoff, userInteracted } = params;
+  if (currentValue.trim() !== '') return currentValue;
+  if (userInteracted) return currentValue; // respect explicit clear
+  if (!eatingCutoff) return currentValue;
+  return eatingCutoff;
 }
 
 /**
@@ -220,5 +263,7 @@ export function createBlankNightLog(date: string, alarm: {
     eveningNotes: '',
     morningNotes: '',
     thermalComfort: null,
+    thermalComfortSource: null,
+    thermalProxyDismissed: false,
   };
 }
