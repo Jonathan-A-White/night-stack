@@ -165,6 +165,11 @@ export function recommendForTonight(
   clothingItems: readonly ClothingItem[],
   beddingItems: readonly BeddingItem[],
 ): Recommendation {
+  // Q3 decision (recommender-v2/questions.md): proxy-derived labels
+  // (thermalComfortSource === 'proxy') vote equally with user-entered labels
+  // here. If the user's own labels start disagreeing with proxy labels,
+  // revisit and add a weighting factor (e.g. proxy × 0.5 + user × 1.0) to
+  // the neighbor-support calculation below.
   const labeled = pastLogs.filter((l) => l.thermalComfort != null);
   const scored: ScoredNight[] = labeled
     .map((log) => ({
