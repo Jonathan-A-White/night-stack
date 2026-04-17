@@ -5,6 +5,7 @@ import type {
   BeddingItem,
   ThermalComfort,
 } from '../types';
+import { findNearestRoomReading } from '../utils';
 import { getOvernightLow } from './weather';
 
 /**
@@ -22,7 +23,30 @@ export interface RecommenderInputs {
   overnightLowF: number | null;
   /** Starting room temp at bedtime, °F. Null when not measured. */
   startingRoomTempF: number | null;
-  /** Today's evening food flags that matter for thermal load. */
+  /**
+   * Room humidity (%) at bedtime, 0–100. Null when not measured. Added in
+   * recommender v2 (AUC 0.800 in the 2026-04-17 analysis — higher signal
+   * than any of the dropped binary food flags).
+   */
+  roomHumidity: number | null;
+  /**
+   * Continuous replacement for the binary `ateLate` flag — hours between
+   * the last meal and the bedtime anchor. See
+   * `specs/recommender-v2/derived-features.md` T1.
+   */
+  hoursSinceLastMeal: number | null;
+  /**
+   * °F/hour drift of the room temp between ~01:00 and ~04:00 local. Derived
+   * from `roomTimeline`. Negative = cooling; positive = warming. See
+   * `specs/recommender-v2/derived-features.md` T2. EXPLORATORY.
+   */
+  coolingRate1to4F: number | null;
+  /**
+   * DEPRECATED binary food flags — dropped from `logToInputs` in
+   * derived-features T4 (always false now). The interface still lists
+   * them so downstream callers (TonightPlan) compile until
+   * `distance-function.md` T1 lands the interface reshape.
+   */
   ateLate: boolean;
   overate: boolean;
   highSalt: boolean;
@@ -120,18 +144,141 @@ export function nightDistance(a: RecommenderInputs, b: RecommenderInputs): numbe
   return d / totalWeight;
 }
 
+/**
+ * Combine a "YYYY-MM-DD" evening date and a "HH:MM" local time into an
+ * epoch ms anchor. If the HH:MM is before noon, the anchor lands on the
+ * day *after* the evening date (the meal/bedtime happened across midnight
+ * into the morning). Returns null for malformed inputs.
+ */
+function anchorMsFromDateAndTime(dateStr: string, hhmm: string): number | null {
+  if (!dateStr || !hhmm) return null;
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(hhmm);
+  if (!dateMatch || !timeMatch) return null;
+  const [, y, mo, d] = dateMatch;
+  const [, hh, mm] = timeMatch;
+  const hours = Number(hh);
+  const minutes = Number(mm);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  // Midnight rule: HH:MM before 12:00 means the *next* local calendar day.
+  const dayOffset = hours < 12 ? 1 : 0;
+  const dt = new Date(Number(y), Number(mo) - 1, Number(d) + dayOffset, hours, minutes);
+  const ms = dt.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Pick the bedtime anchor in ms for a night log. Precedence:
+ *   1. `loggedBedtime` (epoch ms, when the user finalized the evening log)
+ *   2. `alarm.targetBedtime` combined with `log.date` (planned bedtime)
+ *   3. `sleepData.sleepTime` combined with `log.date` (watch-detected onset)
+ *
+ * Known error bound (±45 min): `loggedBedtime` is the moment the evening log
+ * was saved, which can precede actual lights-out. `targetBedtime` is a plan.
+ * `sleepData.sleepTime` is the watch's estimate. None is exact — they're all
+ * within ~45 minutes of real bedtime for this user, which is fine for the
+ * hours-since-meal derivation (a coarse bucket).
+ */
+function pickBedtimeAnchorMs(log: NightLog): number | null {
+  if (log.loggedBedtime != null) return log.loggedBedtime;
+  const fromTarget = anchorMsFromDateAndTime(log.date, log.alarm?.targetBedtime ?? '');
+  if (fromTarget != null) return fromTarget;
+  const sleepTime = log.sleepData?.sleepTime ?? '';
+  return anchorMsFromDateAndTime(log.date, sleepTime);
+}
+
+/**
+ * Hours between the evening's last meal and the bedtime anchor, as a
+ * continuous feature replacing the binary `ateLate` flag (see
+ * `specs/recommender-v2/derived-features.md` T1, AUC 0.75 vs 0.50 for the
+ * binary). Returns null when either side is missing or when the computed
+ * value falls outside `[0, 12]` (sanity bound — negatives or absurd gaps
+ * indicate malformed / cross-day-mismatched data).
+ */
+export function computeHoursSinceLastMeal(log: NightLog): number | null {
+  const bedtimeMs = pickBedtimeAnchorMs(log);
+  const lastMealMs = anchorMsFromDateAndTime(log.date, log.eveningIntake?.lastMealTime ?? '');
+  if (bedtimeMs == null || lastMealMs == null) return null;
+  const hours = (bedtimeMs - lastMealMs) / 3_600_000;
+  if (!Number.isFinite(hours)) return null;
+  if (hours < 0 || hours > 12) return null;
+  return hours;
+}
+
+/**
+ * Cooling rate (°F per hour) from a ~01:00 reading to a ~04:00 reading on
+ * the `roomTimeline`. Negative = room cooling; positive = room warming.
+ *
+ * EXPLORATORY FEATURE: the analysis found this to have AUC 1.0 for
+ * separating too_hot vs too_cold, but that was computed against n_cold = 1.
+ * Expect to re-weight / re-tune this once more labels accumulate. See
+ * `specs/recommender-v2/derived-features.md` T2.
+ *
+ * Fixed window 01:00–04:00: chosen because hot wakes cluster at 03:00–03:45
+ * in the observed data. Revisit if the feature drops in ranked importance.
+ *
+ * Guards:
+ * - Returns null when `roomTimeline` is null or has fewer than two readings
+ *   in the 00:00–06:00 window.
+ * - Requires the chosen t1 reading to fall in [00:30, 02:00] local time so
+ *   `findNearestRoomReading`'s modular-distance quirk doesn't pick a 23:00
+ *   reading for a 01:00 target.
+ * - Requires the chosen t4 reading to fall in [03:00, 05:00].
+ * - Requires the wall-clock gap between t1 and t4 to be ≥ 2 hours; rejects
+ *   sparse timelines.
+ * - Rejects the degenerate case where `findNearestRoomReading` returns the
+ *   same reading for both targets.
+ */
+export function computeCoolingRate1to4F(log: NightLog): number | null {
+  const timeline = log.roomTimeline;
+  if (timeline == null) return null;
+
+  // Require at least two readings in the 00:00–06:00 early-morning window.
+  const inEarlyWindow = timeline.filter((r) => {
+    const d = new Date(r.timestamp);
+    const min = d.getHours() * 60 + d.getMinutes();
+    return min >= 0 && min < 6 * 60;
+  });
+  if (inEarlyWindow.length < 2) return null;
+
+  const t1 = findNearestRoomReading('01:00', timeline);
+  const t4 = findNearestRoomReading('04:00', timeline);
+  if (!t1 || !t4) return null;
+  if (t1 === t4) return null;
+
+  const t1Date = new Date(t1.timestamp);
+  const t4Date = new Date(t4.timestamp);
+  const t1Min = t1Date.getHours() * 60 + t1Date.getMinutes();
+  const t4Min = t4Date.getHours() * 60 + t4Date.getMinutes();
+
+  // Tighten the selector: t1 must be in [00:30, 02:00], t4 in [03:00, 05:00].
+  if (t1Min < 30 || t1Min > 2 * 60) return null;
+  if (t4Min < 3 * 60 || t4Min > 5 * 60) return null;
+
+  const hoursBetween = (t4Date.getTime() - t1Date.getTime()) / 3_600_000;
+  if (!Number.isFinite(hoursBetween) || hoursBetween < 2) return null;
+
+  return (t4.tempF - t1.tempF) / hoursBetween;
+}
+
 export function logToInputs(log: NightLog): RecommenderInputs {
-  const flagsOn = (type: string) =>
-    log.eveningIntake.flags.some((f) => f.type === type && f.active);
   const overnightLowF = log.environment.externalWeather
     ? getOvernightLow(log.environment.externalWeather)
     : null;
   return {
     overnightLowF,
     startingRoomTempF: log.environment.roomTempF,
-    ateLate: flagsOn('late_meal'),
-    overate: flagsOn('overate'),
-    highSalt: flagsOn('high_salt'),
+    roomHumidity: log.environment.roomHumidity,
+    hoursSinceLastMeal: computeHoursSinceLastMeal(log),
+    coolingRate1to4F: computeCoolingRate1to4F(log),
+    // Keep the three binary food flags in the output (hardcoded false) to
+    // avoid breaking the build until `distance-function.md` T1 reshapes
+    // `RecommenderInputs`. The underlying derivations are dropped now —
+    // the flags no longer contribute any signal regardless of log state.
+    ateLate: false,
+    overate: false,
+    highSalt: false,
     alcohol: log.eveningIntake.alcohol != null,
     plannedAcCurve: log.environment.acCurveProfile,
     plannedAcSetpointF: log.environment.acSetpointF,
