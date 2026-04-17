@@ -11,6 +11,7 @@ import { MorningReview } from './pages/morning/MorningReview';
 import { Dashboard } from './pages/insights/Dashboard';
 import { Correlations } from './pages/insights/Correlations';
 import { BestNights } from './pages/insights/BestNights';
+import { MetricDetail } from './pages/insights/MetricDetail';
 import { CalendarPage } from './pages/calendar/CalendarPage';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
@@ -46,6 +47,7 @@ export function App() {
           <Route path="/insights" element={<Dashboard />} />
           <Route path="/insights/correlations" element={<Correlations />} />
           <Route path="/insights/best-nights" element={<BestNights />} />
+          <Route path="/insights/metric/:type" element={<MetricDetail />} />
           <Route path="/settings" element={<SettingsHome />} />
           <Route path="/settings/evening-routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><EveningRoutineSettingsPage /></Suspense>} />
           <Route path="/tonight/routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><RoutineTracker /></Suspense>} />
