@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
   computeLatestStepEndedAt,
-  computeStepPBs,
+  computeStepTargets,
   computeTodaySessionStartedAt,
   formatStopwatch,
   formatTotal,
@@ -323,8 +323,8 @@ export default function RoutineTracker() {
     return ordered;
   }, [selectedVariant, allSteps, tonightStepIds]);
 
-  // PBs per step across all sessions.
-  const pbs = useMemo(() => computeStepPBs(sessions ?? []), [sessions]);
+  // Per-step targets across all sessions (one std dev below mean).
+  const pbs = useMemo(() => computeStepTargets(sessions ?? []), [sessions]);
 
   // Per-step statuses from any sessions already saved for today — used to
   // pre-mark steps as done when the user starts another routine later the
@@ -1172,7 +1172,7 @@ export default function RoutineTracker() {
             {formatStopwatch(timerMs)}
           </div>
           <div className="routine-timer-label">
-            {pb != null ? 'remaining vs. best' : 'elapsed (no best yet)'}
+            {pb != null ? 'remaining vs. target' : 'elapsed (no target yet)'}
           </div>
           <textarea
             className="form-input routine-step-notes-input"
