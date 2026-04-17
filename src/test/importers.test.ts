@@ -120,6 +120,92 @@ describe('parseSamsungHealthJSON', () => {
   });
 });
 
+describe('parseSamsungHealthJSON — multi-session / date guard (bugfixes T1)', () => {
+  const baseSession = {
+    sleepTime: '22:31',
+    wakeTime: '04:43',
+    totalSleepDuration: 372,
+    actualSleepDuration: 351,
+    sleepScore: 82,
+    sleepScoreDelta: 5,
+    deepSleep: 64,
+    remSleep: 108,
+    lightSleep: 179,
+    awakeDuration: 21,
+    avgHeartRate: 48,
+    minHeartRate: 42,
+    avgRespiratoryRate: 15.1,
+    bloodOxygenAvg: 93,
+  };
+
+  it('returns sessionDate when the JSON carries a sleepStartTime', () => {
+    const session = { ...baseSession, sleepStartTime: '2026-04-16T22:31:00' };
+    const result = parseSamsungHealthJSON(JSON.stringify(session));
+    expect(result.error).toBeNull();
+    expect(result.sessionDate).toBe('2026-04-16');
+  });
+
+  it('shifts an early-morning start back to the previous evening', () => {
+    // 02:30 on 4/17 is really the 4/16 night.
+    const session = { ...baseSession, sleepStartTime: '2026-04-17T02:30:00' };
+    const result = parseSamsungHealthJSON(JSON.stringify(session));
+    expect(result.sessionDate).toBe('2026-04-16');
+  });
+
+  it('picks the session that matches the targetDate in a multi-session JSON', () => {
+    const payload = {
+      sessions: [
+        { ...baseSession, sleepStartTime: '2026-04-16T22:00:00', sleepScore: 82 },
+        { ...baseSession, sleepStartTime: '2026-04-17T22:00:00', sleepScore: 93 },
+      ],
+    };
+    const result = parseSamsungHealthJSON(JSON.stringify(payload), '2026-04-16');
+    expect(result.error).toBeNull();
+    expect(result.data!.sleepScore).toBe(82);
+    expect(result.sessionDate).toBe('2026-04-16');
+  });
+
+  it('returns null + error when no session matches the targetDate (bugfixes T1 acceptance)', () => {
+    const payload = {
+      sessions: [
+        { ...baseSession, sleepStartTime: '2026-04-16T22:00:00', sleepScore: 82 },
+        { ...baseSession, sleepStartTime: '2026-04-17T22:00:00', sleepScore: 93 },
+      ],
+    };
+    const result = parseSamsungHealthJSON(JSON.stringify(payload), '2026-04-15');
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('No sleep session found matching 2026-04-15');
+  });
+
+  it('refuses to silently pick when a multi-session JSON has no target date', () => {
+    const payload = {
+      sessions: [
+        { ...baseSession, sleepStartTime: '2026-04-16T22:00:00' },
+        { ...baseSession, sleepStartTime: '2026-04-17T22:00:00' },
+      ],
+    };
+    const result = parseSamsungHealthJSON(JSON.stringify(payload));
+    expect(result.data).toBeNull();
+    expect(result.error).toContain('no target date to match');
+  });
+
+  it('accepts a bare array of sessions', () => {
+    const payload = [
+      { ...baseSession, sleepStartTime: '2026-04-15T22:00:00', sleepScore: 75 },
+      { ...baseSession, sleepStartTime: '2026-04-16T22:00:00', sleepScore: 82 },
+    ];
+    const result = parseSamsungHealthJSON(JSON.stringify(payload), '2026-04-15');
+    expect(result.error).toBeNull();
+    expect(result.data!.sleepScore).toBe(75);
+  });
+
+  it('returns a null sessionDate for a single-session JSON with no date fields (legacy path)', () => {
+    const result = parseSamsungHealthJSON(JSON.stringify(baseSession));
+    expect(result.error).toBeNull();
+    expect(result.sessionDate).toBeNull();
+  });
+});
+
 describe('parseGoveeCSV', () => {
   it('parses valid CSV with overnight readings', () => {
     const csv = `Timestamp,Temperature(°F),Humidity(%)
@@ -165,5 +251,21 @@ describe('parseGoveeCSV', () => {
     const result = parseGoveeCSV(csv, '2026-04-06');
     expect(result.error).toBeNull();
     expect(result.data!.length).toBe(1);
+  });
+
+  // bugfixes T3 acceptance: rows from 2026-04-17 must not end up attached to
+  // the 2026-04-15 night log. The 2026-04-17 `nightstack-export.json`
+  // surfaced exactly this corruption — 4/15's roomTimeline contained
+  // 4/17-dated samples — and the fix has to hold against the regression
+  // fixture regardless of which hypothesis (wrong nightDate / TZ) caused it.
+  it('returns zero readings when all CSV rows are outside the target night window', () => {
+    const csv = `Timestamp,Temperature(°F),Humidity(%)
+2026-04-17 01:00,68.2,45
+2026-04-17 02:00,67.8,46
+2026-04-17 03:00,67.5,47`;
+    const result = parseGoveeCSV(csv, '2026-04-15');
+    expect(result.error).toBeNull();
+    expect(result.data).not.toBeNull();
+    expect(result.data!.length).toBe(0);
   });
 });

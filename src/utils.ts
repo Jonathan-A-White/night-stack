@@ -136,6 +136,25 @@ export function timestampToHHMM(ts: number): string {
 }
 
 /**
+ * bugfixes T5 pure check: true when the evening log is being finalized
+ * before its own eating cutoff, which would seed a negative
+ * hours-since-meal anchor in the recommender. Skipped in backfill mode —
+ * those saves don't represent actual bedtime.
+ *
+ * `nowHHMM` is the local wall-clock time the user clicked save at;
+ * `eatingCutoff` is the computed cutoff for the night. Returns true when
+ * the user should be warned.
+ */
+export function isSaveBeforeEatingCutoff(
+  nowHHMM: string,
+  eatingCutoff: string,
+  isBackfill: boolean,
+): boolean {
+  if (isBackfill) return false;
+  return isTimeAfter(eatingCutoff, nowHHMM);
+}
+
+/**
  * Find the RoomReading closest in time-of-day to a "HH:MM" target. Uses
  * circular minute distance so a 03:10 target correctly matches a 03:12
  * reading even when other readings fall on the previous evening side of

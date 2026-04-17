@@ -6,10 +6,12 @@ import {
   calculateSchedule,
   formatTime12h,
   isTimeAfter,
+  isSaveBeforeEatingCutoff,
   getTodayDate,
   getEveningLogDate,
   createBlankNightLog,
   getCurrentTime,
+  timestampToHHMM,
   DAY_NAMES,
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
@@ -219,6 +221,16 @@ export function EveningLog() {
   // double-taps while the async save is in flight.
   const [isSaving, setIsSaving] = useState(false);
 
+  /**
+   * Banner state for the bugfixes-T5 sanity check: if the user tries to
+   * finalize the evening log *before* their own eating cutoff, the
+   * `loggedBedtime` would be a negative `hoursSinceLastMeal` anchor for
+   * the derived-features path — almost certainly a mis-click (e.g. saving
+   * a draft early). Skipped in backfill mode (the save-time moment
+   * doesn't reflect bedtime there).
+   */
+  const [earlyBedtimeWarning, setEarlyBedtimeWarning] = useState(false);
+
   // Weight entry (only surfaced if user weighs in the evening)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'evening';
@@ -398,8 +410,27 @@ export function EveningLog() {
     setDeviations((prev) => prev.filter((d) => d.id !== id));
   }
 
-  async function handleSave() {
+  async function handleSave(options: { bypassEarlyBedtime?: boolean } = {}) {
     if (isSaving) return; // guard against double-tap
+
+    // bugfixes T5: if the user is finalizing the log before the eating
+    // cutoff on the same day, they almost certainly haven't gone to bed
+    // yet. `loggedBedtime = Date.now()` would seed the recommender's
+    // `hoursSinceLastMeal` derivation with a negative value. Surface a
+    // confirmation banner and short-circuit until the user dismisses it.
+    // Skipped for backfill (the save-time moment is meaningless there).
+    if (
+      !options.bypassEarlyBedtime &&
+      isSaveBeforeEatingCutoff(
+        timestampToHHMM(Date.now()),
+        schedule.eatingCutoff,
+        isBackfill,
+      )
+    ) {
+      setEarlyBedtimeWarning(true);
+      return;
+    }
+
     setIsSaving(true);
     try {
       const date = logDate;
@@ -1182,6 +1213,37 @@ export function EveningLog() {
             )}
           </div>
 
+          {earlyBedtimeWarning && (
+            <div className="banner banner-warning mb-8">
+              <div className="fw-600">
+                The evening log was finished before your eating cutoff.
+              </div>
+              <div className="text-sm mt-8">
+                The recommender treats finish-time as bedtime. Saving now
+                (before {formatTime12h(schedule.eatingCutoff)}) would produce
+                a negative hours-since-meal anchor. Save anyway only if
+                you're really going to bed this early.
+              </div>
+              <div className="flex gap-8 mt-8">
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setEarlyBedtimeWarning(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-sm btn-danger"
+                  onClick={() => {
+                    setEarlyBedtimeWarning(false);
+                    handleSave({ bypassEarlyBedtime: true });
+                  }}
+                >
+                  Yes, save
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="step-nav">
             <button
               className="btn btn-secondary"
@@ -1191,10 +1253,10 @@ export function EveningLog() {
             </button>
             <button
               className="btn btn-primary"
-              onClick={handleSave}
+              onClick={() => handleSave()}
               disabled={isSaving}
             >
-              {isSaving ? 'Saving…' : 'Save Evening Log'}
+              {isSaving ? 'Saving\u2026' : 'Save Evening Log'}
             </button>
           </div>
         </div>
