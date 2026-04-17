@@ -316,12 +316,13 @@ export function Dashboard() {
                   onClick={() => navigate(`/morning/review/${log.id}`)}
                 >
                   <div>
-                    <div className="fw-600">{log.date}</div>
-                    {log.thermalComfort && (
-                      <div className="mt-8">
-                        <ThermalComfortChip log={log} />
-                      </div>
-                    )}
+                    <div className="flex items-center gap-8">
+                      <span className="fw-600">{log.date}</span>
+                      {/* ux.md T6: render a chip on every row — grey "—"
+                          for nights with no label so the layout stays
+                          even and the user has an affordance to label. */}
+                      <ThermalComfortChip log={log} renderEmpty />
+                    </div>
                     {flags.length > 0 && (
                       <div className="text-secondary text-sm mt-8">
                         {flags.join(' \u00b7 ')}

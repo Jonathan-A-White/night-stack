@@ -87,9 +87,76 @@ export interface Recommendation {
   warning: string;
   /** Count of total past nights with a thermalComfort label. */
   totalLabeledNights: number;
+  /**
+   * How confident the `items` list is. `'consensus'` = derived from
+   * `goodNeighbors` (the normal path). `'exploratory'` = no good neighbors
+   * but the bad neighbors leaned strongly one direction, so we picked the
+   * least-bad neighbor's stack as a starting point. See
+   * `specs/recommender-v2/ux.md` T4.
+   */
+  mode: 'consensus' | 'exploratory';
 }
 
 const K_NEIGHBORS = 5;
+
+/**
+ * Linear fit from the 2026-04-17 analysis:
+ * `startingRoom ≈ 0.436 × weatherLow + 49.91`, R²=0.831 (n=11).
+ *
+ * Used to prefill the Tonight form's starting-room temp from the overnight
+ * forecast low — see `specs/recommender-v2/ux.md` T2. Per questions.md Q4
+ * option (a), the coefficients are hardcoded for the v2 ship; a per-user
+ * re-fit is deferred until the user has ≥10 nights with both fields
+ * populated.
+ *
+ * NOTE: valid for the original user's apartment/weather pattern only. Flag
+ * before multi-user rollout — the intercept (49.91) and slope (0.436)
+ * encode this building's insulation + the user's baseline comfort setpoint,
+ * which won't generalize.
+ */
+export function estimateStartingRoomTemp(overnightLowF: number): number {
+  return Math.round(0.436 * overnightLowF + 49.91);
+}
+
+/**
+ * "Pressure" = how much colder tonight is forecast to get than the room
+ * starts at. A large negative value means the room has a lot of room to
+ * drop. See `specs/recommender-v2/ux.md` T3. Thresholds are tuned from the
+ * n=11 export (cold nights around −30; hot nights around −17) — re-tune at
+ * larger n.
+ */
+export type PressureBand = 'little' | 'moderate' | 'strong' | 'extreme';
+
+export interface PressureDescription {
+  band: PressureBand;
+  /** Plain-English suffix describing what to expect. */
+  text: string;
+}
+
+export function describePressure(pressure: number): PressureDescription {
+  if (pressure >= -5) {
+    return {
+      band: 'little',
+      text: "Little cooling pressure tonight — room won't drop much.",
+    };
+  }
+  if (pressure > -15) {
+    return {
+      band: 'moderate',
+      text: 'Moderate cooling — expect the room to fall a few degrees.',
+    };
+  }
+  if (pressure > -30) {
+    return {
+      band: 'strong',
+      text: 'Strong cooling — room will fall sharply.',
+    };
+  }
+  return {
+    band: 'extreme',
+    text: 'Extreme cooling — consider closing the window / running the heater early.',
+  };
+}
 
 /**
  * Weighted L1 distance. Weights come from how directly each input drives
@@ -349,6 +416,7 @@ export function recommendForTonight(
   const beddingById = new Map(beddingItems.map((b) => [b.id, b.name]));
 
   const items: RecommendationItem[] = [];
+  let mode: 'consensus' | 'exploratory' = 'consensus';
 
   if (goodNeighbors.length > 0) {
     // Vote across clothing items used by just_right neighbors.
@@ -419,10 +487,44 @@ export function recommendForTonight(
       if (Math.abs(a.support - b.support) > 0.01) return b.support - a.support;
       return catOrder[a.category] - catOrder[b.category];
     });
+  } else {
+    // Exploratory fallback: no "just_right" neighbors exist but the bad
+    // neighbors leaned strongly one direction. Pick the least-bad night
+    // from the *less-skewed* side and surface its stack as a starting
+    // point. See `specs/recommender-v2/ux.md` T4.
+    const exploratoryPick = pickExploratoryNeighbor(neighbors, badNeighbors);
+    if (exploratoryPick) {
+      mode = 'exploratory';
+      const n = 1;
+      for (const c of exploratoryPick.log.clothing) {
+        const name = clothingById.get(c);
+        if (!name) continue;
+        items.push({ category: 'clothing', label: name, support: 1, n });
+      }
+      for (const b of exploratoryPick.log.bedding) {
+        const name = beddingById.get(b);
+        if (!name) continue;
+        items.push({ category: 'bedding', label: name, support: 1, n });
+      }
+      const curve = exploratoryPick.log.environment.acCurveProfile;
+      items.push({
+        category: 'ac',
+        label: AC_CURVE_LABEL[curve],
+        support: 1,
+        n,
+      });
+      const fan = exploratoryPick.log.environment.fanSpeed;
+      items.push({
+        category: 'fan',
+        label: FAN_LABEL[fan as keyof typeof FAN_LABEL] ?? fan,
+        support: 1,
+        n,
+      });
+    }
   }
 
-  const summary = buildSummary(goodNeighbors, badNeighbors, neighbors);
-  const warning = buildWarning(badNeighbors, neighbors.length);
+  const summary = buildSummary(goodNeighbors, badNeighbors, neighbors, mode);
+  const warning = buildWarning(badNeighbors, neighbors.length, mode);
 
   return {
     neighbors,
@@ -432,16 +534,86 @@ export function recommendForTonight(
     summary,
     warning,
     totalLabeledNights: labeled.length,
+    mode,
   };
+}
+
+/**
+ * Exploratory-fallback selection logic (ux.md T4).
+ *
+ * Trigger conditions: `goodNeighbors.length === 0` (already ensured by the
+ * caller), `badNeighbors.length >= 0.6 * neighbors.length`, and ≥60% of
+ * bad neighbors skew one direction.
+ *
+ * Pick strategy:
+ *   1. Prefer the neighbor with the highest `sleepData.sleepScore` from the
+ *      *less-skewed* direction (e.g. if 3/5 were too_hot, look at
+ *      too_cold + mixed + null nights).
+ *   2. If no less-skewed neighbor exists, pick the mildest neighbor from
+ *      the dominant direction — the one with the fewest wake events
+ *      matching the dominant cause (hot wakes for 'too_hot', cold wakes
+ *      for 'too_cold'). Tie-break by total wake count ascending.
+ */
+function pickExploratoryNeighbor(
+  neighbors: ScoredNight[],
+  badNeighbors: ScoredNight[],
+): ScoredNight | null {
+  if (neighbors.length === 0) return null;
+  if (badNeighbors.length < 0.6 * neighbors.length) return null;
+
+  const tooHot = badNeighbors.filter((n) => n.comfort === 'too_hot');
+  const tooCold = badNeighbors.filter((n) => n.comfort === 'too_cold');
+  const badTotal = badNeighbors.length;
+
+  let dominant: 'too_hot' | 'too_cold' | null = null;
+  if (tooHot.length / badTotal >= 0.6) dominant = 'too_hot';
+  else if (tooCold.length / badTotal >= 0.6) dominant = 'too_cold';
+  if (dominant === null) return null;
+
+  // Step 1: any neighbor not in the dominant direction → pick highest
+  // sleep score.
+  const offDirection = neighbors.filter((n) => n.comfort !== dominant);
+  if (offDirection.length > 0) {
+    const withScores = offDirection
+      .map((n) => ({ n, score: n.log.sleepData?.sleepScore ?? -Infinity }))
+      .sort((a, b) => b.score - a.score);
+    return withScores[0].n;
+  }
+
+  // Step 2: every neighbor is in the dominant direction. Pick the mildest.
+  // Proxy: count wake events whose `wasSweating` (for too_hot) or
+  // `feltCold` (for too_cold) is true; lowest count wins. Tie-break by
+  // fewer total wake events overall.
+  const dominantNeighbors = neighbors.filter((n) => n.comfort === dominant);
+  if (dominantNeighbors.length === 0) return null;
+
+  const scored = dominantNeighbors.map((n) => {
+    const dominantWakes = n.log.wakeUpEvents.filter((w) =>
+      dominant === 'too_hot' ? w.wasSweating : w.feltCold,
+    ).length;
+    const totalWakes = n.log.wakeUpEvents.length;
+    return { n, dominantWakes, totalWakes };
+  });
+  scored.sort((a, b) => {
+    if (a.dominantWakes !== b.dominantWakes) {
+      return a.dominantWakes - b.dominantWakes;
+    }
+    return a.totalWakes - b.totalWakes;
+  });
+  return scored[0].n;
 }
 
 function buildSummary(
   good: ScoredNight[],
   _bad: ScoredNight[],
   all: ScoredNight[],
+  mode: 'consensus' | 'exploratory' = 'consensus',
 ): string {
   if (all.length === 0) {
     return 'No past nights tagged yet — start labeling mornings with "too hot / too cold / just right" to seed recommendations.';
+  }
+  if (mode === 'exploratory') {
+    return `No past nights with inputs this similar ended "just right." Starting point below is from the least-bad similar night — treat it as a guess.`;
   }
   if (good.length === 0) {
     return `None of the ${all.length} most-similar past nights ended in "just right" — inputs this similar have historically gone sideways. Experiment cautiously.`;
@@ -449,8 +621,24 @@ function buildSummary(
   return `${good.length} of the ${all.length} most-similar past nights ended "just right". The stack below is what those nights had in common.`;
 }
 
-function buildWarning(bad: ScoredNight[], neighborCount: number): string {
+function buildWarning(
+  bad: ScoredNight[],
+  neighborCount: number,
+  mode: 'consensus' | 'exploratory' = 'consensus',
+): string {
   if (neighborCount === 0) return '';
+  if (mode === 'exploratory') {
+    const tooHot = bad.filter((n) => n.comfort === 'too_hot').length;
+    const tooCold = bad.filter((n) => n.comfort === 'too_cold').length;
+    const total = neighborCount;
+    if (tooHot / total >= 0.5) {
+      return `Most similar nights ran hot. The starting point is experimental — lean lighter, not heavier.`;
+    }
+    if (tooCold / total >= 0.5) {
+      return `Most similar nights ran cold. The starting point is experimental — add a layer you can shed easily.`;
+    }
+    return 'Experimental starting point — no clear direction from past similar nights.';
+  }
   const tooHot = bad.filter((n) => n.comfort === 'too_hot').length;
   const tooCold = bad.filter((n) => n.comfort === 'too_cold').length;
   const total = neighborCount;

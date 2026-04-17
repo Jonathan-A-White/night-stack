@@ -7,6 +7,11 @@ import {
 import { db } from '../../db';
 import { recalculateAllCalculatedWeights } from '../../weightUtils';
 import { toLocalDateString } from '../../utils';
+import {
+  computeCoolingRate1to4F,
+  computeHoursSinceLastMeal,
+} from '../../services/recommender';
+import { getOvernightLow } from '../../services/weather';
 import { SubNav } from './Dashboard';
 import type { NightLog, SleepRating, WeightEntry } from '../../types';
 
@@ -20,7 +25,12 @@ type XVar =
   | 'alcohol'
   | 'anyFlag'
   | 'weight'
-  | 'overate';
+  | 'overate'
+  // Recommender v2 UX T5: surface the new derived features and pressure
+  // in the correlations picker so the user can explore them directly.
+  | 'hoursSinceLastMeal'
+  | 'coolingRate1to4F'
+  | 'pressure';
 
 type YVar =
   | 'sleepScore'
@@ -37,6 +47,9 @@ const X_OPTIONS: { value: XVar; label: string }[] = [
   { value: 'externalLow', label: 'External overnight low (\u00b0F)' },
   { value: 'roomHumidity', label: 'Room humidity (%)' },
   { value: 'lastMealMins', label: 'Last meal (mins before bed)' },
+  { value: 'hoursSinceLastMeal', label: 'Hours since last meal' },
+  { value: 'coolingRate1to4F', label: 'Cooling rate 1\u20134am (\u00b0F/h)' },
+  { value: 'pressure', label: 'Pressure (weather low \u2212 room)' },
   { value: 'beddingLayers', label: 'Number bedding layers' },
   { value: 'clothingLayers', label: 'Number clothing layers' },
   { value: 'alcohol', label: 'Alcohol (1/0)' },
@@ -76,10 +89,40 @@ function getExternalLow(log: NightLog): number | null {
   return Math.min(...temps.map((t) => t.value));
 }
 
+/**
+ * Per-log derived features for the new ux.md T5 picker options. Computed
+ * once per logs array and cached so selecting different X/Y vars doesn't
+ * re-walk the roomTimeline on every scatter point.
+ */
+interface DerivedFeatures {
+  /** Hours between `eveningIntake.lastMealTime` and the bedtime anchor. */
+  hoursSinceLastMeal: number | null;
+  /** °F/hour drift between ~01:00 and ~04:00 on `roomTimeline`. */
+  coolingRate1to4F: number | null;
+  /**
+   * Tonight's overnightLow - startingRoomTempF. Positive: room already
+   * warmer than the forecast (typical). The UX spec calls this "pressure".
+   */
+  pressure: number | null;
+}
+
+function computeDerived(log: NightLog): DerivedFeatures {
+  const low = log.environment.externalWeather
+    ? getOvernightLow(log.environment.externalWeather)
+    : null;
+  const room = log.environment.roomTempF;
+  return {
+    hoursSinceLastMeal: computeHoursSinceLastMeal(log),
+    coolingRate1to4F: computeCoolingRate1to4F(log),
+    pressure: low !== null && room !== null ? low - room : null,
+  };
+}
+
 function getXValue(
   log: NightLog,
   v: XVar,
   weightByLogId: Map<string, number>,
+  derived: DerivedFeatures,
 ): number | null {
   switch (v) {
     case 'roomTemp':
@@ -96,6 +139,12 @@ function getXValue(
       if (bedMins < mealMins) bedMins += 24 * 60;
       return bedMins - mealMins;
     }
+    case 'hoursSinceLastMeal':
+      return derived.hoursSinceLastMeal;
+    case 'coolingRate1to4F':
+      return derived.coolingRate1to4F;
+    case 'pressure':
+      return derived.pressure;
     case 'beddingLayers':
       return log.bedding.length;
     case 'clothingLayers':
@@ -196,12 +245,31 @@ export function Correlations() {
     return map;
   }, [weights]);
 
+  // Derived features (ux.md T5): compute once per logs array. Cooling rate
+  // walks the roomTimeline and hoursSinceLastMeal parses HH:MM strings, so
+  // doing this inside the getXValue switch would re-derive on every
+  // picker flip. Memoize keyed on logs identity — Dexie returns a new
+  // reference when the underlying data changes.
+  const derivedByLogId = useMemo(() => {
+    const map = new Map<string, DerivedFeatures>();
+    if (!logs) return map;
+    for (const log of logs) {
+      map.set(log.id, computeDerived(log));
+    }
+    return map;
+  }, [logs]);
+
   const { points, regression, trendLine } = useMemo(() => {
     if (!logs) return { points: [], regression: { slope: 0, intercept: 0, r: 0 }, trendLine: [] };
 
     const pts: { x: number; y: number }[] = [];
     for (const log of logs) {
-      const x = getXValue(log, xVar, weightByLogId);
+      const derived = derivedByLogId.get(log.id) ?? {
+        hoursSinceLastMeal: null,
+        coolingRate1to4F: null,
+        pressure: null,
+      };
+      const x = getXValue(log, xVar, weightByLogId, derived);
       const y = getYValue(log, yVar);
       if (x !== null && y !== null) {
         pts.push({ x, y });
@@ -223,7 +291,7 @@ export function Correlations() {
     }
 
     return { points: pts, regression: reg, trendLine: trend };
-  }, [logs, xVar, yVar, weightByLogId]);
+  }, [logs, xVar, yVar, weightByLogId, derivedByLogId]);
 
   const xLabel = X_OPTIONS.find((o) => o.value === xVar)?.label ?? '';
   const yLabel = Y_OPTIONS.find((o) => o.value === yVar)?.label ?? '';

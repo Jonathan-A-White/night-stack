@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
@@ -5,6 +6,15 @@ import { formatTime12h, timestampToHHMM, findNearestRoomReading } from '../../ut
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
+import { logToInputs, nightDistance } from '../../services/recommender';
+import type { NightLog, ThermalComfort } from '../../types';
+
+const COMFORT_LABEL: Record<ThermalComfort, string> = {
+  too_hot: 'too hot',
+  too_cold: 'too cold',
+  just_right: 'just right',
+  mixed: 'mixed',
+};
 
 function scoreClass(score: number): string {
   if (score >= 85) return 'score-excellent';
@@ -32,6 +42,44 @@ export function MorningReview() {
   const bedtimeReasons = useLiveQuery(() => db.bedtimeReasons.toArray());
   const clothingItems = useLiveQuery(() => db.clothingItems.toArray());
   const beddingItems = useLiveQuery(() => db.beddingItems.toArray());
+  // All night logs feed the similarity lookup (ux.md T7). Cheap — Dexie
+  // returns a plain array and we filter in-memory.
+  const allLogs = useLiveQuery(() => db.nightLogs.toArray(), []);
+
+  // Top-3 similar past nights by nightDistance (ux.md T7). Only runs when
+  // this log has a thermalComfort label — otherwise the "how did last
+  // night compare" section is hidden entirely. Self-exclusion: the current
+  // night's own id is filtered out so it doesn't rank as its own closest
+  // match.
+  const similarMatches = useMemo(() => {
+    if (!nightLog || !allLogs) return [];
+    if (!nightLog.thermalComfort) return [];
+    const selfInputs = logToInputs(nightLog);
+    type Match = { log: NightLog; distance: number };
+    const candidates: Match[] = [];
+    for (const other of allLogs) {
+      if (other.id === nightLog.id) continue;
+      candidates.push({
+        log: other,
+        distance: nightDistance(selfInputs, logToInputs(other)),
+      });
+    }
+    candidates.sort((a, b) => a.distance - b.distance);
+    return candidates.slice(0, 3);
+  }, [nightLog, allLogs]);
+
+  // "2 of your 3 closest matches also ended X" one-liner. Same-label
+  // matches count toward the insight.
+  const matchInsight = useMemo(() => {
+    if (!nightLog?.thermalComfort) return '';
+    const withLabels = similarMatches.filter((m) => m.log.thermalComfort != null);
+    if (withLabels.length < 2) return '';
+    const sameCount = withLabels.filter(
+      (m) => m.log.thermalComfort === nightLog.thermalComfort,
+    ).length;
+    if (sameCount < 2) return '';
+    return `${sameCount} of your ${withLabels.length} closest matches also ended ${COMFORT_LABEL[nightLog.thermalComfort]}.`;
+  }, [nightLog, similarMatches]);
 
   if (!nightLog) {
     return (
@@ -69,6 +117,37 @@ export function MorningReview() {
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ux.md T7: "How last night compared" — top-3 similar past nights
+          by nightDistance so the user can see which recommender neighbors
+          they resembled in hindsight. Hidden when the night hasn't been
+          labeled (no signal to anchor against). */}
+      {nightLog.thermalComfort && similarMatches.length > 0 && (
+        <div className="card">
+          <div className="card-title">How last night compared</div>
+          <div className="flex items-center gap-8 mb-8">
+            <ThermalComfortChip log={nightLog} readOnly />
+            <span className="text-secondary text-sm">last night</span>
+          </div>
+          <div className="text-secondary text-sm mb-8">
+            Top 3 past nights with the most similar inputs:
+          </div>
+          {similarMatches.map((m) => (
+            <div key={m.log.id} className="summary-row">
+              <span className="summary-label">{m.log.date}</span>
+              <span className="summary-value flex items-center gap-8">
+                <ThermalComfortChip log={m.log} renderEmpty />
+                <span className="text-secondary text-sm">
+                  d={m.distance.toFixed(2)}
+                </span>
+              </span>
+            </div>
+          ))}
+          {matchInsight && (
+            <p className="text-sm mt-8">{matchInsight}</p>
+          )}
         </div>
       )}
 

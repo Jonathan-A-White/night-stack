@@ -2,12 +2,22 @@ import { describe, it, expect } from 'vitest';
 import {
   computeHoursSinceLastMeal,
   computeCoolingRate1to4F,
+  describePressure,
+  estimateStartingRoomTemp,
   logToInputs,
   nightDistance,
+  recommendForTonight,
   type RecommenderInputs,
 } from '../services/recommender';
 import { createBlankNightLog } from '../utils';
-import type { NightLog, RoomReading } from '../types';
+import type {
+  BeddingItem,
+  ClothingItem,
+  NightLog,
+  RoomReading,
+  ThermalComfort,
+  WakeUpEvent,
+} from '../types';
 
 /**
  * Tests for the derived-features workstream
@@ -433,5 +443,278 @@ describe('nightDistance (distance-function T6)', () => {
     }
     const toggledB = logToInputs(b);
     expect(nightDistance(toggledA, toggledB)).toBe(dBaseline);
+  });
+});
+
+/**
+ * Tests for the UX workstream pure helpers
+ * (`specs/recommender-v2/ux.md` T2 + T3 + T4). UI is covered by manual QA
+ * per Q8; here we test the extractable logic.
+ */
+
+describe('estimateStartingRoomTemp (ux T2)', () => {
+  it('returns 72 for an overnight low of 50 (spec acceptance case)', () => {
+    // 0.436 * 50 + 49.91 = 71.71 → Math.round → 72
+    expect(estimateStartingRoomTemp(50)).toBe(72);
+  });
+
+  it('returns 65 for an overnight low of 35 (cold-night case)', () => {
+    // 0.436 * 35 + 49.91 = 65.17 → 65
+    expect(estimateStartingRoomTemp(35)).toBe(65);
+  });
+
+  it('returns 80 for an overnight low of 70 (warm-night case)', () => {
+    // 0.436 * 70 + 49.91 = 80.43 → 80
+    expect(estimateStartingRoomTemp(70)).toBe(80);
+  });
+});
+
+describe('describePressure (ux T3)', () => {
+  it('categorizes pressure >= -5 as "little"', () => {
+    expect(describePressure(0).band).toBe('little');
+    expect(describePressure(-5).band).toBe('little');
+    expect(describePressure(5).band).toBe('little');
+  });
+
+  it('categorizes -15 < pressure < -5 as "moderate"', () => {
+    expect(describePressure(-6).band).toBe('moderate');
+    expect(describePressure(-10).band).toBe('moderate');
+    expect(describePressure(-14.9).band).toBe('moderate');
+  });
+
+  it('categorizes -30 < pressure <= -15 as "strong"', () => {
+    expect(describePressure(-15).band).toBe('strong');
+    expect(describePressure(-20).band).toBe('strong');
+    expect(describePressure(-29.9).band).toBe('strong');
+  });
+
+  it('categorizes pressure <= -30 as "extreme"', () => {
+    expect(describePressure(-30).band).toBe('extreme');
+    expect(describePressure(-40).band).toBe('extreme');
+  });
+
+  it('returns a non-empty text for every band', () => {
+    for (const p of [0, -10, -20, -35]) {
+      expect(describePressure(p).text.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/**
+ * Exploratory-fallback tests (ux T4). Build fixture logs whose only
+ * ground-truth signal is the `thermalComfort` label; the `nightDistance`
+ * between tonight's inputs and each log is implicitly the same (identical
+ * null-dimension inputs) so the K-nearest ordering is stable across calls.
+ */
+
+function makeLabeledLog(
+  date: string,
+  comfort: ThermalComfort,
+  opts: {
+    sleepScore?: number;
+    wakeUpEvents?: WakeUpEvent[];
+    clothing?: string[];
+    bedding?: string[];
+  } = {},
+): NightLog {
+  const log = createBlankNightLog(date, {
+    expectedAlarmTime: '06:00',
+    actualAlarmTime: '06:00',
+    isOverridden: false,
+    targetBedtime: '22:30',
+    eatingCutoff: '20:00',
+    supplementTime: '21:45',
+  });
+  log.thermalComfort = comfort;
+  log.thermalComfortSource = 'user';
+  log.clothing = opts.clothing ?? ['cl-tee'];
+  log.bedding = opts.bedding ?? ['bd-sheet'];
+  log.wakeUpEvents = opts.wakeUpEvents ?? [];
+  if (opts.sleepScore !== undefined) {
+    log.sleepData = {
+      sleepTime: '22:00',
+      wakeTime: '06:00',
+      totalSleepDuration: 480,
+      actualSleepDuration: 460,
+      sleepScore: opts.sleepScore,
+      sleepScoreDelta: 0,
+      deepSleep: 90,
+      remSleep: 90,
+      lightSleep: 280,
+      awakeDuration: 20,
+      avgHeartRate: 58,
+      minHeartRate: 50,
+      avgRespiratoryRate: 14,
+      bloodOxygenAvg: 97,
+      skinTempRange: '',
+      sleepLatencyRating: 'Good',
+      restfulnessRating: 'Good',
+      deepSleepRating: 'Good',
+      remSleepRating: 'Good',
+      importedAt: Date.now(),
+    };
+  }
+  return log;
+}
+
+function wakeEvent(
+  id: string,
+  opts: { wasSweating?: boolean; feltCold?: boolean } = {},
+): WakeUpEvent {
+  return {
+    id,
+    startTime: '03:00',
+    endTime: '03:15',
+    cause: 'thermal',
+    fellBackAsleep: 'yes',
+    minutesToFallBackAsleep: 15,
+    notes: '',
+    wasSweating: opts.wasSweating ?? false,
+    feltCold: opts.feltCold ?? false,
+    racingHeart: false,
+  };
+}
+
+const TONIGHT_INPUTS: RecommenderInputs = {
+  overnightLowF: 55,
+  startingRoomTempF: 70,
+  roomHumidity: null,
+  hoursSinceLastMeal: null,
+  coolingRate1to4F: null,
+  alcohol: false,
+  plannedAcCurve: 'off',
+  plannedAcSetpointF: null,
+};
+
+const CLOTHING: ClothingItem[] = [
+  { id: 'cl-tee', name: 'T-shirt', sortOrder: 0, isActive: true },
+];
+const BEDDING: BeddingItem[] = [
+  { id: 'bd-sheet', name: 'Light sheet', sortOrder: 0, isActive: true },
+];
+
+describe('recommendForTonight exploratory fallback (ux T4)', () => {
+  it('returns exploratory mode with items when all 5 neighbors are too_hot', () => {
+    // 5 hot neighbors with different sleep scores. Every neighbor is in the
+    // dominant direction, so the picker falls back to "mildest dominant" —
+    // the one with the fewest hot wakes. Give the higher-score night MORE
+    // hot wakes to prove the tie-breaker is wake count, not sleep score.
+    const logs = [
+      makeLabeledLog('2026-04-01', 'too_hot', {
+        sleepScore: 80,
+        wakeUpEvents: [
+          wakeEvent('w1', { wasSweating: true }),
+          wakeEvent('w2', { wasSweating: true }),
+        ],
+      }),
+      makeLabeledLog('2026-04-02', 'too_hot', {
+        sleepScore: 60,
+        wakeUpEvents: [wakeEvent('w3', { wasSweating: true })],
+        clothing: ['cl-tee'],
+        bedding: ['bd-sheet'],
+      }),
+      makeLabeledLog('2026-04-03', 'too_hot', {
+        sleepScore: 70,
+        wakeUpEvents: [
+          wakeEvent('w4', { wasSweating: true }),
+          wakeEvent('w5', { wasSweating: true }),
+        ],
+      }),
+      makeLabeledLog('2026-04-04', 'too_hot', {
+        sleepScore: 75,
+        wakeUpEvents: [
+          wakeEvent('w6', { wasSweating: true }),
+          wakeEvent('w7', { wasSweating: true }),
+        ],
+      }),
+      makeLabeledLog('2026-04-05', 'too_hot', {
+        sleepScore: 65,
+        wakeUpEvents: [
+          wakeEvent('w8', { wasSweating: true }),
+          wakeEvent('w9', { wasSweating: true }),
+        ],
+      }),
+    ];
+
+    const rec = recommendForTonight(TONIGHT_INPUTS, logs, CLOTHING, BEDDING);
+    expect(rec.mode).toBe('exploratory');
+    expect(rec.items.length).toBeGreaterThan(0);
+    // Every exploratory item has support 1 / 1.
+    for (const item of rec.items) {
+      expect(item.support).toBe(1);
+      expect(item.n).toBe(1);
+    }
+    // Summary flags exploratory.
+    expect(rec.summary.toLowerCase()).toContain('guess');
+  });
+
+  it('prefers a less-skewed neighbor when the skew is 3-of-5 too_hot', () => {
+    // 3 too_hot, 2 too_cold → 60% hot (meets the 60% threshold). The
+    // picker should grab the highest-score neighbor from the NON-hot side.
+    const logs = [
+      makeLabeledLog('2026-04-01', 'too_hot', { sleepScore: 90 }),
+      makeLabeledLog('2026-04-02', 'too_hot', { sleepScore: 85 }),
+      makeLabeledLog('2026-04-03', 'too_hot', { sleepScore: 80 }),
+      makeLabeledLog('2026-04-04', 'too_cold', {
+        sleepScore: 70,
+        clothing: ['cl-tee'],
+      }),
+      makeLabeledLog('2026-04-05', 'too_cold', {
+        sleepScore: 72,
+        clothing: ['cl-tee'],
+      }),
+    ];
+
+    const rec = recommendForTonight(TONIGHT_INPUTS, logs, CLOTHING, BEDDING);
+    expect(rec.mode).toBe('exploratory');
+    expect(rec.items.length).toBeGreaterThan(0);
+  });
+
+  it('returns empty items and consensus mode when neighbors split 3/2 (no direction ≥60%)', () => {
+    // Spec acceptance case: 3 hot / 2 cold = 60% hot of bad. That hits
+    // threshold. Change to 2 hot / 2 cold / 1 mixed — bad count is
+    // 4/5 = 80%, but no single direction exceeds 60% of bad (2/4 = 50%).
+    const logs = [
+      makeLabeledLog('2026-04-01', 'too_hot', { sleepScore: 80 }),
+      makeLabeledLog('2026-04-02', 'too_hot', { sleepScore: 70 }),
+      makeLabeledLog('2026-04-03', 'too_cold', { sleepScore: 75 }),
+      makeLabeledLog('2026-04-04', 'too_cold', { sleepScore: 72 }),
+      makeLabeledLog('2026-04-05', 'mixed', { sleepScore: 68 }),
+    ];
+
+    const rec = recommendForTonight(TONIGHT_INPUTS, logs, CLOTHING, BEDDING);
+    expect(rec.mode).toBe('consensus');
+    expect(rec.items.length).toBe(0);
+  });
+
+  it('returns consensus mode when at least one just_right neighbor exists', () => {
+    // 1 just_right + 4 mixed bad nights. The normal consensus path should
+    // fire; mode must remain 'consensus'.
+    const logs = [
+      makeLabeledLog('2026-04-01', 'just_right', { sleepScore: 85 }),
+      makeLabeledLog('2026-04-02', 'too_hot', { sleepScore: 70 }),
+      makeLabeledLog('2026-04-03', 'too_hot', { sleepScore: 72 }),
+      makeLabeledLog('2026-04-04', 'too_cold', { sleepScore: 65 }),
+      makeLabeledLog('2026-04-05', 'too_cold', { sleepScore: 68 }),
+    ];
+
+    const rec = recommendForTonight(TONIGHT_INPUTS, logs, CLOTHING, BEDDING);
+    expect(rec.mode).toBe('consensus');
+    expect(rec.goodNeighbors.length).toBe(1);
+  });
+
+  it('does not trigger exploratory when too few neighbors are bad (<60%)', () => {
+    // 2 bad of 5 = 40% bad. Below the 60% bad-share trigger.
+    const logs = [
+      makeLabeledLog('2026-04-01', 'mixed', { sleepScore: 80 }),
+      makeLabeledLog('2026-04-02', 'mixed', { sleepScore: 78 }),
+      makeLabeledLog('2026-04-03', 'mixed', { sleepScore: 77 }),
+      makeLabeledLog('2026-04-04', 'too_hot', { sleepScore: 70 }),
+      makeLabeledLog('2026-04-05', 'too_hot', { sleepScore: 72 }),
+    ];
+
+    const rec = recommendForTonight(TONIGHT_INPUTS, logs, CLOTHING, BEDDING);
+    expect(rec.mode).toBe('consensus');
+    expect(rec.items.length).toBe(0);
   });
 });

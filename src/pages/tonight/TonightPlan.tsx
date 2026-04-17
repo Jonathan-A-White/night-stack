@@ -15,6 +15,8 @@ import {
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { evaluateRules, type EvaluatedRule } from '../../services/rules';
 import {
+  describePressure,
+  estimateStartingRoomTemp,
   recommendForTonight,
   type Recommendation,
   type RecommenderInputs,
@@ -79,6 +81,14 @@ export function TonightPlan() {
   const [plannedAcCurve, setPlannedAcCurve] = useState<AcCurveProfile | ''>('');
   const [plannedAcSetpoint, setPlannedAcSetpoint] = useState<string>('');
   const [hadAlcohol, setHadAlcohol] = useState(false);
+  // Recommender v2 inputs (ux.md T1): continuous replacements for the
+  // dropped ateLate/overate toggles + optional humidity input.
+  const [hoursSinceLastMeal, setHoursSinceLastMeal] = useState<string>('');
+  const [plannedRoomHumidity, setPlannedRoomHumidity] = useState<string>('');
+  // ux.md T2: the forecast-low → starting-room prefill is one-shot. Once
+  // seeded (or once the user edits the field), don't auto-fill again even
+  // if the weather fetch bounces or the user clears the input.
+  const [hasPrefilledRoomTemp, setHasPrefilledRoomTemp] = useState(false);
 
   // Detect an in-progress evening log draft so the CTA can read
   // "Resume Evening Log" instead of "Start Evening Log". EveningLog persists
@@ -160,17 +170,57 @@ export function TonightPlan() {
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
 
+  // ux.md T2: one-shot prefill of starting room temp from the forecast low.
+  // Runs once per mount as soon as both the overnight low and an empty
+  // `plannedRoomTemp` are available. Doesn't re-fire if the user clears the
+  // field; `hasPrefilledRoomTemp` latches the "we already tried" state.
+  useEffect(() => {
+    if (hasPrefilledRoomTemp) return;
+    if (plannedRoomTemp !== '') {
+      // User typed something — don't touch, but mark as "handled" so we
+      // won't pave over a later clear.
+      setHasPrefilledRoomTemp(true);
+      return;
+    }
+    if (overnightLow === null) return;
+    setPlannedRoomTemp(String(estimateStartingRoomTemp(overnightLow)));
+    setHasPrefilledRoomTemp(true);
+  }, [overnightLow, plannedRoomTemp, hasPrefilledRoomTemp]);
+
+  const parsedRoomTemp = plannedRoomTemp ? parseFloat(plannedRoomTemp) : null;
+  const parsedHoursSinceLastMeal = hoursSinceLastMeal
+    ? parseFloat(hoursSinceLastMeal)
+    : null;
+  const parsedRoomHumidity = plannedRoomHumidity
+    ? parseFloat(plannedRoomHumidity)
+    : null;
+
+  // ux.md T3: pressure = overnightLow - plannedRoomTemp. Only surfaced when
+  // both are set; helps the user reason about how hard tonight will cool.
+  const pressure =
+    overnightLow !== null && parsedRoomTemp !== null && Number.isFinite(parsedRoomTemp)
+      ? overnightLow - parsedRoomTemp
+      : null;
+  const pressureDescription = pressure !== null ? describePressure(pressure) : null;
+
   // Compute the tonight recommendation from user-adjusted inputs + past logs.
   const recommendation = (() => {
     if (!allLogs || !clothingItems || !beddingItems) return null;
     const inputs: RecommenderInputs = {
       overnightLowF: overnightLow,
-      startingRoomTempF: plannedRoomTemp ? parseFloat(plannedRoomTemp) : null,
-      // New v2 derived inputs — wired end-to-end in `ux.md` T*. For now the
-      // UI has no dial for humidity/meal-timing/cooling-rate; default null so
-      // `nightDistance` applies its missing-dimension half-penalty.
-      roomHumidity: null,
-      hoursSinceLastMeal: null,
+      startingRoomTempF:
+        parsedRoomTemp !== null && Number.isFinite(parsedRoomTemp) ? parsedRoomTemp : null,
+      roomHumidity:
+        parsedRoomHumidity !== null && Number.isFinite(parsedRoomHumidity)
+          ? parsedRoomHumidity
+          : null,
+      hoursSinceLastMeal:
+        parsedHoursSinceLastMeal !== null && Number.isFinite(parsedHoursSinceLastMeal)
+          ? parsedHoursSinceLastMeal
+          : null,
+      // Always null at plan time — cooling rate is a derived-from-past
+      // feature the user can't plan tonight. Distance function's
+      // missing-dimension half-penalty handles it.
       coolingRate1to4F: null,
       alcohol: hadAlcohol,
       plannedAcCurve: plannedAcCurve || null,
@@ -291,47 +341,106 @@ export function TonightPlan() {
             className="form-input"
             placeholder={overnightLow !== null ? 'e.g. 67' : 'e.g. 67'}
             value={plannedRoomTemp}
-            onChange={(e) => setPlannedRoomTemp(e.target.value)}
+            onChange={(e) => {
+              setPlannedRoomTemp(e.target.value);
+              // Any user edit (including clearing) means "I've handled
+              // this field" — don't re-auto-fill from the forecast later.
+              setHasPrefilledRoomTemp(true);
+            }}
+          />
+          {overnightLow !== null && (
+            <p className="text-secondary text-sm mt-8">
+              Estimated from tonight's forecast low (&plusmn;3&deg;F). Measure if you can.
+            </p>
+          )}
+        </div>
+
+        {/* Pressure indicator (ux.md T3). Renders only when both inputs are
+            set; band thresholds tuned from the 2026-04-17 n=11 export. */}
+        {pressureDescription && (
+          <div className="form-group">
+            <div className="flex items-center justify-between">
+              <span className="text-secondary">Cooling pressure</span>
+              <span className="fw-600">
+                {pressure! > 0 ? '+' : ''}{Math.round(pressure!)}&deg;F
+              </span>
+            </div>
+            <p className="text-secondary text-sm mt-8">{pressureDescription.text}</p>
+          </div>
+        )}
+
+        {/* AC curve only renders when the user owns a window AC (Q1 +
+            logging-fixes T4). Hidden entirely when `settings.acInstalled`
+            is false so we're not asking them to pick a curve they can't
+            run. */}
+        {settings?.acInstalled && (
+          <>
+            <div className="form-group">
+              <label className="form-label">Planned AC curve</label>
+              <select
+                className="form-input"
+                value={plannedAcCurve}
+                onChange={(e) => setPlannedAcCurve(e.target.value as AcCurveProfile | '')}
+              >
+                <option value="">-- match any --</option>
+                <option value="off">Off</option>
+                <option value="steady">Steady</option>
+                <option value="cool_early">Cool early</option>
+                <option value="hold_cold">Hold cold</option>
+                <option value="warm_late">Warm late</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+
+            {plannedAcCurve && plannedAcCurve !== 'off' && (
+              <div className="form-group">
+                <label className="form-label">AC setpoint (F)</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  placeholder="e.g. 64"
+                  value={plannedAcSetpoint}
+                  onChange={(e) => setPlannedAcSetpoint(e.target.value)}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/*
+         * Recommender v2 evening-intake dials. The old `ateLate`/`overate`
+         * toggles were removed (distance-function.md T1 + T7) — they were
+         * zero-signal in the 2026-04-17 analysis. The continuous
+         * replacements (`hoursSinceLastMeal`, `roomHumidity`) go below.
+         * Alcohol stays as a boolean nudge.
+         */}
+        <div className="form-group">
+          <label className="form-label">Hours since last meal</label>
+          <input
+            type="number"
+            step="0.25"
+            min="0"
+            className="form-input"
+            placeholder="e.g. 3"
+            value={hoursSinceLastMeal}
+            onChange={(e) => setHoursSinceLastMeal(e.target.value)}
           />
         </div>
 
         <div className="form-group">
-          <label className="form-label">Planned AC curve</label>
-          <select
+          <label className="form-label">Room humidity (%) — optional</label>
+          <input
+            type="number"
+            step="1"
+            min="0"
+            max="100"
             className="form-input"
-            value={plannedAcCurve}
-            onChange={(e) => setPlannedAcCurve(e.target.value as AcCurveProfile | '')}
-          >
-            <option value="">-- match any --</option>
-            <option value="off">Off</option>
-            <option value="steady">Steady</option>
-            <option value="cool_early">Cool early</option>
-            <option value="hold_cold">Hold cold</option>
-            <option value="warm_late">Warm late</option>
-            <option value="custom">Custom</option>
-          </select>
+            placeholder="e.g. 45"
+            value={plannedRoomHumidity}
+            onChange={(e) => setPlannedRoomHumidity(e.target.value)}
+          />
         </div>
 
-        {plannedAcCurve && plannedAcCurve !== 'off' && (
-          <div className="form-group">
-            <label className="form-label">AC setpoint (F)</label>
-            <input
-              type="number"
-              className="form-input"
-              placeholder="e.g. 64"
-              value={plannedAcSetpoint}
-              onChange={(e) => setPlannedAcSetpoint(e.target.value)}
-            />
-          </div>
-        )}
-
-        {/*
-         * Evening-intake dials. The `ateLate`/`overate` toggles were removed
-         * in recommender v2 (distance-function.md T1 + T7) — they were
-         * zero-signal in the 2026-04-17 analysis. The continuous replacement
-         * `hoursSinceLastMeal` will get its own control in `ux.md`; until
-         * then the recommender defaults it to null (half-penalty).
-         */}
         <div className="form-group">
           <label className="form-label">What you drank tonight</label>
           <div className="toggle-grid">
@@ -357,7 +466,11 @@ export function TonightPlan() {
 
             {recommendation.items.length > 0 ? (
               <div>
-                <div className="card-title">Stack that worked</div>
+                <div className="card-title">
+                  {recommendation.mode === 'exploratory'
+                    ? 'Starting point (experimental)'
+                    : 'Stack that worked'}
+                </div>
                 {recommendation.items.map((item, i) => (
                   <div key={`${item.category}-${i}`} className="summary-row">
                     <span className="summary-label">
@@ -365,9 +478,16 @@ export function TonightPlan() {
                     </span>
                     <span className="summary-value">
                       {item.label}
-                      <span className="text-secondary text-sm">
-                        {' '}— {Math.round(item.support * 100)}% of {item.n}
-                      </span>
+                      {recommendation.mode === 'consensus' && (
+                        <span className="text-secondary text-sm">
+                          {' '}— {Math.round(item.support * 100)}% of {item.n}
+                        </span>
+                      )}
+                      {recommendation.mode === 'exploratory' && (
+                        <span className="text-secondary text-sm">
+                          {' '}— from 1 similar night
+                        </span>
+                      )}
                     </span>
                   </div>
                 ))}
