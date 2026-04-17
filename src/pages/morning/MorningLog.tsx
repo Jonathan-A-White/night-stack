@@ -371,7 +371,14 @@ export function MorningLog() {
 
   function updateWakeUpEvent(id: string, field: keyof WakeUpEvent, value: unknown) {
     setWakeUpEvents((prev) =>
-      prev.map((ev) => (ev.id === id ? { ...ev, [field]: value } : ev))
+      prev.map((ev) => {
+        if (ev.id !== id) return ev;
+        const updated = { ...ev, [field]: value } as WakeUpEvent;
+        if (field === 'startTime' || field === 'endTime') {
+          updated.minutesToFallBackAsleep = calcMinutesBetween(updated.startTime, updated.endTime);
+        }
+        return updated;
+      })
     );
   }
 
@@ -960,13 +967,8 @@ export function MorningLog() {
                           type="number"
                           className="form-input"
                           value={event.minutesToFallBackAsleep ?? ''}
-                          onChange={(e) =>
-                            updateWakeUpEvent(
-                              event.id,
-                              'minutesToFallBackAsleep',
-                              e.target.value ? Number(e.target.value) : null
-                            )
-                          }
+                          readOnly
+                          placeholder="Auto-calculated from times above"
                         />
                       </div>
                     )}
