@@ -135,6 +135,71 @@ describe('logging-fixes T3: lastMealTime prefill on save', () => {
   });
 });
 
+describe('logging-fixes T5: loggedBedtime on re-save', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+  });
+
+  it('stamps loggedBedtime when editing an existing log whose value is null', async () => {
+    // Set up a log that was saved before loggedBedtime was populated
+    // (e.g. a pre-v7 row), so existingLog.loggedBedtime === null.
+    const log = makeNightLog('2026-04-15');
+    log.loggedBedtime = null;
+    await db.nightLogs.put(log);
+
+    // Simulate the updated EveningLog save path — existingLog is
+    // truthy, isBackfill is false, loggedBedtime is null → stamp now.
+    const stamped = Date.now();
+    const isBackfill = false;
+    const existing = await db.nightLogs.get(log.id);
+    const next =
+      existing && existing.loggedBedtime == null && !isBackfill
+        ? stamped
+        : existing?.loggedBedtime ?? null;
+
+    await db.nightLogs.update(log.id, { loggedBedtime: next });
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.loggedBedtime).toBe(stamped);
+  });
+
+  it('preserves an existing non-null loggedBedtime on re-save', async () => {
+    const initial = Date.now() - 10_000;
+    const log = makeNightLog('2026-04-15');
+    log.loggedBedtime = initial;
+    await db.nightLogs.put(log);
+
+    // Simulate a re-save — existingLog has loggedBedtime, keep it.
+    const isBackfill = false;
+    const existing = await db.nightLogs.get(log.id);
+    const next =
+      existing && existing.loggedBedtime == null && !isBackfill
+        ? Date.now()
+        : existing?.loggedBedtime ?? null;
+
+    await db.nightLogs.update(log.id, { loggedBedtime: next });
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.loggedBedtime).toBe(initial);
+  });
+
+  it('leaves backfilled saves with a null loggedBedtime', async () => {
+    const log = makeNightLog('2026-04-10');
+    log.loggedBedtime = null;
+    await db.nightLogs.put(log);
+
+    const isBackfill = true;
+    const existing = await db.nightLogs.get(log.id);
+    const next =
+      existing && existing.loggedBedtime == null && !isBackfill
+        ? Date.now()
+        : existing?.loggedBedtime ?? null;
+
+    await db.nightLogs.update(log.id, { loggedBedtime: next });
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.loggedBedtime).toBeNull();
+  });
+});
+
 describe('logging-fixes T4: acInstalled gating', () => {
   beforeEach(async () => {
     await db.delete();

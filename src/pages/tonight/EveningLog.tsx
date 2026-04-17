@@ -457,10 +457,33 @@ export function EveningLog() {
       // actual bedtime — independent of whatever the watch sleep tracker
       // later reports. Backfilled entries (for a previous date) get null
       // because the finish time doesn't reflect when the user actually
-      // went to bed that night. When editing, preserve the original
-      // loggedBedtime so it isn't overwritten.
+      // went to bed that night.
+      //
+      // If an existing log already has a loggedBedtime, preserve it so
+      // re-editing doesn't overwrite the authoritative first-save stamp.
+      // But if the existing log has null (e.g. a pre-v7 row, or a
+      // previously-backfilled row the user is now finalizing on its
+      // actual date) AND this save isn't a backfill, stamp it now —
+      // otherwise the recommender's hoursSinceLastMeal / cooling-rate
+      // derivations have no bedtime anchor on rows the user is
+      // actively maintaining. The analysis (§d) found 0/11 new-era
+      // logs had it populated because the prior `if (!existingLog)`
+      // guard skipped this path entirely when editing.
       if (!existingLog) {
         nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      } else if (existingLog.loggedBedtime == null && !isBackfill) {
+        nightLog.loggedBedtime = Date.now();
+      }
+
+      // A non-backfill log should always end up with a non-null bedtime
+      // after this point. Surface a console warning if something upstream
+      // still wrote null — that's the regression signal the analysis
+      // called for (see logging-fixes.md T5).
+      if (!isBackfill && nightLog.loggedBedtime == null) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[EveningLog] saved non-backfill log ${nightLog.id} with null loggedBedtime`,
+        );
       }
 
       nightLog.stack = { baseStackUsed, deviations };
