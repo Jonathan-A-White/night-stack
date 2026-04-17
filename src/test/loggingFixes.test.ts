@@ -257,6 +257,87 @@ describe('logging-fixes T4: acInstalled gating', () => {
   });
 });
 
+describe('logging-fixes T6: blank wake cause stamping', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+    // The seed includes an 'Unknown' cause; in these tests we insert
+    // the minimum set we need so the tests don't depend on seedDatabase.
+    await db.wakeUpCauses.bulkAdd([
+      { id: 'hot-id', label: 'Sweating / too hot', sortOrder: 1, isActive: true },
+      { id: 'unknown-id', label: 'Unknown', sortOrder: 8, isActive: true },
+    ]);
+  });
+
+  it('stamps Unknown cause when the user confirms Save anyway', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    const wakes: WakeUpEvent[] = [
+      {
+        id: crypto.randomUUID(),
+        startTime: '03:00',
+        endTime: '03:20',
+        cause: '', // blank!
+        fellBackAsleep: 'yes',
+        minutesToFallBackAsleep: 20,
+        notes: '',
+        wasSweating: false,
+        feltCold: false,
+        racingHeart: false,
+      },
+    ];
+
+    // Simulate the handleSaveAnyway path: look up the Unknown cause
+    // ID, then stamp any wake with cause==='' with it.
+    const unknown = await db.wakeUpCauses
+      .filter((c) => c.label.toLowerCase() === 'unknown')
+      .first();
+    expect(unknown).toBeDefined();
+    const resolved = wakes.map((w) =>
+      w.cause ? w : { ...w, cause: unknown!.id },
+    );
+
+    await db.nightLogs.update(log.id, {
+      wakeUpEvents: resolved,
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.wakeUpEvents).toHaveLength(1);
+    expect(reloaded?.wakeUpEvents[0].cause).toBe('unknown-id');
+    expect(reloaded?.wakeUpEvents[0].cause).not.toBe('');
+  });
+
+  it('never persists cause === "" on the happy path', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    const wakes: WakeUpEvent[] = [
+      {
+        id: crypto.randomUUID(),
+        startTime: '03:00',
+        endTime: '03:20',
+        cause: 'hot-id',
+        fellBackAsleep: 'yes',
+        minutesToFallBackAsleep: 20,
+        notes: '',
+        wasSweating: true,
+        feltCold: false,
+        racingHeart: false,
+      },
+    ];
+
+    await db.nightLogs.update(log.id, {
+      wakeUpEvents: wakes,
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.wakeUpEvents[0].cause).toBe('hot-id');
+  });
+});
+
 describe('logging-fixes T2: per-wake thermal flags round-trip', () => {
   beforeEach(async () => {
     await db.delete();
