@@ -203,16 +203,16 @@ describe('logToInputs (derived-features T3 + T4 integration)', () => {
     expect(inputs.coolingRate1to4F!).toBeCloseTo(-1.2973, 3);
   });
 
-  it('drops the zero-signal food flags (T4): ateLate/overate/highSalt are false even when active', () => {
+  it('omits the zero-signal food flags (distance-function T1 + T5): no ateLate/overate/highSalt keys', () => {
     const log = makeLog('2026-04-15');
-    // Activate every flag to prove logToInputs no longer reads them.
+    // Activate every flag to prove logToInputs doesn't surface them back.
     for (const flag of log.eveningIntake.flags) {
       flag.active = true;
     }
     const inputs = logToInputs(log);
-    expect(inputs.ateLate).toBe(false);
-    expect(inputs.overate).toBe(false);
-    expect(inputs.highSalt).toBe(false);
+    expect(inputs).not.toHaveProperty('ateLate');
+    expect(inputs).not.toHaveProperty('overate');
+    expect(inputs).not.toHaveProperty('highSalt');
   });
 
   it('keeps alcohol flag from eveningIntake.alcohol presence', () => {
