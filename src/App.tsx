@@ -23,6 +23,7 @@ import WakeUpCausesPage from './pages/settings/WakeUpCausesPage';
 import BedtimeReasonsPage from './pages/settings/BedtimeReasonsPage';
 import SleepRulesPage from './pages/settings/SleepRulesPage';
 import LocationPage from './pages/settings/LocationPage';
+import SleepEnvironmentPage from './pages/settings/SleepEnvironmentPage';
 import DataManagementPage from './pages/settings/DataManagementPage';
 import DataCleanupPage from './pages/settings/DataCleanupPage';
 import AboutPage from './pages/settings/AboutPage';
@@ -61,6 +62,7 @@ export function App() {
           <Route path="/settings/bedtime-reasons" element={<BedtimeReasonsPage />} />
           <Route path="/settings/sleep-rules" element={<SleepRulesPage />} />
           <Route path="/settings/location" element={<LocationPage />} />
+          <Route path="/settings/sleep-environment" element={<SleepEnvironmentPage />} />
           <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/data/cleanup" element={<DataCleanupPage />} />

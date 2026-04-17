@@ -168,6 +168,11 @@ export function MorningLog() {
   // Step 5: Morning notes
   const [morningNotes, setMorningNotes] = useState((draft?.morningNotes as string) ?? '');
 
+  // T6: confirmation banner shown when the user tries to save with any
+  // wake missing a cause. Lives on step 5 (the final step) so we can
+  // gate the "Save Morning Log" button.
+  const [showBlankCauseConfirm, setShowBlankCauseConfirm] = useState(false);
+
   // Weight entry (only surfaced if user weighs in the morning)
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'morning';
@@ -504,7 +509,33 @@ export function MorningLog() {
     });
   }
 
-  async function handleSave() {
+  // Count of wakes with a blank cause — drives the T6 confirmation banner
+  // on save. A blank cause starves the thermal proxy classifier (see
+  // backfill.md), so we prompt the user before accepting it.
+  const blankCauseCount = hadWakeUps
+    ? wakeUpEvents.filter((w) => !w.cause).length
+    : 0;
+
+  async function resolveUnknownCauseId(): Promise<string> {
+    // The seed includes an 'Unknown' cause at sortOrder 8, but a user can
+    // deactivate or rename it. Look it up by label (case-insensitive);
+    // if genuinely absent, create it so the save path never has to leave
+    // a blank string behind.
+    const existing = await db.wakeUpCauses
+      .filter((c) => c.label.toLowerCase() === 'unknown')
+      .first();
+    if (existing) return existing.id;
+    const id = crypto.randomUUID();
+    await db.wakeUpCauses.add({
+      id,
+      label: 'Unknown',
+      sortOrder: 999,
+      isActive: true,
+    });
+    return id;
+  }
+
+  async function performSave(resolvedWakes: WakeUpEvent[]) {
     if (!nightLog) return;
 
     // Cross-log dedupe (bugfixes T2): block saves where this sleepData is
@@ -537,7 +568,7 @@ export function MorningLog() {
     await db.nightLogs.update(nightLog.id, {
       sleepData,
       roomTimeline,
-      wakeUpEvents: hadWakeUps ? wakeUpEvents : [],
+      wakeUpEvents: hadWakeUps ? resolvedWakes : [],
       bedtimeExplanation,
       morningNotes,
       thermalComfort,
@@ -574,6 +605,31 @@ export function MorningLog() {
     localStorage.removeItem(draftKey);
 
     navigate(`/morning/review/${nightLog.id}`);
+  }
+
+  async function handleSave() {
+    if (!nightLog) return;
+    // If any wake has a blank cause, ask the user before stamping
+    // 'Unknown'. We don't want to silently relabel wakes the user just
+    // forgot to set — the cause feeds the thermal proxy classifier and
+    // misattribution is worse than missing data.
+    if (blankCauseCount > 0) {
+      setShowBlankCauseConfirm(true);
+      return;
+    }
+    await performSave(wakeUpEvents);
+  }
+
+  async function handleSaveAnyway() {
+    // User confirmed: stamp all blank causes with the 'Unknown' ID and
+    // save. The lookup/create is async so we resolve the ID before
+    // building the resolvedWakes array.
+    const unknownId = await resolveUnknownCauseId();
+    const resolvedWakes = wakeUpEvents.map((w) =>
+      w.cause ? w : { ...w, cause: unknownId },
+    );
+    setShowBlankCauseConfirm(false);
+    await performSave(resolvedWakes);
   }
 
   // --- Rendering ---
@@ -1346,6 +1402,39 @@ export function MorningLog() {
               </div>
             )}
           </div>
+
+          {showBlankCauseConfirm && (
+            <div className="banner banner-warning mb-8">
+              <div className="fw-600 mb-8">
+                {blankCauseCount} wake{blankCauseCount === 1 ? '' : 's'}{' '}
+                {blankCauseCount === 1 ? 'has' : 'have'} no cause.
+              </div>
+              <div className="text-sm mb-8">
+                Saving anyway will stamp {blankCauseCount === 1 ? 'it' : 'them'} with the
+                “Unknown” cause so the recommender isn’t confused by empty
+                strings. You can still go back and fix.
+              </div>
+              <div className="flex gap-8">
+                <button
+                  className="btn btn-secondary"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setShowBlankCauseConfirm(false);
+                    setStep(3);
+                  }}
+                >
+                  Back to fix
+                </button>
+                <button
+                  className="btn btn-primary"
+                  style={{ flex: 1 }}
+                  onClick={handleSaveAnyway}
+                >
+                  Save anyway
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="step-nav">
             <button className="btn btn-secondary" onClick={goBack}>

@@ -12,6 +12,7 @@ import {
   createBlankNightLog,
   getCurrentTime,
   timestampToHHMM,
+  resolveLastMealTimeForSave,
   DAY_NAMES,
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
@@ -167,6 +168,13 @@ export function EveningLog() {
 
   // Step 3: Food & Drink
   const [lastMealTime, setLastMealTime] = useState((draft?.lastMealTime as string) ?? '');
+  // Track whether the user has ever touched the lastMealTime input. The
+  // recommender needs this field, so a blank value gets prefilled with the
+  // eating cutoff on save — but only if the user never interacted. If they
+  // intentionally cleared the field, respect that.
+  const [lastMealTimeTouched, setLastMealTimeTouched] = useState(
+    (draft?.lastMealTimeTouched as boolean) ?? false,
+  );
   const [foodDescription, setFoodDescription] = useState((draft?.foodDescription as string) ?? '');
   const [flags, setFlags] = useState<EveningFlag[]>((draft?.flags as EveningFlag[]) ?? [
     { type: 'overate', label: 'Overate', active: false },
@@ -216,6 +224,17 @@ export function EveningLog() {
 
   // Step 8: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
+
+  // One-time tip shown above the AC card the first time the user enables
+  // acInstalled in settings. Drained (unset) on the first save so we don't
+  // nag them forever. Settings page sets this on the false→true transition.
+  const [acJustEnabledTip, setAcJustEnabledTip] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ac-installed-tip-pending') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   // Prevents the save button from creating a duplicate log if the user
   // double-taps while the async save is in flight.
@@ -283,6 +302,9 @@ export function EveningLog() {
 
     // Food & drink
     setLastMealTime(existingLog.eveningIntake.lastMealTime);
+    // Treat a non-empty value on an existing log as "user-touched" so a
+    // reload of a saved log doesn't silently re-prefill from eatingCutoff.
+    setLastMealTimeTouched(existingLog.eveningIntake.lastMealTime !== '');
     setFoodDescription(existingLog.eveningIntake.foodDescription);
     setFlags(existingLog.eveningIntake.flags);
     if (existingLog.eveningIntake.alcohol) {
@@ -317,7 +339,8 @@ export function EveningLog() {
   useEffect(() => {
     const data = {
       step, overrideTime, baseStackUsed, deviations,
-      lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+      lastMealTime, lastMealTimeTouched,
+      foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
       hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
       roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
       selectedClothing, selectedBedding, eveningNotes,
@@ -326,7 +349,8 @@ export function EveningLog() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
     step, overrideTime, baseStackUsed, deviations,
-    lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+    lastMealTime, lastMealTimeTouched,
+    foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
     hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
     roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
     selectedClothing, selectedBedding, eveningNotes,
@@ -464,26 +488,63 @@ export function EveningLog() {
       // actual bedtime — independent of whatever the watch sleep tracker
       // later reports. Backfilled entries (for a previous date) get null
       // because the finish time doesn't reflect when the user actually
-      // went to bed that night. When editing, preserve the original
-      // loggedBedtime so it isn't overwritten.
+      // went to bed that night.
+      //
+      // If an existing log already has a loggedBedtime, preserve it so
+      // re-editing doesn't overwrite the authoritative first-save stamp.
+      // But if the existing log has null (e.g. a pre-v7 row, or a
+      // previously-backfilled row the user is now finalizing on its
+      // actual date) AND this save isn't a backfill, stamp it now —
+      // otherwise the recommender's hoursSinceLastMeal / cooling-rate
+      // derivations have no bedtime anchor on rows the user is
+      // actively maintaining. The analysis (§d) found 0/11 new-era
+      // logs had it populated because the prior `if (!existingLog)`
+      // guard skipped this path entirely when editing.
       if (!existingLog) {
         nightLog.loggedBedtime = isBackfill ? null : Date.now();
+      } else if (existingLog.loggedBedtime == null && !isBackfill) {
+        nightLog.loggedBedtime = Date.now();
+      }
+
+      // A non-backfill log should always end up with a non-null bedtime
+      // after this point. Surface a console warning if something upstream
+      // still wrote null — that's the regression signal the analysis
+      // called for (see logging-fixes.md T5).
+      if (!isBackfill && nightLog.loggedBedtime == null) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[EveningLog] saved non-backfill log ${nightLog.id} with null loggedBedtime`,
+        );
       }
 
       nightLog.stack = { baseStackUsed, deviations };
+      // Prefill a blank lastMealTime with the eating cutoff unless the user
+      // intentionally cleared it. The recommender's `hoursSinceLastMeal`
+      // feature is useless without a time, so a sensible default beats a
+      // null that drops the night from similarity search.
+      const resolvedLastMealTime = resolveLastMealTimeForSave({
+        currentValue: lastMealTime,
+        eatingCutoff: schedule.eatingCutoff,
+        userInteracted: lastMealTimeTouched,
+      });
       nightLog.eveningIntake = {
-        lastMealTime,
+        lastMealTime: resolvedLastMealTime,
         foodDescription,
         flags,
         alcohol: hasAlcohol ? alcohol : null,
         liquidIntake,
       };
+      // When the user hasn't got an AC installed yet, the AC card is hidden
+      // from the form. Persist 'off'/null so the recommender's AC-curve
+      // distance stays a no-op for the night (it treats both-sides-'off' as
+      // zero contribution, per the distance-function spec).
+      const acEnabled = settings?.acInstalled ?? false;
       nightLog.environment = {
         roomTempF: roomTempF ? parseFloat(roomTempF) : null,
         roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
         externalWeather: weather,
-        acCurveProfile,
-        acSetpointF: acSetpointF ? parseFloat(acSetpointF) : null,
+        acCurveProfile: acEnabled ? acCurveProfile : 'off',
+        acSetpointF: acEnabled && acSetpointF ? parseFloat(acSetpointF) : null,
         fanSpeed,
       };
       nightLog.clothing = selectedClothing;
@@ -528,6 +589,16 @@ export function EveningLog() {
       }
 
       localStorage.removeItem(DRAFT_KEY);
+      // Once the user has saved one log after enabling acInstalled, stop
+      // showing the "log the curve profile tonight" tip.
+      if (acJustEnabledTip) {
+        try {
+          localStorage.removeItem('ac-installed-tip-pending');
+        } catch {
+          // noop — storage disabled just means the tip lingers an extra run
+        }
+        setAcJustEnabledTip(false);
+      }
       // Navigate by id — multiple night logs can legitimately share a date
       // (e.g. a mis-filed backfill), so routing by id keeps each entry
       // independently addressable.
@@ -746,13 +817,28 @@ export function EveningLog() {
           <div className="card">
             <div className="card-title">Evening Food &amp; Drink</div>
             <div className="form-group">
-              <label className="form-label">Last meal time</label>
+              <label className="form-label">
+                Last meal time <span className="text-danger" aria-label="required">*</span>
+              </label>
               <input
                 type="time"
                 className="form-input"
                 value={lastMealTime}
-                onChange={(e) => setLastMealTime(e.target.value)}
+                onChange={(e) => {
+                  setLastMealTime(e.target.value);
+                  setLastMealTimeTouched(true);
+                }}
               />
+              <p className="text-secondary text-sm mt-8">
+                Required for the recommender — hours-since-meal drives the
+                similarity search. Leave blank only if you truly didn't eat.
+              </p>
+              {!lastMealTime && !lastMealTimeTouched && (
+                <p className="text-secondary text-sm mt-8">
+                  If left blank, it will be auto-filled with your eating cutoff (
+                  {formatTime12h(schedule.eatingCutoff)}) on save.
+                </p>
+              )}
             </div>
             {isMealAfterCutoff && (
               <div className="banner banner-danger">
@@ -975,38 +1061,55 @@ export function EveningLog() {
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-title">AC / Fan</div>
-            <div className="form-group">
-              <label className="form-label">AC sleep-curve profile</label>
-              <div className="toggle-grid">
-                {AC_CURVE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={`toggle-btn${acCurveProfile === opt.value ? ' active' : ''}`}
-                    onClick={() => setAcCurveProfile(opt.value)}
-                  >
-                    <div>{opt.label}</div>
-                    <div className="text-sm text-secondary">{opt.hint}</div>
-                  </button>
-                ))}
-              </div>
+          {settings?.acInstalled && acJustEnabledTip && (
+            <div className="banner banner-success mb-8">
+              Log the curve profile and setpoint tonight — your recommender
+              will start using them once you have a few nights of data.
             </div>
-            {acCurveProfile !== 'off' && (
+          )}
+
+          {settings?.acInstalled && (
+            <div className="card">
+              <div className="card-title">AC</div>
               <div className="form-group">
-                <label className="form-label">AC setpoint (F)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  placeholder="e.g. 64"
-                  value={acSetpointF}
-                  onChange={(e) => setAcSetpointF(e.target.value)}
-                />
-                <p className="text-secondary text-sm mt-8">
-                  For curved profiles, use the coldest point of the curve.
-                </p>
+                <label className="form-label">AC sleep-curve profile</label>
+                <div className="toggle-grid">
+                  {AC_CURVE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`toggle-btn${acCurveProfile === opt.value ? ' active' : ''}`}
+                      onClick={() => setAcCurveProfile(opt.value)}
+                    >
+                      <div>{opt.label}</div>
+                      <div className="text-sm text-secondary">{opt.hint}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
+              {acCurveProfile !== 'off' && (
+                <div className="form-group">
+                  <label className="form-label">AC setpoint (F)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    placeholder="e.g. 64"
+                    value={acSetpointF}
+                    onChange={(e) => setAcSetpointF(e.target.value)}
+                  />
+                  <p className="text-secondary text-sm mt-8">
+                    For curved profiles, use the coldest point of the curve.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title">Fan</div>
+            <p className="text-secondary text-sm mb-8">
+              Standalone fan or AC fan speed — either way, record what's
+              running through the night.
+            </p>
             <div className="form-group">
               <label className="form-label">Fan speed</label>
               <div className="toggle-grid">
@@ -1083,6 +1186,12 @@ export function EveningLog() {
       {/* Step 8: Notes & Summary */}
       {step === 8 && (
         <div>
+          {!lastMealTime && lastMealTimeTouched && (
+            <div className="banner banner-warning mb-8">
+              Last meal time is missing — hours-since-meal won't factor into
+              tonight's recommendation. Go back to step 3 to set it.
+            </div>
+          )}
           {showWeightStep && weightLbs != null && (
             <div className="card">
               <div className="card-title">Evening Weight</div>
@@ -1157,7 +1266,18 @@ export function EveningLog() {
             <div className="summary-row">
               <span className="summary-label">Last meal</span>
               <span className="summary-value">
-                {lastMealTime ? formatTime12h(lastMealTime) : 'Not logged'}
+                {lastMealTime
+                  ? formatTime12h(lastMealTime)
+                  : lastMealTimeTouched
+                    ? 'Not logged'
+                    : (
+                      <>
+                        {formatTime12h(schedule.eatingCutoff)}{' '}
+                        <span className="text-secondary text-sm">
+                          (prefilled)
+                        </span>
+                      </>
+                    )}
               </span>
             </div>
             <div className="summary-row">
@@ -1174,14 +1294,16 @@ export function EveningLog() {
                 {roomTempF ? `${roomTempF}F` : '--'}
               </span>
             </div>
-            <div className="summary-row">
-              <span className="summary-label">AC</span>
-              <span className="summary-value">
-                {acCurveProfile === 'off'
-                  ? 'Off'
-                  : `${AC_CURVE_OPTIONS.find((o) => o.value === acCurveProfile)?.label}${acSetpointF ? ` @ ${acSetpointF}F` : ''}`}
-              </span>
-            </div>
+            {settings?.acInstalled && (
+              <div className="summary-row">
+                <span className="summary-label">AC</span>
+                <span className="summary-value">
+                  {acCurveProfile === 'off'
+                    ? 'Off'
+                    : `${AC_CURVE_OPTIONS.find((o) => o.value === acCurveProfile)?.label}${acSetpointF ? ` @ ${acSetpointF}F` : ''}`}
+                </span>
+              </div>
+            )}
             <div className="summary-row">
               <span className="summary-label">Fan</span>
               <span className="summary-value">

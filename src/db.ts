@@ -148,6 +148,16 @@ export class NightStackDB extends Dexie {
         }
       });
     });
+    this.version(9).stores({
+      appSettings: 'id',
+    }).upgrade(async (tx) => {
+      // Default existing installs to acInstalled=false so the evening log
+      // stops prompting for an AC curve the user can't supply. The user
+      // can flip this in Settings → Sleep Environment once an AC is in.
+      await tx.table('appSettings').toCollection().modify((s: Partial<AppSettings>) => {
+        if (s.acInstalled === undefined) s.acInstalled = false;
+      });
+    });
   }
 }
 
@@ -247,6 +257,7 @@ export async function seedDatabase(): Promise<void> {
     heightInches: null,
     startingWeightLbs: null,
     age: null,
+    acInstalled: false,
   });
 
   // Alarm schedule
