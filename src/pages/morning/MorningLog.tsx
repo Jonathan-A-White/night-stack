@@ -31,22 +31,17 @@ import type {
 const TOTAL_STEPS = 5;
 const VALID_RATINGS: SleepRating[] = ['Excellent', 'Good', 'Fair', 'Attention'];
 
-// Stable draft key — the morning log always edits the most-recent evening log,
-// so keying by today's date is sufficient to survive navigation.
-const MORNING_DRAFT_KEY = 'morning-log-draft';
+// Key drafts by the edited date so today's in-progress morning log doesn't
+// bleed into an edit of a past entry opened from the calendar.
+function getDraftKey(date: string): string {
+  return `morning-log-draft-${date}`;
+}
 
-function loadDraft(): Record<string, unknown> | null {
+function loadDraft(key: string): Record<string, unknown> | null {
   try {
-    const raw = localStorage.getItem(MORNING_DRAFT_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    // Discard drafts saved on a different date so a stale morning draft
-    // from days ago doesn't resurface after an app restart.
-    if (parsed?.savedDate && parsed.savedDate !== getTodayDate()) {
-      localStorage.removeItem(MORNING_DRAFT_KEY);
-      return null;
-    }
-    return parsed;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
@@ -55,9 +50,6 @@ function loadDraft(): Record<string, unknown> | null {
 export function MorningLog() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const draft = useRef(loadDraft()).current;
-
-  const [step, setStep] = useState<number>((draft?.step as number) ?? 1);
 
   const today = getTodayDate();
   const yesterday = getYesterdayDate();
@@ -65,6 +57,10 @@ export function MorningLog() {
   // Support ?date=YYYY-MM-DD for editing a specific night's morning data
   // from the calendar. The date is the NightLog.date (the evening date).
   const targetDate = searchParams.get('date');
+  const draftKey = getDraftKey(targetDate ?? today);
+  const draft = useRef(loadDraft(draftKey)).current;
+
+  const [step, setStep] = useState<number>((draft?.step as number) ?? 1);
 
   // Find the evening log — explicit date from calendar, or today/yesterday
   const nightLog = useLiveQuery(async () => {
@@ -231,10 +227,9 @@ export function MorningLog() {
       morningNotes,
       weightLbs,
       weightSkipped,
-      savedDate: today,
     };
     try {
-      localStorage.setItem(MORNING_DRAFT_KEY, JSON.stringify(data));
+      localStorage.setItem(draftKey, JSON.stringify(data));
     } catch {
       // localStorage can be full or disabled — fail silently, the user will
       // just lose their draft if they navigate away.
@@ -458,7 +453,7 @@ export function MorningLog() {
     }
 
     // Clear draft on successful save
-    localStorage.removeItem(MORNING_DRAFT_KEY);
+    localStorage.removeItem(draftKey);
 
     navigate(`/morning/review/${nightLog.id}`);
   }
