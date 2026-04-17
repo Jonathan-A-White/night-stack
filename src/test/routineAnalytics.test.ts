@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeLatestStepEndedAt,
   computeStepPBs,
+  computeStepTargets,
   computeRecommendedStart,
   computeBufferedTotalMs,
   computeSessionStats,
@@ -77,6 +78,68 @@ describe('computeStepPBs', () => {
     ];
     const pbs = computeStepPBs(sessions);
     expect(pbs.has('a')).toBe(false);
+  });
+});
+
+describe('computeStepTargets', () => {
+  it('returns empty map for no sessions', () => {
+    expect(computeStepTargets([]).size).toBe(0);
+  });
+
+  it('equals the sole completion when only one sample exists', () => {
+    const sessions: RoutineSession[] = [
+      makeSession({
+        steps: [makeStepLog({ stepId: 'a', status: 'completed', durationMs: 10_000 })],
+      }),
+    ];
+    const targets = computeStepTargets(sessions);
+    expect(targets.get('a')).toBe(10_000);
+  });
+
+  it('returns mean minus population std dev for each step', () => {
+    // Durations for step a: 10, 20, 30 -> mean 20, variance 200/3, stdDev ≈ 8.165
+    // Target ≈ 20000 - 8164.97 ≈ 11835.03
+    const sessions: RoutineSession[] = [
+      makeSession({
+        steps: [
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: 10_000 }),
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: 20_000 }),
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: 30_000 }),
+        ],
+      }),
+    ];
+    const targets = computeStepTargets(sessions);
+    const expectedStdDev = Math.sqrt(
+      ((10_000 - 20_000) ** 2 + 0 + (30_000 - 20_000) ** 2) / 3,
+    );
+    expect(targets.get('a')).toBeCloseTo(20_000 - expectedStdDev, 5);
+  });
+
+  it('clamps a negative target (huge variance) to 0', () => {
+    // mean 5, stdDev 5 -> target = 0; push slightly further for safety.
+    const sessions: RoutineSession[] = [
+      makeSession({
+        steps: [
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: 0 }),
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: 10 }),
+        ],
+      }),
+    ];
+    const targets = computeStepTargets(sessions);
+    expect(targets.get('a')).toBe(0);
+  });
+
+  it('ignores skipped/punted steps and null durations', () => {
+    const sessions: RoutineSession[] = [
+      makeSession({
+        steps: [
+          makeStepLog({ stepId: 'a', status: 'skipped', durationMs: null }),
+          makeStepLog({ stepId: 'a', status: 'punted', durationMs: null }),
+          makeStepLog({ stepId: 'a', status: 'completed', durationMs: null }),
+        ],
+      }),
+    ];
+    expect(computeStepTargets(sessions).has('a')).toBe(false);
   });
 });
 

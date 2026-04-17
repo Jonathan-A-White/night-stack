@@ -93,6 +93,36 @@ export function computeStepPBs(sessions: RoutineSession[]): Map<string, number> 
   return pbs;
 }
 
+/**
+ * Per-step target ms for the in-session countdown: one (population) standard
+ * deviation below the mean completion time, clamped at 0. With a single
+ * completion stdDev is 0, so the target equals that single time. Steps with
+ * no completed logs are omitted.
+ */
+export function computeStepTargets(
+  sessions: RoutineSession[],
+): Map<string, number> {
+  const durations = new Map<string, number[]>();
+  for (const session of sessions) {
+    for (const log of session.steps) {
+      if (log.status !== 'completed' || log.durationMs == null) continue;
+      const list = durations.get(log.stepId);
+      if (list) list.push(log.durationMs);
+      else durations.set(log.stepId, [log.durationMs]);
+    }
+  }
+  const result = new Map<string, number>();
+  for (const [stepId, list] of durations) {
+    if (list.length === 0) continue;
+    const mean = list.reduce((a, b) => a + b, 0) / list.length;
+    const variance =
+      list.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / list.length;
+    const stdDev = Math.sqrt(variance);
+    result.set(stepId, Math.max(0, mean - stdDev));
+  }
+  return result;
+}
+
 /** Full per-step stats (all-time + 30d rolling). */
 export function computeStepStats(sessions: RoutineSession[]): Map<string, StepStats> {
   const cutoff30d = thirtyDaysAgo();
