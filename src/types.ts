@@ -356,6 +356,14 @@ export interface AppSettings {
   heightInches: number | null;
   startingWeightLbs: number | null;
   age: number | null;
+  /**
+   * Whether the user has a window AC installed. When false, the evening
+   * log's AC sleep-curve + setpoint inputs are hidden — they can't log
+   * a curve they don't have. Fan speed stays visible because a user can
+   * run a standalone fan without AC. Defaults to `false` on existing
+   * installs via the v9 migration.
+   */
+  acInstalled: boolean;
 }
 
 // === Evening Routine Tracker ===

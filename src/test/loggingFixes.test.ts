@@ -135,6 +135,63 @@ describe('logging-fixes T3: lastMealTime prefill on save', () => {
   });
 });
 
+describe('logging-fixes T4: acInstalled gating', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+  });
+
+  it('save path writes off/null AC fields when acInstalled is false', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    // Simulate the EveningLog save path with acInstalled=false — even if
+    // the form state still has a non-off profile (e.g. a stale draft),
+    // the persisted row should come out as off/null because the UI was
+    // hidden and no new value was confirmed by the user.
+    const acInstalled = false;
+    const formAcCurveProfile = 'cool_early'; // stale draft value
+    const formAcSetpointF = '64';
+
+    await db.nightLogs.update(log.id, {
+      environment: {
+        ...log.environment,
+        acCurveProfile: acInstalled ? formAcCurveProfile : 'off',
+        acSetpointF:
+          acInstalled && formAcSetpointF ? parseFloat(formAcSetpointF) : null,
+      },
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.environment.acCurveProfile).toBe('off');
+    expect(reloaded?.environment.acSetpointF).toBeNull();
+  });
+
+  it('preserves AC values when acInstalled is true', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    const acInstalled = true;
+    const formAcCurveProfile = 'cool_early';
+    const formAcSetpointF = '64';
+
+    await db.nightLogs.update(log.id, {
+      environment: {
+        ...log.environment,
+        acCurveProfile: acInstalled ? formAcCurveProfile : 'off',
+        acSetpointF:
+          acInstalled && formAcSetpointF ? parseFloat(formAcSetpointF) : null,
+      },
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.environment.acCurveProfile).toBe('cool_early');
+    expect(reloaded?.environment.acSetpointF).toBe(64);
+  });
+});
+
 describe('logging-fixes T2: per-wake thermal flags round-trip', () => {
   beforeEach(async () => {
     await db.delete();

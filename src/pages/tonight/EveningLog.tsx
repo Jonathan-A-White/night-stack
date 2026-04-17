@@ -223,6 +223,17 @@ export function EveningLog() {
   // Step 8: Notes
   const [eveningNotes, setEveningNotes] = useState((draft?.eveningNotes as string) ?? '');
 
+  // One-time tip shown above the AC card the first time the user enables
+  // acInstalled in settings. Drained (unset) on the first save so we don't
+  // nag them forever. Settings page sets this on the false→true transition.
+  const [acJustEnabledTip, setAcJustEnabledTip] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('ac-installed-tip-pending') === '1';
+    } catch {
+      return false;
+    }
+  });
+
   // Prevents the save button from creating a duplicate log if the user
   // double-taps while the async save is in flight.
   const [isSaving, setIsSaving] = useState(false);
@@ -469,12 +480,17 @@ export function EveningLog() {
         alcohol: hasAlcohol ? alcohol : null,
         liquidIntake,
       };
+      // When the user hasn't got an AC installed yet, the AC card is hidden
+      // from the form. Persist 'off'/null so the recommender's AC-curve
+      // distance stays a no-op for the night (it treats both-sides-'off' as
+      // zero contribution, per the distance-function spec).
+      const acEnabled = settings?.acInstalled ?? false;
       nightLog.environment = {
         roomTempF: roomTempF ? parseFloat(roomTempF) : null,
         roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
         externalWeather: weather,
-        acCurveProfile,
-        acSetpointF: acSetpointF ? parseFloat(acSetpointF) : null,
+        acCurveProfile: acEnabled ? acCurveProfile : 'off',
+        acSetpointF: acEnabled && acSetpointF ? parseFloat(acSetpointF) : null,
         fanSpeed,
       };
       nightLog.clothing = selectedClothing;
@@ -519,6 +535,16 @@ export function EveningLog() {
       }
 
       localStorage.removeItem(DRAFT_KEY);
+      // Once the user has saved one log after enabling acInstalled, stop
+      // showing the "log the curve profile tonight" tip.
+      if (acJustEnabledTip) {
+        try {
+          localStorage.removeItem('ac-installed-tip-pending');
+        } catch {
+          // noop — storage disabled just means the tip lingers an extra run
+        }
+        setAcJustEnabledTip(false);
+      }
       // Navigate by id — multiple night logs can legitimately share a date
       // (e.g. a mis-filed backfill), so routing by id keeps each entry
       // independently addressable.
@@ -981,38 +1007,55 @@ export function EveningLog() {
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-title">AC / Fan</div>
-            <div className="form-group">
-              <label className="form-label">AC sleep-curve profile</label>
-              <div className="toggle-grid">
-                {AC_CURVE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    className={`toggle-btn${acCurveProfile === opt.value ? ' active' : ''}`}
-                    onClick={() => setAcCurveProfile(opt.value)}
-                  >
-                    <div>{opt.label}</div>
-                    <div className="text-sm text-secondary">{opt.hint}</div>
-                  </button>
-                ))}
-              </div>
+          {settings?.acInstalled && acJustEnabledTip && (
+            <div className="banner banner-success mb-8">
+              Log the curve profile and setpoint tonight — your recommender
+              will start using them once you have a few nights of data.
             </div>
-            {acCurveProfile !== 'off' && (
+          )}
+
+          {settings?.acInstalled && (
+            <div className="card">
+              <div className="card-title">AC</div>
               <div className="form-group">
-                <label className="form-label">AC setpoint (F)</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  placeholder="e.g. 64"
-                  value={acSetpointF}
-                  onChange={(e) => setAcSetpointF(e.target.value)}
-                />
-                <p className="text-secondary text-sm mt-8">
-                  For curved profiles, use the coldest point of the curve.
-                </p>
+                <label className="form-label">AC sleep-curve profile</label>
+                <div className="toggle-grid">
+                  {AC_CURVE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      className={`toggle-btn${acCurveProfile === opt.value ? ' active' : ''}`}
+                      onClick={() => setAcCurveProfile(opt.value)}
+                    >
+                      <div>{opt.label}</div>
+                      <div className="text-sm text-secondary">{opt.hint}</div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            )}
+              {acCurveProfile !== 'off' && (
+                <div className="form-group">
+                  <label className="form-label">AC setpoint (F)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    placeholder="e.g. 64"
+                    value={acSetpointF}
+                    onChange={(e) => setAcSetpointF(e.target.value)}
+                  />
+                  <p className="text-secondary text-sm mt-8">
+                    For curved profiles, use the coldest point of the curve.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-title">Fan</div>
+            <p className="text-secondary text-sm mb-8">
+              Standalone fan or AC fan speed — either way, record what's
+              running through the night.
+            </p>
             <div className="form-group">
               <label className="form-label">Fan speed</label>
               <div className="toggle-grid">
@@ -1197,14 +1240,16 @@ export function EveningLog() {
                 {roomTempF ? `${roomTempF}F` : '--'}
               </span>
             </div>
-            <div className="summary-row">
-              <span className="summary-label">AC</span>
-              <span className="summary-value">
-                {acCurveProfile === 'off'
-                  ? 'Off'
-                  : `${AC_CURVE_OPTIONS.find((o) => o.value === acCurveProfile)?.label}${acSetpointF ? ` @ ${acSetpointF}F` : ''}`}
-              </span>
-            </div>
+            {settings?.acInstalled && (
+              <div className="summary-row">
+                <span className="summary-label">AC</span>
+                <span className="summary-value">
+                  {acCurveProfile === 'off'
+                    ? 'Off'
+                    : `${AC_CURVE_OPTIONS.find((o) => o.value === acCurveProfile)?.label}${acSetpointF ? ` @ ${acSetpointF}F` : ''}`}
+                </span>
+              </div>
+            )}
             <div className="summary-row">
               <span className="summary-label">Fan</span>
               <span className="summary-value">

@@ -22,6 +22,7 @@ describe('seedDatabase', () => {
     expect(settings!.heightInches).toBeNull();
     expect(settings!.startingWeightLbs).toBeNull();
     expect(settings!.age).toBeNull();
+    expect(settings!.acInstalled).toBe(false);
 
     const schedules = await db.alarmSchedules.toArray();
     expect(schedules).toHaveLength(7);

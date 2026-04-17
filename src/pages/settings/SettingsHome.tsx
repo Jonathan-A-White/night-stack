@@ -12,6 +12,7 @@ const settingsItems = [
   { label: 'Sleep Rules', path: '/settings/sleep-rules' },
   { label: 'Weight Profile', path: '/settings/weight-profile' },
   { label: 'Location', path: '/settings/location' },
+  { label: 'Sleep Environment', path: '/settings/sleep-environment' },
   { label: 'Data Management', path: '/settings/data' },
   { label: 'About', path: '/settings/about' },
 ];
