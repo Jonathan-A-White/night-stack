@@ -172,10 +172,20 @@ export function ThermalBackfillReview() {
       }
     });
 
-    // Reset local state so the live-query reseeds from the post-update
-    // table. The "unlabeled" set is smaller now; ambiguous-skipped rows
-    // are filtered out by `thermalProxyDismissed`.
-    setRows(null);
+    // Optimistically drop the rows we just acted on. We can't nullify
+    // `rows` and wait for the live-query to re-seed — Dexie's refetch is
+    // async, so a synchronous re-render would re-seed from a stale
+    // `unlabeledLogs` that still contains the just-labeled night, making
+    // it reappear until the next apply.
+    setRows((prev) =>
+      prev
+        ? prev.filter(
+            (r) =>
+              r.selection === 'unchanged' ||
+              (r.selection === 'skip' && r.proposed == null),
+          )
+        : prev,
+    );
     setSaving(false);
     setSaveMessage(
       `Applied ${applied} label${applied === 1 ? '' : 's'}` +
