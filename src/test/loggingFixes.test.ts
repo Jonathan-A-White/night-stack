@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '../db';
-import { createBlankNightLog } from '../utils';
+import { createBlankNightLog, resolveLastMealTimeForSave } from '../utils';
 import type { NightLog, WakeUpEvent } from '../types';
 
 /**
@@ -56,6 +56,82 @@ describe('logging-fixes T1: thermalComfort round-trip', () => {
     const reloaded = await db.nightLogs.get(log.id);
     expect(reloaded?.thermalComfort).toBe('just_right');
     expect(reloaded?.wakeUpEvents).toHaveLength(0);
+  });
+});
+
+describe('logging-fixes T3: lastMealTime prefill on save', () => {
+  beforeEach(async () => {
+    await db.delete();
+    await db.open();
+  });
+
+  it('writes the prefilled eatingCutoff when the user never touched the field', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    // Simulate the EveningLog save path — user left the field blank, never
+    // interacted. The resolved value should be the eating cutoff.
+    const resolved = resolveLastMealTimeForSave({
+      currentValue: '',
+      eatingCutoff: log.alarm.eatingCutoff,
+      userInteracted: false,
+    });
+
+    await db.nightLogs.update(log.id, {
+      eveningIntake: {
+        ...log.eveningIntake,
+        lastMealTime: resolved,
+      },
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.eveningIntake.lastMealTime).toBe(log.alarm.eatingCutoff);
+    expect(reloaded?.eveningIntake.lastMealTime).toBe('20:00');
+  });
+
+  it('respects a user-entered time over the cutoff prefill', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    const resolved = resolveLastMealTimeForSave({
+      currentValue: '18:15',
+      eatingCutoff: log.alarm.eatingCutoff,
+      userInteracted: true,
+    });
+
+    await db.nightLogs.update(log.id, {
+      eveningIntake: {
+        ...log.eveningIntake,
+        lastMealTime: resolved,
+      },
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.eveningIntake.lastMealTime).toBe('18:15');
+  });
+
+  it('keeps blank when the user intentionally cleared the field', async () => {
+    const log = makeNightLog('2026-04-15');
+    await db.nightLogs.put(log);
+
+    const resolved = resolveLastMealTimeForSave({
+      currentValue: '',
+      eatingCutoff: log.alarm.eatingCutoff,
+      userInteracted: true,
+    });
+
+    await db.nightLogs.update(log.id, {
+      eveningIntake: {
+        ...log.eveningIntake,
+        lastMealTime: resolved,
+      },
+      updatedAt: Date.now(),
+    });
+
+    const reloaded = await db.nightLogs.get(log.id);
+    expect(reloaded?.eveningIntake.lastMealTime).toBe('');
   });
 });
 

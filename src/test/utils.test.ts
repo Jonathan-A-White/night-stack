@@ -12,6 +12,7 @@ import {
   getEveningLogDate,
   timestampToHHMM,
   findNearestRoomReading,
+  resolveLastMealTimeForSave,
 } from '../utils';
 
 describe('formatTime12h', () => {
@@ -254,5 +255,57 @@ describe('findNearestRoomReading', () => {
     ];
     // 03:10 is exactly 10 minutes from both — first wins.
     expect(findNearestRoomReading('03:10', readings)?.tempF).toBe(64.0);
+  });
+});
+
+describe('resolveLastMealTimeForSave', () => {
+  it('returns the user-entered value when non-empty', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '18:00',
+        eatingCutoff: '20:00',
+        userInteracted: true,
+      }),
+    ).toBe('18:00');
+  });
+
+  it('prefills blank with eating cutoff when the user never touched the field', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '20:00',
+        userInteracted: false,
+      }),
+    ).toBe('20:00');
+  });
+
+  it('respects an explicit clear (userInteracted=true, value blank)', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '20:00',
+        userInteracted: true,
+      }),
+    ).toBe('');
+  });
+
+  it('returns blank if no eating cutoff is available to prefill with', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '',
+        eatingCutoff: '',
+        userInteracted: false,
+      }),
+    ).toBe('');
+  });
+
+  it('treats whitespace-only as empty', () => {
+    expect(
+      resolveLastMealTimeForSave({
+        currentValue: '   ',
+        eatingCutoff: '20:00',
+        userInteracted: false,
+      }),
+    ).toBe('20:00');
   });
 });

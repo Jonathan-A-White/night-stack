@@ -165,6 +165,30 @@ export function findNearestRoomReading<T extends { timestamp: string }>(
 }
 
 /**
+ * Decide what `lastMealTime` value should be persisted when the evening log
+ * is saved. The recommender's `hoursSinceLastMeal` feature (see
+ * derived-features.md) cannot be computed without a meal time, so we prefill
+ * blank values with the eating cutoff the user was already prompted with.
+ * The prefill is only applied if the user never interacted with the field —
+ * if they intentionally cleared it, leave it blank so the recommender flags
+ * the night as unknown rather than pretending to have data.
+ *
+ * Pure helper so the save-path behavior can be unit-tested without mounting
+ * the EveningLog component.
+ */
+export function resolveLastMealTimeForSave(params: {
+  currentValue: string;
+  eatingCutoff: string;
+  userInteracted: boolean;
+}): string {
+  const { currentValue, eatingCutoff, userInteracted } = params;
+  if (currentValue.trim() !== '') return currentValue;
+  if (userInteracted) return currentValue; // respect explicit clear
+  if (!eatingCutoff) return currentValue;
+  return eatingCutoff;
+}
+
+/**
  * Create a blank NightLog for a given date
  */
 export function createBlankNightLog(date: string, alarm: {

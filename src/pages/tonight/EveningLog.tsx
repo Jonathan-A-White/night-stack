@@ -10,6 +10,7 @@ import {
   getEveningLogDate,
   createBlankNightLog,
   getCurrentTime,
+  resolveLastMealTimeForSave,
   DAY_NAMES,
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
@@ -165,6 +166,13 @@ export function EveningLog() {
 
   // Step 3: Food & Drink
   const [lastMealTime, setLastMealTime] = useState((draft?.lastMealTime as string) ?? '');
+  // Track whether the user has ever touched the lastMealTime input. The
+  // recommender needs this field, so a blank value gets prefilled with the
+  // eating cutoff on save — but only if the user never interacted. If they
+  // intentionally cleared the field, respect that.
+  const [lastMealTimeTouched, setLastMealTimeTouched] = useState(
+    (draft?.lastMealTimeTouched as boolean) ?? false,
+  );
   const [foodDescription, setFoodDescription] = useState((draft?.foodDescription as string) ?? '');
   const [flags, setFlags] = useState<EveningFlag[]>((draft?.flags as EveningFlag[]) ?? [
     { type: 'overate', label: 'Overate', active: false },
@@ -271,6 +279,9 @@ export function EveningLog() {
 
     // Food & drink
     setLastMealTime(existingLog.eveningIntake.lastMealTime);
+    // Treat a non-empty value on an existing log as "user-touched" so a
+    // reload of a saved log doesn't silently re-prefill from eatingCutoff.
+    setLastMealTimeTouched(existingLog.eveningIntake.lastMealTime !== '');
     setFoodDescription(existingLog.eveningIntake.foodDescription);
     setFlags(existingLog.eveningIntake.flags);
     if (existingLog.eveningIntake.alcohol) {
@@ -305,7 +316,8 @@ export function EveningLog() {
   useEffect(() => {
     const data = {
       step, overrideTime, baseStackUsed, deviations,
-      lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+      lastMealTime, lastMealTimeTouched,
+      foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
       hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
       roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
       selectedClothing, selectedBedding, eveningNotes,
@@ -314,7 +326,8 @@ export function EveningLog() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
     step, overrideTime, baseStackUsed, deviations,
-    lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+    lastMealTime, lastMealTimeTouched,
+    foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
     hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
     roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
     selectedClothing, selectedBedding, eveningNotes,
@@ -440,8 +453,17 @@ export function EveningLog() {
       }
 
       nightLog.stack = { baseStackUsed, deviations };
+      // Prefill a blank lastMealTime with the eating cutoff unless the user
+      // intentionally cleared it. The recommender's `hoursSinceLastMeal`
+      // feature is useless without a time, so a sensible default beats a
+      // null that drops the night from similarity search.
+      const resolvedLastMealTime = resolveLastMealTimeForSave({
+        currentValue: lastMealTime,
+        eatingCutoff: schedule.eatingCutoff,
+        userInteracted: lastMealTimeTouched,
+      });
       nightLog.eveningIntake = {
-        lastMealTime,
+        lastMealTime: resolvedLastMealTime,
         foodDescription,
         flags,
         alcohol: hasAlcohol ? alcohol : null,
@@ -715,13 +737,28 @@ export function EveningLog() {
           <div className="card">
             <div className="card-title">Evening Food &amp; Drink</div>
             <div className="form-group">
-              <label className="form-label">Last meal time</label>
+              <label className="form-label">
+                Last meal time <span className="text-danger" aria-label="required">*</span>
+              </label>
               <input
                 type="time"
                 className="form-input"
                 value={lastMealTime}
-                onChange={(e) => setLastMealTime(e.target.value)}
+                onChange={(e) => {
+                  setLastMealTime(e.target.value);
+                  setLastMealTimeTouched(true);
+                }}
               />
+              <p className="text-secondary text-sm mt-8">
+                Required for the recommender — hours-since-meal drives the
+                similarity search. Leave blank only if you truly didn't eat.
+              </p>
+              {!lastMealTime && !lastMealTimeTouched && (
+                <p className="text-secondary text-sm mt-8">
+                  If left blank, it will be auto-filled with your eating cutoff (
+                  {formatTime12h(schedule.eatingCutoff)}) on save.
+                </p>
+              )}
             </div>
             {isMealAfterCutoff && (
               <div className="banner banner-danger">
@@ -1052,6 +1089,12 @@ export function EveningLog() {
       {/* Step 8: Notes & Summary */}
       {step === 8 && (
         <div>
+          {!lastMealTime && lastMealTimeTouched && (
+            <div className="banner banner-warning mb-8">
+              Last meal time is missing — hours-since-meal won't factor into
+              tonight's recommendation. Go back to step 3 to set it.
+            </div>
+          )}
           {showWeightStep && weightLbs != null && (
             <div className="card">
               <div className="card-title">Evening Weight</div>
@@ -1126,7 +1169,18 @@ export function EveningLog() {
             <div className="summary-row">
               <span className="summary-label">Last meal</span>
               <span className="summary-value">
-                {lastMealTime ? formatTime12h(lastMealTime) : 'Not logged'}
+                {lastMealTime
+                  ? formatTime12h(lastMealTime)
+                  : lastMealTimeTouched
+                    ? 'Not logged'
+                    : (
+                      <>
+                        {formatTime12h(schedule.eatingCutoff)}{' '}
+                        <span className="text-secondary text-sm">
+                          (prefilled)
+                        </span>
+                      </>
+                    )}
               </span>
             </div>
             <div className="summary-row">
