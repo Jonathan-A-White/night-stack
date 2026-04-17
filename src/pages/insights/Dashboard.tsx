@@ -7,6 +7,7 @@ import {
 import { db } from '../../db';
 import { formatTime12h } from '../../utils';
 import type { NightLog } from '../../types';
+import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 
 /**
  * localStorage key for the one-time backfill onboarding card (Q9 option c).
@@ -316,6 +317,11 @@ export function Dashboard() {
                 >
                   <div>
                     <div className="fw-600">{log.date}</div>
+                    {log.thermalComfort && (
+                      <div className="mt-8">
+                        <ThermalComfortChip log={log} />
+                      </div>
+                    )}
                     {flags.length > 0 && (
                       <div className="text-secondary text-sm mt-8">
                         {flags.join(' \u00b7 ')}

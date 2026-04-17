@@ -4,6 +4,7 @@ import { db } from '../../db';
 import { formatTime12h, timestampToHHMM, findNearestRoomReading } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
+import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 
 function scoreClass(score: number): string {
   if (score >= 85) return 'score-excellent';
@@ -56,6 +57,20 @@ export function MorningReview() {
       </div>
 
       <NightLogDateEditor nightLog={nightLog} />
+
+      {nightLog.thermalComfort && (
+        <div className="card">
+          <div className="card-title">Thermal Comfort</div>
+          <div className="flex items-center gap-8">
+            <ThermalComfortChip log={nightLog} readOnly />
+            {nightLog.thermalComfortSource === 'proxy' && (
+              <span className="text-secondary text-sm">
+                Inferred from wake events — edit in the morning log to confirm.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {sd && (
         <>
