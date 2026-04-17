@@ -165,25 +165,50 @@ export function Dashboard() {
             <div className="card">
               <div className="card-title">7-Day Averages</div>
               <div className="metrics-row">
-                <div className="metric-card">
+                <div
+                  className="metric-card metric-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate('/insights/metric/score')}
+                >
                   <div className="metric-value">{Math.round(metrics.avgScore)}</div>
                   <div className="metric-label">Avg Score</div>
                 </div>
-                <div className="metric-card">
+                <div
+                  className="metric-card metric-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate('/insights/metric/sleep')}
+                >
                   <div className="metric-value">{formatMinutesAsHM(metrics.avgTotal)}</div>
                   <div className="metric-label">Avg Sleep</div>
                 </div>
-                <div className="metric-card">
+                <div
+                  className="metric-card metric-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate('/insights/metric/deep')}
+                >
                   <div className="metric-value">{Math.round(metrics.avgDeep)}</div>
                   <div className="metric-label">Deep (min)</div>
                 </div>
               </div>
               <div className="metrics-row">
-                <div className="metric-card">
+                <div
+                  className="metric-card metric-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate('/insights/metric/hr')}
+                >
                   <div className="metric-value">{Math.round(metrics.avgHR)}</div>
                   <div className="metric-label">Avg HR (bpm)</div>
                 </div>
-                <div className="metric-card">
+                <div
+                  className="metric-card metric-card--clickable"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate('/insights/metric/wake')}
+                >
                   <div className="metric-value">{metrics.wakeNights}</div>
                   <div className="metric-label">Wake Nights</div>
                 </div>

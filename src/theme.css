@@ -444,6 +444,17 @@ textarea.form-input {
   text-align: center;
 }
 
+.metric-card--clickable {
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.metric-card--clickable:active {
+  background: var(--color-surface-3);
+  transform: scale(0.97);
+}
+
 .metric-value {
   font-size: 24px;
   font-weight: 700;
