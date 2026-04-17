@@ -26,7 +26,22 @@ export interface NightLog {
   middayStruggle: MiddayStruggle;
   eveningNotes: string;
   morningNotes: string;
+  /**
+   * Single morning-entered label for the night as a whole. This is the
+   * supervisory signal the recommender optimizes for — without it, there's
+   * no "good/bad" ground truth tied to the controllable stack.
+   */
+  thermalComfort: ThermalComfort | null;
 }
+
+/**
+ * Overall thermal experience of the night, tagged in the morning.
+ *   too_hot    — woke sweating, kicked covers, HR ran high
+ *   too_cold   — fragmented sleep, curled up, felt chilled
+ *   just_right — stayed asleep, no thermal wakeups
+ *   mixed      — swung both ways (e.g. cold at 2am, hot at 4am)
+ */
+export type ThermalComfort = 'too_hot' | 'too_cold' | 'just_right' | 'mixed';
 
 export interface AlarmInfo {
   expectedAlarmTime: string; // "HH:MM"
@@ -73,7 +88,44 @@ export interface EnvironmentEntry {
   roomTempF: number | null;
   roomHumidity: number | null;
   externalWeather: ExternalWeather | null;
+  /**
+   * The AC sleep-curve profile in effect for the night. Stored as a named
+   * shape rather than a raw curve so past nights can be matched by profile.
+   */
+  acCurveProfile: AcCurveProfile;
+  /**
+   * Setpoint (°F) used as the anchor of the curve — interpretation depends
+   * on the profile. For 'steady' / 'hold_cold' this is the target; for
+   * 'cool_early' / 'warm_late' it's the coldest point in the curve. Null
+   * when the AC is off.
+   */
+  acSetpointF: number | null;
+  /** Fan setting the AC ran on. */
+  fanSpeed: FanSpeed;
 }
+
+/**
+ * Named AC sleep-curve shapes. The Midea window unit supports multi-step
+ * curves; these are the human-meaningful shapes the user actually picks
+ * between. Matching past nights by profile keeps the similarity space small
+ * without modeling full curves.
+ *   off         — AC not running
+ *   steady      — hold a single setpoint all night
+ *   cool_early  — cold at bedtime / 1–2am, warmer by morning (default Midea
+ *                 sleep curve shape)
+ *   hold_cold   — cold all night, no relaxation
+ *   warm_late   — warmer at bedtime, colder toward morning
+ *   custom      — user-defined curve that doesn't match above
+ */
+export type AcCurveProfile =
+  | 'off'
+  | 'steady'
+  | 'cool_early'
+  | 'hold_cold'
+  | 'warm_late'
+  | 'custom';
+
+export type FanSpeed = 'off' | 'low' | 'medium' | 'high' | 'auto';
 
 export interface ExternalWeather {
   overnightTemps: HourlyReading[];
@@ -125,6 +177,13 @@ export interface WakeUpEvent {
   fellBackAsleep: 'yes' | 'no' | 'eventually';
   minutesToFallBackAsleep: number | null;
   notes: string;
+  /**
+   * Structured thermal flags captured per wake. The recommender uses these
+   * directly; `cause` is freeform-ish and harder to query consistently.
+   */
+  wasSweating: boolean;
+  feltCold: boolean;
+  racingHeart: boolean;
 }
 
 export interface BedtimeExplanation {

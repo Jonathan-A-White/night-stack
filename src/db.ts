@@ -123,6 +123,31 @@ export class NightStackDB extends Dexie {
         }
       });
     });
+    this.version(8).stores({
+      nightLogs: 'id, date',
+    }).upgrade(async (tx) => {
+      // Backfill fields that drive the thermal recommender: a morning
+      // `thermalComfort` label, per-wake thermal flags, and structured
+      // AC-curve + fan-speed intervention fields. Historical rows can't
+      // assign real values, so leave them as null / false and let the
+      // recommender treat them as missing.
+      await tx.table('nightLogs').toCollection().modify((log: Record<string, unknown>) => {
+        if (log.thermalComfort === undefined) log.thermalComfort = null;
+
+        const env = (log.environment ?? {}) as Record<string, unknown>;
+        if (env.acCurveProfile === undefined) env.acCurveProfile = 'off';
+        if (env.acSetpointF === undefined) env.acSetpointF = null;
+        if (env.fanSpeed === undefined) env.fanSpeed = 'off';
+        log.environment = env;
+
+        const events = (log.wakeUpEvents ?? []) as Record<string, unknown>[];
+        for (const ev of events) {
+          if (ev.wasSweating === undefined) ev.wasSweating = false;
+          if (ev.feltCold === undefined) ev.feltCold = false;
+          if (ev.racingHeart === undefined) ev.racingHeart = false;
+        }
+      });
+    });
   }
 }
 
