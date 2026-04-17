@@ -26,9 +26,17 @@ import type {
   WakeUpEvent,
   BedtimeExplanation,
   WeightEntry,
+  ThermalComfort,
 } from '../../types';
 
 const TOTAL_STEPS = 5;
+
+const THERMAL_COMFORT_OPTIONS: { value: ThermalComfort; label: string; hint: string }[] = [
+  { value: 'just_right', label: 'Just right', hint: 'Stayed asleep, no thermal wakeups' },
+  { value: 'too_hot', label: 'Too hot', hint: 'Sweating, kicked covers, HR ran high' },
+  { value: 'too_cold', label: 'Too cold', hint: 'Fragmented sleep, curled up, felt chilled' },
+  { value: 'mixed', label: 'Mixed', hint: 'Swung both ways (e.g. cold at 2am, hot at 4am)' },
+];
 const VALID_RATINGS: SleepRating[] = ['Excellent', 'Good', 'Fair', 'Attention'];
 
 // Key drafts by the edited date so today's in-progress morning log doesn't
@@ -134,6 +142,9 @@ export function MorningLog() {
   const [wakeUpEvents, setWakeUpEvents] = useState<WakeUpEvent[]>(
     (draft?.wakeUpEvents as WakeUpEvent[]) ?? [],
   );
+  const [thermalComfort, setThermalComfort] = useState<ThermalComfort | null>(
+    (draft?.thermalComfort as ThermalComfort | null) ?? null,
+  );
 
   // Step 4: Bedtime explanation
   const [bedtimeReason, setBedtimeReason] = useState((draft?.bedtimeReason as string) ?? '');
@@ -199,6 +210,11 @@ export function MorningLog() {
       setWakeUpEvents(nightLog.wakeUpEvents);
     }
 
+    // Thermal comfort tag
+    if (nightLog.thermalComfort) {
+      setThermalComfort(nightLog.thermalComfort);
+    }
+
     // Bedtime explanation
     if (nightLog.bedtimeExplanation) {
       setBedtimeReason(nightLog.bedtimeExplanation.reason);
@@ -222,6 +238,7 @@ export function MorningLog() {
       roomTimeline,
       hadWakeUps,
       wakeUpEvents,
+      thermalComfort,
       bedtimeReason,
       bedtimeNotes,
       morningNotes,
@@ -240,6 +257,7 @@ export function MorningLog() {
     roomTimeline,
     hadWakeUps,
     wakeUpEvents,
+    thermalComfort,
     bedtimeReason,
     bedtimeNotes,
     morningNotes,
@@ -271,6 +289,9 @@ export function MorningLog() {
         fellBackAsleep: ev.endTime ? 'yes' : 'no',
         minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime),
         notes: ev.notes,
+        wasSweating: false,
+        feltCold: false,
+        racingHeart: false,
       } satisfies WakeUpEvent;
     });
   }
@@ -360,6 +381,9 @@ export function MorningLog() {
         fellBackAsleep: 'yes',
         minutesToFallBackAsleep: null,
         notes: '',
+        wasSweating: false,
+        feltCold: false,
+        racingHeart: false,
       },
     ]);
   }
@@ -430,6 +454,7 @@ export function MorningLog() {
       wakeUpEvents: hadWakeUps ? wakeUpEvents : [],
       bedtimeExplanation,
       morningNotes,
+      thermalComfort,
       updatedAt: Date.now(),
     });
 
@@ -875,6 +900,28 @@ export function MorningLog() {
       {step === 3 && (
         <div>
           <div className="card">
+            <div className="card-title">How did the night feel thermally?</div>
+            <p className="text-secondary text-sm mb-8">
+              Single label for the night as a whole. This is the signal the
+              recommender uses to find similar-input nights that worked.
+            </p>
+            <div className="toggle-grid">
+              {THERMAL_COMFORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={`toggle-btn${thermalComfort === opt.value ? ' active' : ''}`}
+                  onClick={() =>
+                    setThermalComfort((cur) => (cur === opt.value ? null : opt.value))
+                  }
+                >
+                  <div>{opt.label}</div>
+                  <div className="text-sm text-secondary">{opt.hint}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="card">
             <div className="card-title">Wake-Up Events</div>
             <div className="switch-row">
               <span>Did you wake up during the night?</span>
@@ -967,6 +1014,29 @@ export function MorningLog() {
                         />
                       </div>
                     )}
+                    <div className="form-group">
+                      <label className="form-label">What did your body feel?</label>
+                      <div className="toggle-grid">
+                        <button
+                          className={`toggle-btn${event.wasSweating ? ' active' : ''}`}
+                          onClick={() => updateWakeUpEvent(event.id, 'wasSweating', !event.wasSweating)}
+                        >
+                          Sweating
+                        </button>
+                        <button
+                          className={`toggle-btn${event.feltCold ? ' active' : ''}`}
+                          onClick={() => updateWakeUpEvent(event.id, 'feltCold', !event.feltCold)}
+                        >
+                          Felt cold
+                        </button>
+                        <button
+                          className={`toggle-btn${event.racingHeart ? ' active' : ''}`}
+                          onClick={() => updateWakeUpEvent(event.id, 'racingHeart', !event.racingHeart)}
+                        >
+                          Racing heart
+                        </button>
+                      </div>
+                    </div>
                     <div className="form-group">
                       <label className="form-label">Notes</label>
                       <input
@@ -1094,6 +1164,14 @@ export function MorningLog() {
               <span className="summary-label">Wake-ups</span>
               <span className="summary-value">
                 {hadWakeUps ? `${wakeUpEvents.length} event(s)` : 'None'}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">Thermal comfort</span>
+              <span className="summary-value">
+                {thermalComfort
+                  ? THERMAL_COMFORT_OPTIONS.find((o) => o.value === thermalComfort)?.label
+                  : '--'}
               </span>
             </div>
             {showWeightStep && weightLbs != null && (

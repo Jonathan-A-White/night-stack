@@ -14,8 +14,20 @@ import {
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { evaluateRules, type EvaluatedRule } from '../../services/rules';
-import type { ExternalWeather, MiddayCopingItem } from '../../types';
+import {
+  recommendForTonight,
+  type Recommendation,
+  type RecommenderInputs,
+} from '../../services/recommender';
+import type { ExternalWeather, MiddayCopingItem, AcCurveProfile } from '../../types';
 import { RoutineStartCard } from './RoutineStartCard';
+
+const RECOMMENDATION_CATEGORY_LABEL: Record<Recommendation['items'][number]['category'], string> = {
+  clothing: 'Clothing',
+  bedding: 'Bedding',
+  ac: 'AC',
+  fan: 'Fan',
+};
 
 export function TonightPlan() {
   const navigate = useNavigate();
@@ -44,6 +56,11 @@ export function TonightPlan() {
     () => db.nightLogs.orderBy('date').reverse().limit(7).toArray(),
     []
   );
+  // All logs feed the recommender. Dexie returns a small number, so pulling
+  // the full history is fine; the filter to "labeled" nights happens inside.
+  const allLogs = useLiveQuery(() => db.nightLogs.toArray(), []);
+  const clothingItems = useLiveQuery(() => db.clothingItems.toArray(), []);
+  const beddingItems = useLiveQuery(() => db.beddingItems.toArray(), []);
   // Today's night log (if already logged) — drives midday-coping rules.
   const todayLog = useLiveQuery(
     () => db.nightLogs.where('date').equals(getTodayDate()).first(),
@@ -55,6 +72,15 @@ export function TonightPlan() {
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
   const [weatherError, setWeatherError] = useState('');
   const [evaluatedRules, setEvaluatedRules] = useState<EvaluatedRule[]>([]);
+
+  // Inputs for the recommender that the user adjusts before bed. These aren't
+  // persisted — they're a dial you turn to see what tonight should look like.
+  const [plannedRoomTemp, setPlannedRoomTemp] = useState<string>('');
+  const [plannedAcCurve, setPlannedAcCurve] = useState<AcCurveProfile | ''>('');
+  const [plannedAcSetpoint, setPlannedAcSetpoint] = useState<string>('');
+  const [ateLate, setAteLate] = useState(false);
+  const [overate, setOverate] = useState(false);
+  const [hadAlcohol, setHadAlcohol] = useState(false);
 
   // Detect an in-progress evening log draft so the CTA can read
   // "Resume Evening Log" instead of "Start Evening Log". EveningLog persists
@@ -135,6 +161,22 @@ export function TonightPlan() {
   }, [rules, weather, recentLogs, todayLog, middayCopingItems]);
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
+
+  // Compute the tonight recommendation from user-adjusted inputs + past logs.
+  const recommendation = (() => {
+    if (!allLogs || !clothingItems || !beddingItems) return null;
+    const inputs: RecommenderInputs = {
+      overnightLowF: overnightLow,
+      startingRoomTempF: plannedRoomTemp ? parseFloat(plannedRoomTemp) : null,
+      ateLate,
+      overate,
+      highSalt: false,
+      alcohol: hadAlcohol,
+      plannedAcCurve: plannedAcCurve || null,
+      plannedAcSetpointF: plannedAcSetpoint ? parseFloat(plannedAcSetpoint) : null,
+    };
+    return recommendForTonight(inputs, allLogs, clothingItems, beddingItems);
+  })();
 
   if (!alarmSchedule) {
     return <div className="empty-state"><h3>Loading...</h3></div>;
@@ -230,6 +272,144 @@ export function TonightPlan() {
         )}
         {!weather && !weatherError && (
           <p className="text-secondary text-sm">Loading weather...</p>
+        )}
+      </div>
+
+      {/* Tonight's Recommendation (nearest-neighbor retrieval) */}
+      <div className="card">
+        <div className="card-title">Tonight's Recommendation</div>
+        <p className="text-secondary text-sm mb-8">
+          Based on past nights with similar inputs. Adjust the dials to match
+          what you know about tonight, then see what worked historically.
+        </p>
+
+        <div className="form-group">
+          <label className="form-label">Starting room temp (F)</label>
+          <input
+            type="number"
+            className="form-input"
+            placeholder={overnightLow !== null ? 'e.g. 67' : 'e.g. 67'}
+            value={plannedRoomTemp}
+            onChange={(e) => setPlannedRoomTemp(e.target.value)}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Planned AC curve</label>
+          <select
+            className="form-input"
+            value={plannedAcCurve}
+            onChange={(e) => setPlannedAcCurve(e.target.value as AcCurveProfile | '')}
+          >
+            <option value="">-- match any --</option>
+            <option value="off">Off</option>
+            <option value="steady">Steady</option>
+            <option value="cool_early">Cool early</option>
+            <option value="hold_cold">Hold cold</option>
+            <option value="warm_late">Warm late</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+
+        {plannedAcCurve && plannedAcCurve !== 'off' && (
+          <div className="form-group">
+            <label className="form-label">AC setpoint (F)</label>
+            <input
+              type="number"
+              className="form-input"
+              placeholder="e.g. 64"
+              value={plannedAcSetpoint}
+              onChange={(e) => setPlannedAcSetpoint(e.target.value)}
+            />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">What you ate / drank tonight</label>
+          <div className="toggle-grid">
+            <button
+              className={`toggle-btn${ateLate ? ' active' : ''}`}
+              onClick={() => setAteLate((v) => !v)}
+            >
+              Ate late
+            </button>
+            <button
+              className={`toggle-btn${overate ? ' active' : ''}`}
+              onClick={() => setOverate((v) => !v)}
+            >
+              Overate
+            </button>
+            <button
+              className={`toggle-btn${hadAlcohol ? ' active' : ''}`}
+              onClick={() => setHadAlcohol((v) => !v)}
+            >
+              Alcohol
+            </button>
+          </div>
+        </div>
+
+        {recommendation && (
+          <div className="mt-8">
+            {recommendation.warning && (
+              <div className="banner banner-warning mb-8">
+                {recommendation.warning}
+              </div>
+            )}
+            <p className="text-sm text-secondary mb-8">
+              {recommendation.summary}
+            </p>
+
+            {recommendation.items.length > 0 ? (
+              <div>
+                <div className="card-title">Stack that worked</div>
+                {recommendation.items.map((item, i) => (
+                  <div key={`${item.category}-${i}`} className="summary-row">
+                    <span className="summary-label">
+                      {RECOMMENDATION_CATEGORY_LABEL[item.category]}
+                    </span>
+                    <span className="summary-value">
+                      {item.label}
+                      <span className="text-secondary text-sm">
+                        {' '}— {Math.round(item.support * 100)}% of {item.n}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              recommendation.totalLabeledNights === 0 && (
+                <p className="text-secondary text-sm">
+                  Label a few mornings with "too hot / too cold / just right"
+                  to start seeing a prescription here.
+                </p>
+              )
+            )}
+
+            {recommendation.neighbors.length > 0 && (
+              <div className="mt-8">
+                <div className="card-title">Similar past nights</div>
+                {recommendation.neighbors.map((n) => (
+                  <div key={n.log.id} className="summary-row">
+                    <span className="summary-label">{n.log.date}</span>
+                    <span
+                      className={`summary-value ${
+                        n.comfort === 'just_right'
+                          ? 'text-success'
+                          : n.comfort === 'too_hot' || n.comfort === 'too_cold'
+                            ? 'text-danger'
+                            : ''
+                      }`}
+                    >
+                      {n.comfort ?? '--'}
+                      <span className="text-secondary text-sm">
+                        {' '}(d={n.distance.toFixed(2)})
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
 

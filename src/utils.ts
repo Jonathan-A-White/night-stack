@@ -196,7 +196,14 @@ export function createBlankNightLog(date: string, alarm: {
       alcohol: null,
       liquidIntake: '',
     },
-    environment: { roomTempF: null, roomHumidity: null, externalWeather: null },
+    environment: {
+      roomTempF: null,
+      roomHumidity: null,
+      externalWeather: null,
+      acCurveProfile: 'off',
+      acSetpointF: null,
+      fanSpeed: 'off',
+    },
     clothing: [],
     bedding: [],
     sleepData: null,
@@ -212,5 +219,6 @@ export function createBlankNightLog(date: string, alarm: {
     },
     eveningNotes: '',
     morningNotes: '',
+    thermalComfort: null,
   };
 }

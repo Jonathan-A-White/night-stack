@@ -33,7 +33,26 @@ import type {
   MiddayCopingItem,
   MiddayCopingType,
   StruggleIntensity,
+  AcCurveProfile,
+  FanSpeed,
 } from '../../types';
+
+const AC_CURVE_OPTIONS: { value: AcCurveProfile; label: string; hint: string }[] = [
+  { value: 'off', label: 'Off', hint: 'AC not running' },
+  { value: 'steady', label: 'Steady', hint: 'Hold a single setpoint all night' },
+  { value: 'cool_early', label: 'Cool early', hint: 'Coldest at bedtime / 1–2am, warmer by morning' },
+  { value: 'hold_cold', label: 'Hold cold', hint: 'Cold all night, no relaxation' },
+  { value: 'warm_late', label: 'Warm late', hint: 'Warmer at bedtime, colder toward morning' },
+  { value: 'custom', label: 'Custom', hint: "Doesn't match any preset" },
+];
+
+const FAN_SPEED_OPTIONS: { value: FanSpeed; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'auto', label: 'Auto' },
+];
 
 const TOTAL_STEPS = 8;
 
@@ -176,6 +195,15 @@ export function EveningLog() {
   // Step 5: Environment
   const [roomTempF, setRoomTempF] = useState<string>((draft?.roomTempF as string) ?? '');
   const [roomHumidity, setRoomHumidity] = useState<string>((draft?.roomHumidity as string) ?? '');
+  const [acCurveProfile, setAcCurveProfile] = useState<AcCurveProfile>(
+    (draft?.acCurveProfile as AcCurveProfile) ?? 'off',
+  );
+  const [acSetpointF, setAcSetpointF] = useState<string>(
+    (draft?.acSetpointF as string) ?? '',
+  );
+  const [fanSpeed, setFanSpeed] = useState<FanSpeed>(
+    (draft?.fanSpeed as FanSpeed) ?? 'off',
+  );
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
 
   // Step 6: Clothing
@@ -261,6 +289,9 @@ export function EveningLog() {
     // Environment
     setRoomTempF(existingLog.environment.roomTempF?.toString() ?? '');
     setRoomHumidity(existingLog.environment.roomHumidity?.toString() ?? '');
+    setAcCurveProfile(existingLog.environment.acCurveProfile);
+    setAcSetpointF(existingLog.environment.acSetpointF?.toString() ?? '');
+    setFanSpeed(existingLog.environment.fanSpeed);
 
     // Clothing & bedding
     setSelectedClothing(existingLog.clothing);
@@ -276,7 +307,8 @@ export function EveningLog() {
       step, overrideTime, baseStackUsed, deviations,
       lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
       hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
-      roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+      roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
+      selectedClothing, selectedBedding, eveningNotes,
       weightLbs, weightSkipped,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
@@ -284,7 +316,8 @@ export function EveningLog() {
     step, overrideTime, baseStackUsed, deviations,
     lastMealTime, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
     hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
-    roomTempF, roomHumidity, selectedClothing, selectedBedding, eveningNotes,
+    roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
+    selectedClothing, selectedBedding, eveningNotes,
     weightLbs, weightSkipped,
     DRAFT_KEY,
   ]);
@@ -418,6 +451,9 @@ export function EveningLog() {
         roomTempF: roomTempF ? parseFloat(roomTempF) : null,
         roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
         externalWeather: weather,
+        acCurveProfile,
+        acSetpointF: acSetpointF ? parseFloat(acSetpointF) : null,
+        fanSpeed,
       };
       nightLog.clothing = selectedClothing;
       nightLog.bedding = selectedBedding;
@@ -887,7 +923,7 @@ export function EveningLog() {
           <div className="card">
             <div className="card-title">Room Environment</div>
             <div className="form-group">
-              <label className="form-label">Room temperature (F)</label>
+              <label className="form-label">Room temperature at bedtime (F)</label>
               <input
                 type="number"
                 className="form-input"
@@ -907,6 +943,55 @@ export function EveningLog() {
               />
             </div>
           </div>
+
+          <div className="card">
+            <div className="card-title">AC / Fan</div>
+            <div className="form-group">
+              <label className="form-label">AC sleep-curve profile</label>
+              <div className="toggle-grid">
+                {AC_CURVE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`toggle-btn${acCurveProfile === opt.value ? ' active' : ''}`}
+                    onClick={() => setAcCurveProfile(opt.value)}
+                  >
+                    <div>{opt.label}</div>
+                    <div className="text-sm text-secondary">{opt.hint}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {acCurveProfile !== 'off' && (
+              <div className="form-group">
+                <label className="form-label">AC setpoint (F)</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  placeholder="e.g. 64"
+                  value={acSetpointF}
+                  onChange={(e) => setAcSetpointF(e.target.value)}
+                />
+                <p className="text-secondary text-sm mt-8">
+                  For curved profiles, use the coldest point of the curve.
+                </p>
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Fan speed</label>
+              <div className="toggle-grid">
+                {FAN_SPEED_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    className={`toggle-btn${fanSpeed === opt.value ? ' active' : ''}`}
+                    onClick={() => setFanSpeed(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <div className="card">
             <div className="card-title">External Weather</div>
             {overnightLow !== null ? (
@@ -1056,6 +1141,20 @@ export function EveningLog() {
               <span className="summary-label">Room temp</span>
               <span className="summary-value">
                 {roomTempF ? `${roomTempF}F` : '--'}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">AC</span>
+              <span className="summary-value">
+                {acCurveProfile === 'off'
+                  ? 'Off'
+                  : `${AC_CURVE_OPTIONS.find((o) => o.value === acCurveProfile)?.label}${acSetpointF ? ` @ ${acSetpointF}F` : ''}`}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">Fan</span>
+              <span className="summary-value">
+                {FAN_SPEED_OPTIONS.find((o) => o.value === fanSpeed)?.label ?? '--'}
               </span>
             </div>
             <div className="summary-row">
