@@ -32,6 +32,24 @@ export interface NightLog {
    * no "good/bad" ground truth tied to the controllable stack.
    */
   thermalComfort: ThermalComfort | null;
+  /**
+   * Provenance of `thermalComfort`:
+   *   'user'  — the user set this label explicitly in MorningLog.
+   *   'proxy' — the backfill flow inferred this from wake-cause IDs.
+   *   null    — no label yet (mirrors `thermalComfort === null`).
+   *
+   * Q3 decision: `recommendForTonight` weights proxy labels equally with
+   * user labels. See `recommender.ts` for the implementation comment.
+   */
+  thermalComfortSource: 'user' | 'proxy' | null;
+  /**
+   * When true, the backfill review UI has shown this night to the user and
+   * they dismissed (picked "—") the proposed proxy label. The review UI
+   * skips these rows on re-entry so the user isn't asked about the same
+   * night twice. Permanent (Q10 option a): a proxy-rule change does NOT
+   * re-surface previously dismissed nights.
+   */
+  thermalProxyDismissed: boolean;
 }
 
 /**

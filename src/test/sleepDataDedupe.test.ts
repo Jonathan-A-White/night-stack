@@ -75,6 +75,8 @@ function makeNightLog(date: string, sleepData: SleepData | null): NightLog {
     eveningNotes: '',
     morningNotes: '',
     thermalComfort: null,
+    thermalComfortSource: null,
+    thermalProxyDismissed: false,
   };
 }
 
