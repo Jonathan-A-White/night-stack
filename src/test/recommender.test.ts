@@ -3,6 +3,8 @@ import {
   computeHoursSinceLastMeal,
   computeCoolingRate1to4F,
   logToInputs,
+  nightDistance,
+  type RecommenderInputs,
 } from '../services/recommender';
 import { createBlankNightLog } from '../utils';
 import type { NightLog, RoomReading } from '../types';
@@ -245,5 +247,191 @@ describe('logToInputs (derived-features T3 + T4 integration)', () => {
     expect(inputs.coolingRate1to4F!).toBeCloseTo(-1, 2);
     expect(inputs.plannedAcCurve).toBe('off');
     expect(inputs.plannedAcSetpointF).toBeNull();
+  });
+});
+
+/**
+ * Tests for the distance-function workstream
+ * (`specs/recommender-v2/distance-function.md` T6). Cover the 8 cases
+ * enumerated in the spec's "Minimum coverage" list.
+ */
+
+/** A realistic, fully-populated inputs object for identity / baseline tests. */
+function realisticInputs(): RecommenderInputs {
+  return {
+    overnightLowF: 50,
+    startingRoomTempF: 68,
+    roomHumidity: 45,
+    hoursSinceLastMeal: 3,
+    coolingRate1to4F: -0.3,
+    alcohol: false,
+    plannedAcCurve: 'cool_early',
+    plannedAcSetpointF: 64,
+  };
+}
+
+describe('nightDistance (distance-function T6)', () => {
+  it('identity: nightDistance(a, a) === 0 for a realistic a', () => {
+    const a = realisticInputs();
+    expect(nightDistance(a, a)).toBe(0);
+  });
+
+  it('AC-off symmetry: both-off produces the same distance as both-null (T3)', () => {
+    // Two inputs identical except both have plannedAcCurve === 'off' and
+    // plannedAcSetpointF === null. This should yield the same distance as
+    // the same pair with plannedAcCurve === null — because T3 makes the
+    // AC-curve block contribute zero weight + zero distance in both cases.
+    const base = realisticInputs();
+    const offA: RecommenderInputs = { ...base, plannedAcCurve: 'off', plannedAcSetpointF: null };
+    const offB: RecommenderInputs = { ...base, plannedAcCurve: 'off', plannedAcSetpointF: null };
+    const nullA: RecommenderInputs = { ...base, plannedAcCurve: null, plannedAcSetpointF: null };
+    const nullB: RecommenderInputs = { ...base, plannedAcCurve: null, plannedAcSetpointF: null };
+
+    // Perturb one dimension so the distance isn't zero (otherwise both
+    // sides trivially equal 0 and the test doesn't discriminate).
+    offA.startingRoomTempF = 68;
+    offB.startingRoomTempF = 70;
+    nullA.startingRoomTempF = 68;
+    nullB.startingRoomTempF = 70;
+
+    const dOff = nightDistance(offA, offB);
+    const dNull = nightDistance(nullA, nullB);
+    expect(dOff).toBe(dNull);
+
+    // And one side 'off' + the other 'cool_early' also contributes
+    // nothing (Q6 inert-baseline).
+    const mixedA: RecommenderInputs = { ...base, plannedAcCurve: 'off', plannedAcSetpointF: null };
+    const mixedB: RecommenderInputs = { ...base, plannedAcCurve: 'cool_early', plannedAcSetpointF: 64 };
+    mixedA.startingRoomTempF = 68;
+    mixedB.startingRoomTempF = 70;
+    // plannedAcSetpointF differs here too (null vs 64) which costs a
+    // half-penalty on that dimension — strip it to isolate the AC curve.
+    mixedA.plannedAcSetpointF = null;
+    mixedB.plannedAcSetpointF = null;
+    expect(nightDistance(mixedA, mixedB)).toBe(dOff);
+  });
+
+  it('both sides cool_early: AC block contributes 0 (identity on AC)', () => {
+    const a = realisticInputs();
+    const b: RecommenderInputs = { ...a };
+    // Everything equal → distance 0. But confirm by also changing nothing
+    // else and ensuring identity.
+    expect(nightDistance(a, b)).toBe(0);
+  });
+
+  it('cool_early vs hold_cold: AC curve difference adds 1.5 to raw d', () => {
+    // Compare cool_early vs hold_cold (both non-off, non-null): the AC
+    // block adds 1.5 to d and 1.5 to totalWeight.
+    const a: RecommenderInputs = { ...realisticInputs(), plannedAcCurve: 'cool_early' };
+    const b: RecommenderInputs = { ...realisticInputs(), plannedAcCurve: 'hold_cold' };
+    const d = nightDistance(a, b);
+
+    // totalWeight with AC block = 3 + 4 + 1 + 1 + 1 + 1 + 0.5 + 1.5 = 13.
+    // Raw d = 1.5 (AC only; everything else equal).
+    expect(d).toBeCloseTo(1.5 / 13, 6);
+  });
+
+  it('raised room-temp weight: 5°F startingRoomTempF diff / 5°F overnightLowF diff ≈ 4× (new 4/5 vs 3/15)', () => {
+    // Old ratio was 3 (weight 3, scale 5 for startingRoomTempF; weight 3,
+    // scale 15 for overnightLowF → (3*5/5) / (3*5/15) = 3/1 = 3). v2
+    // raised the room-temp weight to 4 → new ratio (4*5/5) / (3*5/15) =
+    // 4/1 = 4. Need every other dim to contribute zero to isolate the
+    // ratio — so AC is 'off' on both sides, and every addDim dim is
+    // non-null + equal across A/B (no half-penalty either).
+    const base = realisticInputs();
+    base.plannedAcCurve = 'off';
+    // Keep plannedAcSetpointF non-null + equal on both so its half-penalty
+    // doesn't leak into the comparison.
+    base.plannedAcSetpointF = 64;
+
+    const roomA: RecommenderInputs = { ...base, startingRoomTempF: 65 };
+    const roomB: RecommenderInputs = { ...base, startingRoomTempF: 70 };
+    const lowA: RecommenderInputs = { ...base, overnightLowF: 45 };
+    const lowB: RecommenderInputs = { ...base, overnightLowF: 50 };
+
+    const dRoom = nightDistance(roomA, roomB);
+    const dLow = nightDistance(lowA, lowB);
+    // Same totalWeight in both comparisons → the ratio is just the raw-d
+    // ratio: (4*5/5) / (3*5/15) = 4 / 1 = 4.
+    expect(dRoom / dLow).toBeCloseTo(4, 6);
+  });
+
+  it('humidity penalty: 10pp difference contributes ~1/totalWeight', () => {
+    const base = realisticInputs();
+    // Use non-'off' + identical AC so the AC block contributes zero but
+    // still adds 1.5 to totalWeight (both sides cool_early, same).
+    const a: RecommenderInputs = { ...base, roomHumidity: 40 };
+    const b: RecommenderInputs = { ...base, roomHumidity: 50 };
+
+    // totalWeight = 3+4+1+1+1+1+0.5+1.5 = 13. Raw d from humidity alone =
+    // (1 * 10) / 10 = 1.
+    const expected = 1 / 13;
+    expect(nightDistance(a, b)).toBeCloseTo(expected, 6);
+  });
+
+  it('hours-since-meal penalty: 3-hour diff contributes 1/totalWeight', () => {
+    const base = realisticInputs();
+    const a: RecommenderInputs = { ...base, hoursSinceLastMeal: 2 };
+    const b: RecommenderInputs = { ...base, hoursSinceLastMeal: 5 };
+
+    // Raw d from hoursSinceLastMeal alone = (1 * 3) / 3 = 1.
+    const expected = 1 / 13;
+    expect(nightDistance(a, b)).toBeCloseTo(expected, 6);
+  });
+
+  it('cooling-rate penalty: 0.6 °F/h diff contributes 1/totalWeight', () => {
+    const base = realisticInputs();
+    const a: RecommenderInputs = { ...base, coolingRate1to4F: -0.6 };
+    const b: RecommenderInputs = { ...base, coolingRate1to4F: 0 };
+
+    // Raw d from coolingRate1to4F alone = (1 * 0.6) / 0.6 = 1.
+    const expected = 1 / 13;
+    expect(nightDistance(a, b)).toBeCloseTo(expected, 6);
+  });
+
+  it('missing dimension: null on one side of humidity contributes 0.5/totalWeight', () => {
+    const base = realisticInputs();
+    const a: RecommenderInputs = { ...base, roomHumidity: 45 };
+    const b: RecommenderInputs = { ...base, roomHumidity: null };
+
+    // addDim half-penalty: d += weight * 0.5 = 1 * 0.5 = 0.5.
+    // totalWeight = 13 (still; the weight is added regardless of nulls).
+    const expected = 0.5 / 13;
+    expect(nightDistance(a, b)).toBeCloseTo(expected, 6);
+  });
+
+  it('dropped flags never contribute: toggling eveningIntake.flags does not change nightDistance', () => {
+    // Build two nights where the *only* difference is
+    // eveningIntake.flags (overate / late_meal / high_salt). Since
+    // logToInputs no longer reads those flags, the nightDistance between
+    // the two must be identical to the nightDistance when the flags are
+    // equal. Guards against a future re-introduction of the zero-signal
+    // dims.
+    const a = makeLog('2026-04-15');
+    const b = makeLog('2026-04-15');
+
+    // Baseline: both logs have all flags off → distance D.
+    const baselineA = logToInputs(a);
+    const baselineB = logToInputs(b);
+    const dBaseline = nightDistance(baselineA, baselineB);
+
+    // Now flip overate/late_meal/high_salt on one side only. If the
+    // recommender's distance function were still reading these flags,
+    // distance would jump; it must stay the same.
+    for (const type of ['overate', 'late_meal', 'high_salt'] as const) {
+      const flag = a.eveningIntake.flags.find((f) => f.type === type);
+      if (flag) flag.active = true;
+    }
+    const toggledA = logToInputs(a);
+    const dToggled = nightDistance(toggledA, baselineB);
+    expect(dToggled).toBe(dBaseline);
+
+    // And flip them on both sides → same distance again (symmetry).
+    for (const type of ['overate', 'late_meal', 'high_salt'] as const) {
+      const flag = b.eveningIntake.flags.find((f) => f.type === type);
+      if (flag) flag.active = true;
+    }
+    const toggledB = logToInputs(b);
+    expect(nightDistance(toggledA, toggledB)).toBe(dBaseline);
   });
 });
