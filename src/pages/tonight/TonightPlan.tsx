@@ -168,6 +168,12 @@ export function TonightPlan() {
     const inputs: RecommenderInputs = {
       overnightLowF: overnightLow,
       startingRoomTempF: plannedRoomTemp ? parseFloat(plannedRoomTemp) : null,
+      // New v2 derived inputs — wired end-to-end in `ux.md` T*. For now the
+      // UI has no dial for humidity/meal-timing/cooling-rate; default null so
+      // `nightDistance` applies its missing-dimension half-penalty.
+      roomHumidity: null,
+      hoursSinceLastMeal: null,
+      coolingRate1to4F: null,
       ateLate,
       overate,
       highSalt: false,
