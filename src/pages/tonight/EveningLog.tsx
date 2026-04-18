@@ -101,6 +101,13 @@ export function EveningLog() {
   const logDate = backfillDate || getEveningLogDate();
   const isBackfill = backfillDate !== null && backfillDate !== getTodayDate();
   const showLogDate = logDate !== getTodayDate();
+  // True only when the user is finalizing today's evening log in real time,
+  // so Date.now() can stand in for bedtime. False for explicit backfills
+  // (?date=...) AND for morning-after logs where logDate auto-derived to
+  // yesterday (current hour < 12) — in both cases save-time says nothing
+  // about when the user actually went to bed, so the pre-eating-cutoff
+  // warning doesn't apply and loggedBedtime must stay null.
+  const saveTimeIsBedtime = logDate === getTodayDate();
 
   const DRAFT_KEY = `evening-log-draft-${logDate}`;
 
@@ -442,13 +449,14 @@ export function EveningLog() {
     // yet. `loggedBedtime = Date.now()` would seed the recommender's
     // `hoursSinceLastMeal` derivation with a negative value. Surface a
     // confirmation banner and short-circuit until the user dismisses it.
-    // Skipped for backfill (the save-time moment is meaningless there).
+    // Skipped whenever save-time isn't bedtime — explicit backfills and
+    // morning-after logs both fall into that bucket.
     if (
       !options.bypassEarlyBedtime &&
       isSaveBeforeEatingCutoff(
         timestampToHHMM(Date.now()),
         schedule.eatingCutoff,
-        isBackfill,
+        !saveTimeIsBedtime,
       )
     ) {
       setEarlyBedtimeWarning(true);
@@ -494,26 +502,26 @@ export function EveningLog() {
       // re-editing doesn't overwrite the authoritative first-save stamp.
       // But if the existing log has null (e.g. a pre-v7 row, or a
       // previously-backfilled row the user is now finalizing on its
-      // actual date) AND this save isn't a backfill, stamp it now —
+      // actual date) AND save-time represents bedtime, stamp it now —
       // otherwise the recommender's hoursSinceLastMeal / cooling-rate
       // derivations have no bedtime anchor on rows the user is
       // actively maintaining. The analysis (§d) found 0/11 new-era
       // logs had it populated because the prior `if (!existingLog)`
       // guard skipped this path entirely when editing.
       if (!existingLog) {
-        nightLog.loggedBedtime = isBackfill ? null : Date.now();
-      } else if (existingLog.loggedBedtime == null && !isBackfill) {
+        nightLog.loggedBedtime = saveTimeIsBedtime ? Date.now() : null;
+      } else if (existingLog.loggedBedtime == null && saveTimeIsBedtime) {
         nightLog.loggedBedtime = Date.now();
       }
 
-      // A non-backfill log should always end up with a non-null bedtime
-      // after this point. Surface a console warning if something upstream
-      // still wrote null — that's the regression signal the analysis
-      // called for (see logging-fixes.md T5).
-      if (!isBackfill && nightLog.loggedBedtime == null) {
+      // A live (save-time-is-bedtime) log should always end up with a
+      // non-null bedtime after this point. Surface a console warning if
+      // something upstream still wrote null — that's the regression
+      // signal the analysis called for (see logging-fixes.md T5).
+      if (saveTimeIsBedtime && nightLog.loggedBedtime == null) {
         // eslint-disable-next-line no-console
         console.warn(
-          `[EveningLog] saved non-backfill log ${nightLog.id} with null loggedBedtime`,
+          `[EveningLog] saved live log ${nightLog.id} with null loggedBedtime`,
         );
       }
 
