@@ -32,6 +32,13 @@ describe('isSaveBeforeEatingCutoff (bugfixes T5)', () => {
   it('never warns in backfill mode', () => {
     expect(isSaveBeforeEatingCutoff('10:00', '19:00', true)).toBe(false);
   });
+
+  it('never warns for a morning-after save (retroactive, wall-clock earlier than cutoff)', () => {
+    // 6:32 AM save for last night's log: wall-clock precedes the 9:15 PM
+    // eating cutoff numerically, but the save is retroactive so the
+    // save-time-is-bedtime assumption doesn't hold. Must not warn.
+    expect(isSaveBeforeEatingCutoff('06:32', '21:15', true)).toBe(false);
+  });
 });
 
 describe('formatTime12h', () => {
@@ -178,6 +185,25 @@ describe('date helpers (getTodayDate / getYesterdayDate / getEveningLogDate)', (
   it('getEveningLogDate handles month boundary in morning', () => {
     // 5 AM on May 1 — last night was April 30
     expect(getEveningLogDate(new Date(2026, 4, 1, 5, 0))).toBe('2026-04-30');
+  });
+
+  it('a morning-after flow has logDate !== today (the saveTimeIsBedtime check)', () => {
+    // Reproduces the EveningLog.tsx saveTimeIsBedtime derivation:
+    // `logDate === getTodayDate()` must be false at 6:32 AM, otherwise
+    // the pre-eating-cutoff warning fires against a log for yesterday.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 6, 32)); // 2026-04-18 06:32
+    expect(getEveningLogDate()).toBe('2026-04-17');
+    expect(getTodayDate()).toBe('2026-04-18');
+    expect(getEveningLogDate() === getTodayDate()).toBe(false);
+  });
+
+  it('an evening-same-day flow has logDate === today', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 21, 0)); // 2026-04-18 21:00
+    expect(getEveningLogDate()).toBe('2026-04-18');
+    expect(getTodayDate()).toBe('2026-04-18');
+    expect(getEveningLogDate() === getTodayDate()).toBe(true);
   });
 });
 

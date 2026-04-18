@@ -138,8 +138,10 @@ export function timestampToHHMM(ts: number): string {
 /**
  * bugfixes T5 pure check: true when the evening log is being finalized
  * before its own eating cutoff, which would seed a negative
- * hours-since-meal anchor in the recommender. Skipped in backfill mode —
- * those saves don't represent actual bedtime.
+ * hours-since-meal anchor in the recommender. Skipped for retroactive
+ * saves — explicit backfills (?date=...) and morning-after logs (where
+ * logDate auto-derived to yesterday) both set `isRetroactive=true`,
+ * since save-time in those cases doesn't represent actual bedtime.
  *
  * `nowHHMM` is the local wall-clock time the user clicked save at;
  * `eatingCutoff` is the computed cutoff for the night. Returns true when
@@ -148,9 +150,9 @@ export function timestampToHHMM(ts: number): string {
 export function isSaveBeforeEatingCutoff(
   nowHHMM: string,
   eatingCutoff: string,
-  isBackfill: boolean,
+  isRetroactive: boolean,
 ): boolean {
-  if (isBackfill) return false;
+  if (isRetroactive) return false;
   return isTimeAfter(eatingCutoff, nowHHMM);
 }
 
