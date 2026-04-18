@@ -2,12 +2,19 @@ import type { NightLog, SleepData } from '../types';
 
 /**
  * Look for an existing NightLog within ±`windowDays` of `targetDate` whose
- * `sleepData` is byte-identical to `candidate` on the fields Samsung Health
- * uses to identify a sleep session (`sleepTime`, `wakeTime`, `sleepScore`,
- * `totalSleepDuration`). These four fields together uniquely pin a session
- * — duplicate writes in the 2026-04-17 export share all four — so equality
- * here is a strong signal the user is re-importing the same JSON onto a
- * different night log.
+ * `sleepData` is byte-identical to `candidate` on a fingerprint wide enough
+ * to identify a re-import of the same JSON without false-positiving on
+ * legitimately different nights. The original T2 bug (2026-04-17 Samsung
+ * Health export) wrote byte-identical sleepData to two nights, so the
+ * fingerprint has to catch that — but limiting it to just `sleepTime`,
+ * `wakeTime`, `sleepScore`, and `totalSleepDuration` is too coarse: two
+ * real nights can share a bedtime, wake time, score, and total duration
+ * without being duplicates.
+ *
+ * We also require the stage breakdown (deep/REM/light/awake) and vitals
+ * (avg heart rate, avg respiratory rate) to match. These vary noticeably
+ * night-to-night, so legitimate collisions across all of them are
+ * vanishingly rare, but any true re-import will match byte-for-byte.
  *
  * Returns the offending log, or null if nothing matches. Defense-in-depth
  * counterpart to T1: even with the import-side date filter in place, an
@@ -44,7 +51,14 @@ export function findDuplicateSleepData(
       sd.sleepTime === candidate.sleepTime &&
       sd.wakeTime === candidate.wakeTime &&
       sd.sleepScore === candidate.sleepScore &&
-      sd.totalSleepDuration === candidate.totalSleepDuration
+      sd.totalSleepDuration === candidate.totalSleepDuration &&
+      sd.actualSleepDuration === candidate.actualSleepDuration &&
+      sd.deepSleep === candidate.deepSleep &&
+      sd.remSleep === candidate.remSleep &&
+      sd.lightSleep === candidate.lightSleep &&
+      sd.awakeDuration === candidate.awakeDuration &&
+      sd.avgHeartRate === candidate.avgHeartRate &&
+      sd.avgRespiratoryRate === candidate.avgRespiratoryRate
     ) {
       return log;
     }

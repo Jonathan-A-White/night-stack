@@ -131,4 +131,43 @@ describe('findDuplicateSleepData (bugfixes T2)', () => {
     const candidate = makeSleepData({ sleepScore: 82 });
     expect(findDuplicateSleepData(candidate, '2026-04-15', existing)).toBeNull();
   });
+
+  it('does not flag two legitimate nights that share only bedtime/waketime/score/total', () => {
+    // Regression: 2026-04-18 user hit a false-positive where today's fresh
+    // import matched 2026-04-15's stored log on just the 4 original key
+    // fields. The stage breakdown and vitals differ on real different
+    // nights, so the wider fingerprint must let this through.
+    const existing = [
+      makeNightLog(
+        '2026-04-15',
+        makeSleepData({
+          sleepTime: '22:52',
+          wakeTime: '06:16',
+          sleepScore: 93,
+          totalSleepDuration: 444,
+          actualSleepDuration: 410,
+          deepSleep: 71,
+          remSleep: 98,
+          lightSleep: 241,
+          awakeDuration: 34,
+          avgHeartRate: 49,
+          avgRespiratoryRate: 14.6,
+        }),
+      ),
+    ];
+    const candidate = makeSleepData({
+      sleepTime: '22:52',
+      wakeTime: '06:16',
+      sleepScore: 93,
+      totalSleepDuration: 444,
+      actualSleepDuration: 422,
+      deepSleep: 59,
+      remSleep: 107,
+      lightSleep: 256,
+      awakeDuration: 22,
+      avgHeartRate: 46,
+      avgRespiratoryRate: 15,
+    });
+    expect(findDuplicateSleepData(candidate, '2026-04-18', existing)).toBeNull();
+  });
 });
