@@ -5,7 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { db } from '../../db';
-import { formatTime12h } from '../../utils';
+import { formatTime12h, getEffectiveSleepData } from '../../utils';
 import type { NightLog } from '../../types';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 
@@ -133,7 +133,11 @@ export function Dashboard() {
 
     const n = withSleep.length;
     const avgScore = withSleep.reduce((s, l) => s + l.sleepData!.sleepScore, 0) / n;
-    const avgTotal = withSleep.reduce((s, l) => s + l.sleepData!.totalSleepDuration, 0) / n;
+    const avgTotal =
+      withSleep.reduce(
+        (s, l) => s + (getEffectiveSleepData(l)?.totalSleepDuration ?? l.sleepData!.totalSleepDuration),
+        0,
+      ) / n;
     const avgDeep = withSleep.reduce((s, l) => s + l.sleepData!.deepSleep, 0) / n;
     const avgHR = withSleep.reduce((s, l) => s + l.sleepData!.avgHeartRate, 0) / n;
     const wakeNights = last7.filter((l) => l.wakeUpEvents.length > 0).length;

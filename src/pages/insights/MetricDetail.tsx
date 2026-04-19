@@ -4,6 +4,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { db } from '../../db';
+import { getEffectiveSleepData } from '../../utils';
 import type { NightLog } from '../../types';
 
 type MetricType = 'score' | 'sleep' | 'deep' | 'hr' | 'wake';
@@ -34,7 +35,7 @@ const METRIC_CONFIG: Record<MetricType, MetricConfig> = {
     title: 'Total Sleep',
     description: 'Hours asleep per night',
     format: (v) => formatMinutesAsHM(v),
-    extract: (log) => log.sleepData?.totalSleepDuration ?? null,
+    extract: (log) => getEffectiveSleepData(log)?.totalSleepDuration ?? log.sleepData?.totalSleepDuration ?? null,
   },
   deep: {
     title: 'Deep Sleep',

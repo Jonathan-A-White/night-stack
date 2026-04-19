@@ -289,6 +289,26 @@ export function computeAdjustedSleepOnset(params: {
 }
 
 /**
+ * Apply `computeAdjustedSleepOnset` to a NightLog. Returns null when the
+ * log has no sleepData. Centralizes the watch-missed-early-sleep
+ * correction so downstream views (insights, recommender neighbors) see
+ * the same corrected `sleepTime` / `totalSleepDuration` / `actualSleepDuration`
+ * that the morning summary shows. Raw sleepData on the stored log is not
+ * mutated.
+ */
+export function getEffectiveSleepData(
+  log: import('./types').NightLog,
+): AdjustedSleepOnset | null {
+  if (!log.sleepData) return null;
+  return computeAdjustedSleepOnset({
+    loggedBedtime: log.loggedBedtime,
+    watchSleepTime: log.sleepData.sleepTime,
+    watchTotalDuration: log.sleepData.totalSleepDuration,
+    watchActualDuration: log.sleepData.actualSleepDuration,
+  });
+}
+
+/**
  * Create a blank NightLog for a given date
  */
 export function createBlankNightLog(date: string, alarm: {

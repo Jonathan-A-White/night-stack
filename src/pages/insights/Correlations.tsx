@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { db } from '../../db';
 import { recalculateAllCalculatedWeights } from '../../weightUtils';
-import { toLocalDateString } from '../../utils';
+import { toLocalDateString, getEffectiveSleepData } from '../../utils';
 import {
   computeCoolingRate1to4F,
   computeHoursSinceLastMeal,
@@ -133,8 +133,9 @@ function getXValue(
       return log.environment.roomHumidity;
     case 'lastMealMins': {
       if (!log.eveningIntake.lastMealTime || !log.sleepData?.sleepTime) return null;
+      const effectiveSleepTime = getEffectiveSleepData(log)?.sleepTime ?? log.sleepData.sleepTime;
       const mealMins = timeToMinutes(log.eveningIntake.lastMealTime);
-      let bedMins = timeToMinutes(log.sleepData.sleepTime);
+      let bedMins = timeToMinutes(effectiveSleepTime);
       // Handle crossing midnight: if bedtime < meal time, add 24h to bedtime
       if (bedMins < mealMins) bedMins += 24 * 60;
       return bedMins - mealMins;
