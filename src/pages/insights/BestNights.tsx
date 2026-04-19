@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
+import { getEffectiveSleepData } from '../../utils';
 import { SubNav } from './Dashboard';
 import type { NightLog } from '../../types';
 
@@ -51,7 +52,8 @@ function computeStats(logs: NightLog[]): GroupStats {
   const mealMins = logs
     .map((log) => {
       if (!log.eveningIntake.lastMealTime || !log.sleepData?.sleepTime) return null;
-      return minutesBeforeBed(log.eveningIntake.lastMealTime, log.sleepData.sleepTime);
+      const sleepTime = getEffectiveSleepData(log)?.sleepTime ?? log.sleepData.sleepTime;
+      return minutesBeforeBed(log.eveningIntake.lastMealTime, sleepTime);
     })
     .filter((v): v is number => v !== null);
 

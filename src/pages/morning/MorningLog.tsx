@@ -10,6 +10,7 @@ import {
   formatTime12h,
   isTimeAfter,
   timestampToHHMM,
+  computeAdjustedSleepOnset,
 } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { findDuplicateSleepData } from '../../services/sleepDataDedupe';
@@ -487,6 +488,20 @@ export function MorningLog() {
       ? timestampToHHMM(nightLog.loggedBedtime)
       : sleepData?.sleepTime ?? null;
 
+  // Recover early-night sleep the watch misses when it's put on right
+  // before bed (e.g. after charging). When loggedBedtime + assumed latency
+  // is earlier than the watch's onset by more than a few minutes, the gap
+  // is treated as missed sleep for display purposes. Raw watch values in
+  // `sleepData` are never mutated.
+  const adjustedOnset = sleepData
+    ? computeAdjustedSleepOnset({
+        loggedBedtime: nightLog?.loggedBedtime ?? null,
+        watchSleepTime: sleepData.sleepTime,
+        watchTotalDuration: sleepData.totalSleepDuration,
+        watchActualDuration: sleepData.actualSleepDuration,
+      })
+    : null;
+
   // Determine if bedtime explanation is needed
   const needsBedtimeExplanation =
     effectiveBedtime !== null &&
@@ -838,9 +853,15 @@ export function MorningLog() {
                   <div className="summary-row">
                     <span className="summary-label">Sleep</span>
                     <span className="summary-value">
-                      {formatTime12h(sleepData.sleepTime)} &ndash; {formatTime12h(sleepData.wakeTime)}
+                      {formatTime12h(adjustedOnset?.sleepTime ?? sleepData.sleepTime)} &ndash; {formatTime12h(sleepData.wakeTime)}
                     </span>
                   </div>
+                  {adjustedOnset?.isAdjusted && (
+                    <div className="text-secondary text-sm" style={{ marginTop: -4, marginBottom: 8 }}>
+                      Adjusted +{adjustedOnset.adjustmentMinutes}m from evening log
+                      (watch: {formatTime12h(adjustedOnset.watchSleepTime)}).
+                    </div>
+                  )}
                   <div className="summary-row">
                     <span className="summary-label">Score</span>
                     <span className="summary-value text-accent">
@@ -850,7 +871,7 @@ export function MorningLog() {
                   <div className="summary-row">
                     <span className="summary-label">Total / Actual</span>
                     <span className="summary-value">
-                      {sleepData.totalSleepDuration}m / {sleepData.actualSleepDuration}m
+                      {adjustedOnset?.totalSleepDuration ?? sleepData.totalSleepDuration}m / {adjustedOnset?.actualSleepDuration ?? sleepData.actualSleepDuration}m
                     </span>
                   </div>
                   <div className="summary-row">
@@ -1329,9 +1350,15 @@ export function MorningLog() {
             <div className="summary-row">
               <span className="summary-label">Sleep time</span>
               <span className="summary-value">
-                {sleepData ? formatTime12h(sleepData.sleepTime) : '--'}
+                {sleepData ? formatTime12h(adjustedOnset?.sleepTime ?? sleepData.sleepTime) : '--'}
               </span>
             </div>
+            {adjustedOnset?.isAdjusted && (
+              <div className="text-secondary text-sm" style={{ marginTop: -4, marginBottom: 8 }}>
+                Adjusted +{adjustedOnset.adjustmentMinutes}m from evening log
+                (watch: {formatTime12h(adjustedOnset.watchSleepTime)}).
+              </div>
+            )}
             <div className="summary-row">
               <span className="summary-label">Wake time</span>
               <span className="summary-value">
@@ -1341,7 +1368,7 @@ export function MorningLog() {
             <div className="summary-row">
               <span className="summary-label">Total / Actual sleep</span>
               <span className="summary-value">
-                {sleepData ? `${sleepData.totalSleepDuration}m / ${sleepData.actualSleepDuration}m` : '--'}
+                {sleepData ? `${adjustedOnset?.totalSleepDuration ?? sleepData.totalSleepDuration}m / ${adjustedOnset?.actualSleepDuration ?? sleepData.actualSleepDuration}m` : '--'}
               </span>
             </div>
             <div className="summary-row">

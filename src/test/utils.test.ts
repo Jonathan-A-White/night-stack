@@ -14,6 +14,7 @@ import {
   timestampToHHMM,
   findNearestRoomReading,
   resolveLastMealTimeForSave,
+  computeAdjustedSleepOnset,
 } from '../utils';
 
 describe('isSaveBeforeEatingCutoff (bugfixes T5)', () => {
@@ -352,5 +353,94 @@ describe('resolveLastMealTimeForSave', () => {
         userInteracted: false,
       }),
     ).toBe('20:00');
+  });
+});
+
+describe('computeAdjustedSleepOnset', () => {
+  // 2026-04-18 23:30 local
+  const bedtimeMs = new Date(2026, 3, 18, 23, 30, 0, 0).getTime();
+
+  it('adjusts when watch detects onset well after logged bedtime (charging case)', () => {
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: bedtimeMs,
+      watchSleepTime: '00:23', // next-day early morning
+      watchTotalDuration: 350,
+      watchActualDuration: 331,
+    });
+    expect(result.isAdjusted).toBe(true);
+    // 23:30 + 10m latency = 23:40, gap to 00:23 = 43m
+    expect(result.sleepTime).toBe('23:40');
+    expect(result.adjustmentMinutes).toBe(43);
+    expect(result.totalSleepDuration).toBe(350 + 43);
+    expect(result.actualSleepDuration).toBe(331 + 43);
+    expect(result.watchSleepTime).toBe('00:23');
+  });
+
+  it('does not adjust when the watch onset is close to loggedBedtime + latency', () => {
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: bedtimeMs, // 23:30
+      watchSleepTime: '23:42', // 2m past the 23:40 expected onset
+      watchTotalDuration: 420,
+      watchActualDuration: 400,
+    });
+    expect(result.isAdjusted).toBe(false);
+    expect(result.sleepTime).toBe('23:42');
+    expect(result.totalSleepDuration).toBe(420);
+    expect(result.actualSleepDuration).toBe(400);
+    expect(result.adjustmentMinutes).toBe(0);
+  });
+
+  it('does not adjust when watch onset is earlier than logged bedtime', () => {
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: bedtimeMs, // 23:30
+      watchSleepTime: '23:45', // later same day — will resolve same day, still within threshold
+      watchTotalDuration: 400,
+      watchActualDuration: 380,
+    });
+    // 23:30 + 10m = 23:40, diff = 5m, exactly at minAdjustmentMinutes
+    expect(result.isAdjusted).toBe(true);
+    expect(result.adjustmentMinutes).toBe(5);
+  });
+
+  it('returns raw values when loggedBedtime is null', () => {
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: null,
+      watchSleepTime: '00:23',
+      watchTotalDuration: 350,
+      watchActualDuration: 331,
+    });
+    expect(result.isAdjusted).toBe(false);
+    expect(result.sleepTime).toBe('00:23');
+    expect(result.totalSleepDuration).toBe(350);
+    expect(result.actualSleepDuration).toBe(331);
+  });
+
+  it('handles midnight crossing — onset HH:MM before bedtime wall clock resolves to next day', () => {
+    // bedtime 23:55; watch onset 00:45 should resolve to +50m, expected 23:55+10 = 00:05, gap = 40m
+    const lateBedtime = new Date(2026, 3, 18, 23, 55, 0, 0).getTime();
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: lateBedtime,
+      watchSleepTime: '00:45',
+      watchTotalDuration: 300,
+      watchActualDuration: 290,
+    });
+    expect(result.isAdjusted).toBe(true);
+    expect(result.sleepTime).toBe('00:05');
+    expect(result.adjustmentMinutes).toBe(40);
+  });
+
+  it('respects custom latency and threshold', () => {
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: bedtimeMs, // 23:30
+      watchSleepTime: '23:55',
+      watchTotalDuration: 400,
+      watchActualDuration: 380,
+      assumedLatencyMinutes: 0,
+      minAdjustmentMinutes: 10,
+    });
+    // Diff = 25m, above 10m threshold
+    expect(result.isAdjusted).toBe(true);
+    expect(result.sleepTime).toBe('23:30');
+    expect(result.adjustmentMinutes).toBe(25);
   });
 });

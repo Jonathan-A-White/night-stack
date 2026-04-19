@@ -2,7 +2,12 @@ import { useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h, timestampToHHMM, findNearestRoomReading } from '../../utils';
+import {
+  formatTime12h,
+  timestampToHHMM,
+  findNearestRoomReading,
+  computeAdjustedSleepOnset,
+} from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
@@ -94,6 +99,14 @@ export function MorningReview() {
   }
 
   const sd = nightLog.sleepData;
+  const adjustedOnset = sd
+    ? computeAdjustedSleepOnset({
+        loggedBedtime: nightLog.loggedBedtime,
+        watchSleepTime: sd.sleepTime,
+        watchTotalDuration: sd.totalSleepDuration,
+        watchActualDuration: sd.actualSleepDuration,
+      })
+    : null;
   const selectedClothing = (clothingItems ?? []).filter((c) => nightLog.clothing.includes(c.id));
   const selectedBedding = (beddingItems ?? []).filter((b) => nightLog.bedding.includes(b.id));
 
@@ -164,11 +177,11 @@ export function MorningReview() {
 
           <div className="metrics-row">
             <div className="metric-card">
-              <div className="metric-value">{formatDuration(sd.totalSleepDuration)}</div>
+              <div className="metric-value">{formatDuration(adjustedOnset?.totalSleepDuration ?? sd.totalSleepDuration)}</div>
               <div className="metric-label">Total Sleep</div>
             </div>
             <div className="metric-card">
-              <div className="metric-value">{formatDuration(sd.actualSleepDuration)}</div>
+              <div className="metric-value">{formatDuration(adjustedOnset?.actualSleepDuration ?? sd.actualSleepDuration)}</div>
               <div className="metric-label">Actual Sleep</div>
             </div>
             <div className="metric-card">
@@ -205,8 +218,14 @@ export function MorningReview() {
             <div className="card-title">Vitals & Ratings</div>
             <div className="summary-row">
               <span className="summary-label">Sleep Time</span>
-              <span className="summary-value">{formatTime12h(sd.sleepTime)}</span>
+              <span className="summary-value">{formatTime12h(adjustedOnset?.sleepTime ?? sd.sleepTime)}</span>
             </div>
+            {adjustedOnset?.isAdjusted && (
+              <div className="text-secondary text-sm" style={{ marginTop: -4, marginBottom: 8 }}>
+                Adjusted +{adjustedOnset.adjustmentMinutes}m from evening log
+                (watch: {formatTime12h(adjustedOnset.watchSleepTime)}).
+              </div>
+            )}
             <div className="summary-row">
               <span className="summary-label">Wake Time</span>
               <span className="summary-value">{formatTime12h(sd.wakeTime)}</span>

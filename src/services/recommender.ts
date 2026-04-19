@@ -266,6 +266,12 @@ function anchorMsFromDateAndTime(dateStr: string, hhmm: string): number | null {
  * `sleepData.sleepTime` is the watch's estimate. None is exact — they're all
  * within ~45 minutes of real bedtime for this user, which is fine for the
  * hours-since-meal derivation (a coarse bucket).
+ *
+ * Note: for "hours since last meal", `loggedBedtime` (time the user lay down)
+ * is the correct anchor — not the adjusted sleep onset — because it measures
+ * digestion-before-horizontal. For sleep-duration features (none yet), see
+ * `getEffectiveSleepData` in utils.ts which applies the watch-missed-onset
+ * correction.
  */
 function pickBedtimeAnchorMs(log: NightLog): number | null {
   if (log.loggedBedtime != null) return log.loggedBedtime;
