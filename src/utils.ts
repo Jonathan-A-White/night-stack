@@ -210,6 +210,85 @@ export function resolveLastMealTimeForSave(params: {
 }
 
 /**
+ * Assumed minutes between closing the evening log and actual sleep onset.
+ * Used by computeAdjustedSleepOnset to derive a plausible onset timestamp
+ * from loggedBedtime when the watch missed the early part of the night.
+ */
+export const ASSUMED_SLEEP_LATENCY_MINUTES = 10;
+
+export interface AdjustedSleepOnset {
+  sleepTime: string; // "HH:MM" — displayed onset
+  totalSleepDuration: number;
+  actualSleepDuration: number;
+  adjustmentMinutes: number; // minutes added vs. watch
+  watchSleepTime: string; // original watch onset "HH:MM"
+  isAdjusted: boolean;
+}
+
+/**
+ * When the watch detects sleep onset significantly later than the evening
+ * log's finish time (e.g. because the watch was charging and went on right
+ * before bed), use `loggedBedtime + assumed latency` as the onset instead
+ * and extend the sleep durations by the recovered gap. Purely derived —
+ * the stored `SleepData` is never modified. When the watch's onset is
+ * within `minAdjustmentMinutes` of the expected onset, no adjustment is
+ * applied.
+ */
+export function computeAdjustedSleepOnset(params: {
+  loggedBedtime: number | null;
+  watchSleepTime: string;
+  watchTotalDuration: number;
+  watchActualDuration: number;
+  assumedLatencyMinutes?: number;
+  minAdjustmentMinutes?: number;
+}): AdjustedSleepOnset {
+  const {
+    loggedBedtime,
+    watchSleepTime,
+    watchTotalDuration,
+    watchActualDuration,
+    assumedLatencyMinutes = ASSUMED_SLEEP_LATENCY_MINUTES,
+    minAdjustmentMinutes = 5,
+  } = params;
+
+  const unchanged: AdjustedSleepOnset = {
+    sleepTime: watchSleepTime,
+    totalSleepDuration: watchTotalDuration,
+    actualSleepDuration: watchActualDuration,
+    adjustmentMinutes: 0,
+    watchSleepTime,
+    isAdjusted: false,
+  };
+
+  if (loggedBedtime == null) return unchanged;
+
+  // Resolve the watch's HH:MM onset to the first occurrence at-or-after
+  // loggedBedtime so midnight-crossing nights compare correctly.
+  const [wh, wm] = watchSleepTime.split(':').map(Number);
+  const watchOnset = new Date(loggedBedtime);
+  watchOnset.setHours(wh, wm, 0, 0);
+  if (watchOnset.getTime() < loggedBedtime) {
+    watchOnset.setDate(watchOnset.getDate() + 1);
+  }
+
+  const expectedOnsetMs = loggedBedtime + assumedLatencyMinutes * 60_000;
+  const missedMin = Math.round((watchOnset.getTime() - expectedOnsetMs) / 60_000);
+  if (missedMin < minAdjustmentMinutes) return unchanged;
+
+  const adjusted = new Date(expectedOnsetMs);
+  const adjustedHHMM = `${adjusted.getHours().toString().padStart(2, '0')}:${adjusted.getMinutes().toString().padStart(2, '0')}`;
+
+  return {
+    sleepTime: adjustedHHMM,
+    totalSleepDuration: watchTotalDuration + missedMin,
+    actualSleepDuration: watchActualDuration + missedMin,
+    adjustmentMinutes: missedMin,
+    watchSleepTime,
+    isAdjusted: true,
+  };
+}
+
+/**
  * Create a blank NightLog for a given date
  */
 export function createBlankNightLog(date: string, alarm: {
