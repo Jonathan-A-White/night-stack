@@ -8,6 +8,7 @@ import { EveningLog } from './pages/tonight/EveningLog';
 import { EveningReview } from './pages/tonight/EveningReview';
 import { MorningLog } from './pages/morning/MorningLog';
 import { MorningReview } from './pages/morning/MorningReview';
+import { RoomConditionsDetail } from './pages/morning/RoomConditionsDetail';
 import { Dashboard } from './pages/insights/Dashboard';
 import { Correlations } from './pages/insights/Correlations';
 import { BestNights } from './pages/insights/BestNights';
@@ -46,6 +47,7 @@ export function App() {
           <Route path="/tonight/review/:id" element={<EveningReview />} />
           <Route path="/morning" element={<MorningLog />} />
           <Route path="/morning/review/:id" element={<MorningReview />} />
+          <Route path="/morning/room-conditions/:id" element={<RoomConditionsDetail />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/insights" element={<Dashboard />} />
           <Route path="/insights/correlations" element={<Correlations />} />

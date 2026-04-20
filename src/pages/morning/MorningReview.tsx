@@ -255,8 +255,23 @@ export function MorningReview() {
       )}
 
       {nightLog.roomTimeline && nightLog.roomTimeline.length > 0 && (
-        <div className="card">
-          <div className="card-title">Room Conditions</div>
+        <button
+          type="button"
+          className="card"
+          onClick={() => navigate(`/morning/room-conditions/${nightLog.id}`)}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            cursor: 'pointer',
+            font: 'inherit',
+            color: 'inherit',
+          }}
+        >
+          <div className="card-title flex items-center justify-between">
+            <span>Room Conditions</span>
+            <span aria-hidden="true" style={{ color: 'var(--color-text-secondary)' }}>{'\u203A'}</span>
+          </div>
           <div className="summary-row">
             <span className="summary-label">Readings</span>
             <span className="summary-value">{nightLog.roomTimeline.length} data points</span>
@@ -273,7 +288,7 @@ export function MorningReview() {
               {Math.min(...nightLog.roomTimeline.map((r) => r.humidity)).toFixed(0)}% — {Math.max(...nightLog.roomTimeline.map((r) => r.humidity)).toFixed(0)}%
             </span>
           </div>
-        </div>
+        </button>
       )}
 
       {nightLog.wakeUpEvents.length > 0 && (
