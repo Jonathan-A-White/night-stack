@@ -17,7 +17,7 @@ import { ThermalComfortChip } from '../../components/ThermalComfortChip';
  */
 const BACKFILL_ONBOARDING_KEY = 'insights-backfill-onboarding-seen';
 
-function SubNav({ active }: { active: 'dashboard' | 'correlations' | 'best-nights' }) {
+function SubNav({ active }: { active: 'dashboard' | 'correlations' | 'best-nights' | 'thermal-fit' }) {
   return (
     <div className="flex gap-8 mb-16" style={{ overflowX: 'auto' }}>
       <Link
@@ -31,6 +31,12 @@ function SubNav({ active }: { active: 'dashboard' | 'correlations' | 'best-night
         className={`btn btn-sm ${active === 'correlations' ? 'btn-primary' : 'btn-secondary'}`}
       >
         Correlations
+      </Link>
+      <Link
+        to="/insights/thermal-fit"
+        className={`btn btn-sm ${active === 'thermal-fit' ? 'btn-primary' : 'btn-secondary'}`}
+      >
+        Thermal Fit
       </Link>
       <Link
         to="/insights/best-nights"
