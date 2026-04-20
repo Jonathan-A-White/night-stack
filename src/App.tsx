@@ -11,6 +11,7 @@ import { MorningReview } from './pages/morning/MorningReview';
 import { RoomConditionsDetail } from './pages/morning/RoomConditionsDetail';
 import { Dashboard } from './pages/insights/Dashboard';
 import { Correlations } from './pages/insights/Correlations';
+import { ThermalFit } from './pages/insights/ThermalFit';
 import { BestNights } from './pages/insights/BestNights';
 import { MetricDetail } from './pages/insights/MetricDetail';
 import { ThermalBackfillReview } from './pages/insights/ThermalBackfillReview';
@@ -51,6 +52,7 @@ export function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/insights" element={<Dashboard />} />
           <Route path="/insights/correlations" element={<Correlations />} />
+          <Route path="/insights/thermal-fit" element={<ThermalFit />} />
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/insights/metric/:type" element={<MetricDetail />} />
           <Route path="/insights/backfill" element={<ThermalBackfillReview />} />

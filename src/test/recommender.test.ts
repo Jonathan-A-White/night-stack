@@ -587,10 +587,10 @@ const TONIGHT_INPUTS: RecommenderInputs = {
 };
 
 const CLOTHING: ClothingItem[] = [
-  { id: 'cl-tee', name: 'T-shirt', sortOrder: 0, isActive: true },
+  { id: 'cl-tee', name: 'T-shirt', sortOrder: 0, isActive: true, warmth: null },
 ];
 const BEDDING: BeddingItem[] = [
-  { id: 'bd-sheet', name: 'Light sheet', sortOrder: 0, isActive: true },
+  { id: 'bd-sheet', name: 'Light sheet', sortOrder: 0, isActive: true, warmth: null },
 ];
 
 describe('recommendForTonight exploratory fallback (ux T4)', () => {

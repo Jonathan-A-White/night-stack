@@ -257,6 +257,14 @@ export interface ClothingItem {
   name: string;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Warmth rating 1–5 used by the Thermal Fit analysis to compute a
+   * warmth score for a night's combined clothing+bedding insulation.
+   * 1 = very light (e.g. underwear only), 5 = very heavy. Nullable so
+   * upgraded installs can surface a "set warmth" prompt without blocking
+   * the rest of the app.
+   */
+  warmth: number | null;
 }
 
 export interface BeddingItem {
@@ -264,6 +272,12 @@ export interface BeddingItem {
   name: string;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * Warmth rating 1–5 used by the Thermal Fit analysis to compute a
+   * warmth score for a night's combined clothing+bedding insulation.
+   * 1 = very light (e.g. sheet), 5 = very heavy (e.g. wool comforter).
+   */
+  warmth: number | null;
 }
 
 export interface WakeUpCause {

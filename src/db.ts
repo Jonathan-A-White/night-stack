@@ -174,6 +174,21 @@ export class NightStackDB extends Dexie {
         if (log.thermalProxyDismissed === undefined) log.thermalProxyDismissed = false;
       });
     });
+    this.version(11).stores({
+      clothingItems: 'id, sortOrder',
+      beddingItems: 'id, sortOrder',
+    }).upgrade(async (tx) => {
+      // Thermal Fit analysis uses a per-item `warmth` rating (1–5) to turn
+      // bedding + clothing IDs into a combined warmth score. Existing rows
+      // predate the field — default to null so the Thermal Fit page can
+      // surface a "Set warmth" prompt rather than silently assuming a value.
+      await tx.table('clothingItems').toCollection().modify((i: Record<string, unknown>) => {
+        if (i.warmth === undefined) i.warmth = null;
+      });
+      await tx.table('beddingItems').toCollection().modify((i: Record<string, unknown>) => {
+        if (i.warmth === undefined) i.warmth = null;
+      });
+    });
   }
 }
 
@@ -308,23 +323,23 @@ export async function seedDatabase(): Promise<void> {
 
   // Clothing
   const clothing: ClothingItem[] = [
-    { id: crypto.randomUUID(), name: 'Underwear only', sortOrder: 1, isActive: true },
-    { id: crypto.randomUUID(), name: 'Wool socks', sortOrder: 2, isActive: true },
-    { id: crypto.randomUUID(), name: 'Ice Breaker top', sortOrder: 3, isActive: true },
-    { id: crypto.randomUUID(), name: 'Ice Breaker bottom', sortOrder: 4, isActive: true },
-    { id: crypto.randomUUID(), name: 'Wool hat', sortOrder: 5, isActive: true },
-    { id: crypto.randomUUID(), name: 'Light PJs', sortOrder: 6, isActive: true },
+    { id: crypto.randomUUID(), name: 'Underwear only', sortOrder: 1, isActive: true, warmth: 1 },
+    { id: crypto.randomUUID(), name: 'Wool socks', sortOrder: 2, isActive: true, warmth: 1 },
+    { id: crypto.randomUUID(), name: 'Ice Breaker top', sortOrder: 3, isActive: true, warmth: 2 },
+    { id: crypto.randomUUID(), name: 'Ice Breaker bottom', sortOrder: 4, isActive: true, warmth: 2 },
+    { id: crypto.randomUUID(), name: 'Wool hat', sortOrder: 5, isActive: true, warmth: 1 },
+    { id: crypto.randomUUID(), name: 'Light PJs', sortOrder: 6, isActive: true, warmth: 2 },
   ];
   await db.clothingItems.bulkAdd(clothing);
 
   // Bedding
   const bedding: BeddingItem[] = [
-    { id: crypto.randomUUID(), name: 'Wool comforter', sortOrder: 1, isActive: true },
-    { id: crypto.randomUUID(), name: 'Wool blanket #1', sortOrder: 2, isActive: true },
-    { id: crypto.randomUUID(), name: 'Wool blanket #2', sortOrder: 3, isActive: true },
-    { id: crypto.randomUUID(), name: 'Wool blanket #3', sortOrder: 4, isActive: true },
-    { id: crypto.randomUUID(), name: 'Cotton blanket', sortOrder: 5, isActive: true },
-    { id: crypto.randomUUID(), name: 'Cotton sheets', sortOrder: 6, isActive: true },
+    { id: crypto.randomUUID(), name: 'Wool comforter', sortOrder: 1, isActive: true, warmth: 5 },
+    { id: crypto.randomUUID(), name: 'Wool blanket #1', sortOrder: 2, isActive: true, warmth: 3 },
+    { id: crypto.randomUUID(), name: 'Wool blanket #2', sortOrder: 3, isActive: true, warmth: 3 },
+    { id: crypto.randomUUID(), name: 'Wool blanket #3', sortOrder: 4, isActive: true, warmth: 3 },
+    { id: crypto.randomUUID(), name: 'Cotton blanket', sortOrder: 5, isActive: true, warmth: 2 },
+    { id: crypto.randomUUID(), name: 'Cotton sheets', sortOrder: 6, isActive: true, warmth: 1 },
   ];
   await db.beddingItems.bulkAdd(bedding);
 

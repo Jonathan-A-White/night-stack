@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
+import { WarmthStepper } from '../../components/WarmthStepper';
 
 export { BeddingItemsPage };
 
@@ -29,6 +30,7 @@ export default function BeddingItemsPage() {
       name: newName.trim(),
       sortOrder: maxSort + 1,
       isActive: true,
+      warmth: null,
     });
     setNewName('');
     setShowAdd(false);
@@ -36,6 +38,10 @@ export default function BeddingItemsPage() {
 
   const handleToggleActive = async (id: string, isActive: boolean) => {
     await db.beddingItems.update(id, { isActive: !isActive });
+  };
+
+  const handleSetWarmth = async (id: string, warmth: number) => {
+    await db.beddingItems.update(id, { warmth });
   };
 
   const startEdit = (id: string, name: string) => {
@@ -85,6 +91,10 @@ export default function BeddingItemsPage() {
               >
                 {item.name}
               </span>
+              <WarmthStepper
+                value={item.warmth ?? null}
+                onChange={(n) => handleSetWarmth(item.id, n)}
+              />
               <label className="switch">
                 <input
                   type="checkbox"
