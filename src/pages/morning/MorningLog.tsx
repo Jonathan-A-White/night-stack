@@ -550,7 +550,7 @@ export function MorningLog() {
     return id;
   }
 
-  async function performSave(resolvedWakes: WakeUpEvent[]) {
+  async function performSave(resolvedWakes: WakeUpEvent[], overrideDuplicate = false) {
     if (!nightLog) return;
 
     // Cross-log dedupe (bugfixes T2): block saves where this sleepData is
@@ -558,7 +558,10 @@ export function MorningLog() {
     // explicitly click "Overwrite anyway" in the banner to proceed. This
     // is defense-in-depth on top of T1's import-time filter — T2 catches
     // drafts, manual entries, and retries that skipped the import path.
-    if (sleepData && !duplicateOverrideConfirmed) {
+    // `overrideDuplicate` lets the "Overwrite anyway" button bypass the
+    // check on the same tick it's clicked, since the state-flag update
+    // hasn't flushed yet when we re-enter performSave from the banner.
+    if (sleepData && !duplicateOverrideConfirmed && !overrideDuplicate) {
       const allLogs = await db.nightLogs.toArray();
       const duplicate = findDuplicateSleepData(sleepData, nightLog.date, allLogs, {
         excludeLogId: nightLog.id,
@@ -649,6 +652,24 @@ export function MorningLog() {
     );
     setShowBlankCauseConfirm(false);
     await performSave(resolvedWakes);
+  }
+
+  async function handleOverwriteAnyway() {
+    // The duplicate banner kicks the user back to step 1 and clears the
+    // save-in-progress, so just dismissing the warning leaves the morning
+    // log unsaved — the calendar then shows no indicator. Commit the save
+    // immediately, resolving any blank wake causes the same way
+    // handleSaveAnyway does so we don't regress that confirmation.
+    setDuplicateOverrideConfirmed(true);
+    setImportWarning(null);
+    let resolvedWakes = wakeUpEvents;
+    if (blankCauseCount > 0) {
+      const unknownId = await resolveUnknownCauseId();
+      resolvedWakes = wakeUpEvents.map((w) =>
+        w.cause ? w : { ...w, cause: unknownId },
+      );
+    }
+    await performSave(resolvedWakes, true);
   }
 
   // --- Rendering ---
@@ -803,10 +824,7 @@ export function MorningLog() {
                 </button>
                 <button
                   className="btn btn-sm btn-danger"
-                  onClick={() => {
-                    setDuplicateOverrideConfirmed(true);
-                    setImportWarning(null);
-                  }}
+                  onClick={handleOverwriteAnyway}
                 >
                   Overwrite anyway
                 </button>
