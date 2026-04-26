@@ -274,6 +274,11 @@ export function computeAdjustedSleepOnset(params: {
   const expectedOnsetMs = loggedBedtime + assumedLatencyMinutes * 60_000;
   const missedMin = Math.round((watchOnset.getTime() - expectedOnsetMs) / 60_000);
   if (missedMin < minAdjustmentMinutes) return unchanged;
+  // Sanity cap: if the wrap-around math produces a >6h adjustment, the
+  // inputs almost certainly come from different nights (e.g. stale draft
+  // sleepData paired with a different evening log). Refuse to apply a
+  // nonsensical adjustment rather than displaying e.g. "+1399m".
+  if (missedMin > 360) return unchanged;
 
   const adjusted = new Date(expectedOnsetMs);
   const adjustedHHMM = `${adjusted.getHours().toString().padStart(2, '0')}:${adjusted.getMinutes().toString().padStart(2, '0')}`;

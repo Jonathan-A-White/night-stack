@@ -41,17 +41,34 @@ const THERMAL_COMFORT_OPTIONS: { value: ThermalComfort; label: string; hint: str
 ];
 const VALID_RATINGS: SleepRating[] = ['Excellent', 'Good', 'Fair', 'Attention'];
 
-// Key drafts by the edited date so today's in-progress morning log doesn't
-// bleed into an edit of a past entry opened from the calendar.
-function getDraftKey(date: string): string {
-  return `morning-log-draft-${date}`;
+// Drafts are keyed by the resolved NightLog.date (the evening date of the
+// night being logged). This guarantees the same morning-log session shares
+// state across navigation paths — Morning bottom-tab (no ?date param) and
+// Calendar "Log morning" (passes ?date=<evening date>) both converge on the
+// same key. A previous version derived the key from `targetDate ?? today`,
+// which collided across different nightLogs (e.g. yesterday's Morning-tab
+// draft sharing a key with today's Calendar-opened log).
+function getDraftKey(nightLogDate: string): string {
+  return `morning-log-draft-${nightLogDate}`;
 }
+
+// Bumped when the draft key derivation changes. Drafts written by older
+// code (which keyed by `today` from the Morning tab and could collide with
+// a different nightLog's draft) lack this stamp and are ignored on load.
+const DRAFT_SCHEMA_VERSION = 2;
 
 function loadDraft(key: string): Record<string, unknown> | null {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.__v !== DRAFT_SCHEMA_VERSION) {
+      // Stale pre-versioning draft — delete and behave as if no draft
+      // existed. Prevents cross-session bleed-over from the v1 key scheme.
+      localStorage.removeItem(key);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -67,10 +84,6 @@ export function MorningLog() {
   // Support ?date=YYYY-MM-DD for editing a specific night's morning data
   // from the calendar. The date is the NightLog.date (the evening date).
   const targetDate = searchParams.get('date');
-  const draftKey = getDraftKey(targetDate ?? today);
-  const draft = useRef(loadDraft(draftKey)).current;
-
-  const [step, setStep] = useState<number>((draft?.step as number) ?? 1);
 
   // Find the evening log — explicit date from calendar, or today/yesterday
   const nightLog = useLiveQuery(async () => {
@@ -83,6 +96,14 @@ export function MorningLog() {
     const yLog = await db.nightLogs.where('date').equals(yesterday).first();
     return yLog ?? null;
   }, [targetDate, today, yesterday]);
+
+  // Draft key is derived from the resolved nightLog so it's stable across
+  // entry paths. Null until nightLog resolves; auto-save and hydration both
+  // gate on `draftHydrated` to avoid clobbering a stored draft with the
+  // initial-default state on first render.
+  const draftKey = nightLog ? getDraftKey(nightLog.date) : null;
+
+  const [step, setStep] = useState<number>(1);
 
   // Config data
   const wakeUpCauses = useLiveQuery(
@@ -102,9 +123,7 @@ export function MorningLog() {
   );
 
   // Step 1: Sleep data import
-  const [sleepData, setSleepData] = useState<SleepData | null>(
-    (draft?.sleepData as SleepData | null) ?? null,
-  );
+  const [sleepData, setSleepData] = useState<SleepData | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [showManualEntry, setShowManualEntry] = useState(false);
   /**
@@ -147,27 +166,21 @@ export function MorningLog() {
   });
 
   // Step 2: Govee room data
-  const [roomTimeline, setRoomTimeline] = useState<RoomReading[] | null>(
-    (draft?.roomTimeline as RoomReading[] | null) ?? null,
-  );
+  const [roomTimeline, setRoomTimeline] = useState<RoomReading[] | null>(null);
   const [goveeError, setGoveeError] = useState<string | null>(null);
   const goveeFileRef = useRef<HTMLInputElement>(null);
 
   // Step 3: Wake-up events
-  const [hadWakeUps, setHadWakeUps] = useState((draft?.hadWakeUps as boolean) ?? false);
-  const [wakeUpEvents, setWakeUpEvents] = useState<WakeUpEvent[]>(
-    (draft?.wakeUpEvents as WakeUpEvent[]) ?? [],
-  );
-  const [thermalComfort, setThermalComfort] = useState<ThermalComfort | null>(
-    (draft?.thermalComfort as ThermalComfort | null) ?? null,
-  );
+  const [hadWakeUps, setHadWakeUps] = useState(false);
+  const [wakeUpEvents, setWakeUpEvents] = useState<WakeUpEvent[]>([]);
+  const [thermalComfort, setThermalComfort] = useState<ThermalComfort | null>(null);
 
   // Step 4: Bedtime explanation
-  const [bedtimeReason, setBedtimeReason] = useState((draft?.bedtimeReason as string) ?? '');
-  const [bedtimeNotes, setBedtimeNotes] = useState((draft?.bedtimeNotes as string) ?? '');
+  const [bedtimeReason, setBedtimeReason] = useState('');
+  const [bedtimeNotes, setBedtimeNotes] = useState('');
 
   // Step 5: Morning notes
-  const [morningNotes, setMorningNotes] = useState((draft?.morningNotes as string) ?? '');
+  const [morningNotes, setMorningNotes] = useState('');
 
   // T6: confirmation banner shown when the user tries to save with any
   // wake missing a cause. Lives on step 5 (the final step) so we can
@@ -178,15 +191,9 @@ export function MorningLog() {
   const weighInPeriod = settings?.weighInPeriod ?? 'morning';
   const showWeightStep = weighInPeriod === 'morning';
   const unitSystem = settings?.unitSystem ?? 'us';
-  const [weightLbs, setWeightLbs] = useState<number | null>(
-    (draft?.weightLbs as number | null) ?? null,
-  );
-  const [weightSkipped, setWeightSkipped] = useState(
-    (draft?.weightSkipped as boolean) ?? false,
-  );
-  const [weightInitialized, setWeightInitialized] = useState(
-    draft?.weightLbs != null,
-  );
+  const [weightLbs, setWeightLbs] = useState<number | null>(null);
+  const [weightSkipped, setWeightSkipped] = useState(false);
+  const [weightInitialized, setWeightInitialized] = useState(false);
 
   // Initialize the stepper once settings + latest weight query resolve.
   useEffect(() => {
@@ -203,57 +210,69 @@ export function MorningLog() {
     setWeightInitialized(true);
   }, [settings, latestWeight, weightInitialized]);
 
-  // Seed form state from existing morning data when editing (no draft in
-  // localStorage). This runs once after the nightLog query resolves.
-  const [seededFromExisting, setSeededFromExisting] = useState(draft != null);
+  // Hydrate state once the nightLog query resolves. If a draft exists in
+  // localStorage under the resolved evening date, apply it; otherwise seed
+  // from the existing nightLog (the "edit a saved morning log" case).
+  // Deferred so the draft key is always derived from nightLog.date and
+  // never from a navigation-path-dependent fallback.
+  const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    if (seededFromExisting) return;
+    if (hydrated) return;
     if (nightLog === undefined) return; // query still loading
     if (!nightLog) {
-      setSeededFromExisting(true);
+      // No evening log to edit — render path will show the "complete
+      // evening log first" empty state. Mark hydrated so save effect
+      // below doesn't try to write under a null key.
+      setHydrated(true);
       return;
     }
-    setSeededFromExisting(true);
 
-    // Sleep data
-    if (nightLog.sleepData) {
-      setSleepData(nightLog.sleepData);
+    const draft = loadDraft(getDraftKey(nightLog.date));
+    if (draft) {
+      if (typeof draft.step === 'number') setStep(draft.step);
+      if (draft.sleepData) setSleepData(draft.sleepData as SleepData);
+      if (draft.roomTimeline) setRoomTimeline(draft.roomTimeline as RoomReading[]);
+      if (typeof draft.hadWakeUps === 'boolean') setHadWakeUps(draft.hadWakeUps);
+      if (Array.isArray(draft.wakeUpEvents)) setWakeUpEvents(draft.wakeUpEvents as WakeUpEvent[]);
+      if (draft.thermalComfort) setThermalComfort(draft.thermalComfort as ThermalComfort);
+      if (typeof draft.bedtimeReason === 'string') setBedtimeReason(draft.bedtimeReason);
+      if (typeof draft.bedtimeNotes === 'string') setBedtimeNotes(draft.bedtimeNotes);
+      if (typeof draft.morningNotes === 'string') setMorningNotes(draft.morningNotes);
+      if (typeof draft.weightLbs === 'number') {
+        setWeightLbs(draft.weightLbs);
+        setWeightInitialized(true);
+      }
+      if (typeof draft.weightSkipped === 'boolean') setWeightSkipped(draft.weightSkipped);
+    } else {
+      // No draft — seed from saved nightLog data so re-opening a saved
+      // morning log shows the previously entered values.
+      if (nightLog.sleepData) setSleepData(nightLog.sleepData);
+      if (nightLog.roomTimeline) setRoomTimeline(nightLog.roomTimeline);
+      if (nightLog.wakeUpEvents.length > 0) {
+        setHadWakeUps(true);
+        setWakeUpEvents(nightLog.wakeUpEvents);
+      }
+      if (nightLog.thermalComfort) setThermalComfort(nightLog.thermalComfort);
+      if (nightLog.bedtimeExplanation) {
+        setBedtimeReason(nightLog.bedtimeExplanation.reason);
+        setBedtimeNotes(nightLog.bedtimeExplanation.notes);
+      }
+      if (nightLog.morningNotes) setMorningNotes(nightLog.morningNotes);
     }
 
-    // Room timeline
-    if (nightLog.roomTimeline) {
-      setRoomTimeline(nightLog.roomTimeline);
-    }
-
-    // Wake-up events
-    if (nightLog.wakeUpEvents.length > 0) {
-      setHadWakeUps(true);
-      setWakeUpEvents(nightLog.wakeUpEvents);
-    }
-
-    // Thermal comfort tag
-    if (nightLog.thermalComfort) {
-      setThermalComfort(nightLog.thermalComfort);
-    }
-
-    // Bedtime explanation
-    if (nightLog.bedtimeExplanation) {
-      setBedtimeReason(nightLog.bedtimeExplanation.reason);
-      setBedtimeNotes(nightLog.bedtimeExplanation.notes);
-    }
-
-    // Morning notes
-    if (nightLog.morningNotes) {
-      setMorningNotes(nightLog.morningNotes);
-    }
-  }, [nightLog, seededFromExisting]);
+    setHydrated(true);
+  }, [nightLog, hydrated]);
 
   // Persist every step of the morning log to localStorage so switching away
   // (settings, insights, closing the app, or restarting) doesn't lose work.
   // localStorage survives app restarts unlike sessionStorage which is wiped
-  // when the PWA is killed or the tab is closed.
+  // when the PWA is killed or the tab is closed. Gated on `hydrated` so the
+  // initial-default state doesn't clobber a stored draft on first render.
   useEffect(() => {
+    if (!hydrated) return;
+    if (!draftKey) return;
     const data = {
+      __v: DRAFT_SCHEMA_VERSION,
       step,
       sleepData,
       roomTimeline,
@@ -273,6 +292,8 @@ export function MorningLog() {
       // just lose their draft if they navigate away.
     }
   }, [
+    hydrated,
+    draftKey,
     step,
     sleepData,
     roomTimeline,
@@ -623,8 +644,8 @@ export function MorningLog() {
       }
     }
 
-    // Clear draft on successful save
-    localStorage.removeItem(draftKey);
+    // Clear draft on successful save (always keyed to the saved nightLog)
+    localStorage.removeItem(getDraftKey(nightLog.date));
 
     navigate(`/morning/review/${nightLog.id}`);
   }
