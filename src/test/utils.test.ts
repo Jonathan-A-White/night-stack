@@ -443,4 +443,22 @@ describe('computeAdjustedSleepOnset', () => {
     expect(result.sleepTime).toBe('23:30');
     expect(result.adjustmentMinutes).toBe(25);
   });
+
+  it('refuses to adjust when wrap-around math produces a >6h gap (mismatched-night data)', () => {
+    // bedtime 23:24, watch onset 22:43 — same-day-earlier wraps to next
+    // day = ~23h gap. Without the cap this would compute a +1399m
+    // adjustment and display nonsense durations.
+    const bedtime = new Date(2026, 3, 25, 23, 24, 0, 0).getTime();
+    const result = computeAdjustedSleepOnset({
+      loggedBedtime: bedtime,
+      watchSleepTime: '22:43',
+      watchTotalDuration: 344,
+      watchActualDuration: 344,
+    });
+    expect(result.isAdjusted).toBe(false);
+    expect(result.sleepTime).toBe('22:43');
+    expect(result.totalSleepDuration).toBe(344);
+    expect(result.actualSleepDuration).toBe(344);
+    expect(result.adjustmentMinutes).toBe(0);
+  });
 });
