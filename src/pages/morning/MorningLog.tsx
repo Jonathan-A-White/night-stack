@@ -4,11 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
   addDaysToDate,
+  addMinutes,
   getCurrentTime,
   getTodayDate,
   getYesterdayDate,
   formatTime12h,
   isTimeAfter,
+  subtractMinutes,
   timestampToHHMM,
   computeAdjustedSleepOnset,
 } from '../../utils';
@@ -489,12 +491,72 @@ export function MorningLog() {
       prev.map((ev) => {
         if (ev.id !== id) return ev;
         const updated = { ...ev, [field]: value } as WakeUpEvent;
-        if (field === 'startTime' || field === 'endTime') {
-          updated.minutesToFallBackAsleep = calcMinutesBetween(updated.startTime, updated.endTime);
+        if (
+          field === 'startTime' ||
+          field === 'endTime' ||
+          field === 'minutesToFallBackAsleep'
+        ) {
+          return reconcileWakeUpTimes(updated, field);
         }
         return updated;
       })
     );
+  }
+
+  // Any two of {startTime, endTime, minutesToFallBackAsleep} determine the
+  // third. When all three are set and one is edited, recompute one of the
+  // others per this priority:
+  //   - edit startTime     -> recompute endTime  (preserve duration)
+  //   - edit endTime       -> recompute duration (preserve startTime)
+  //   - edit duration      -> recompute endTime  (preserve startTime)
+  // When only two are set and the user clears one, re-derive the cleared
+  // field from the remaining two so the values stay consistent.
+  function reconcileWakeUpTimes(
+    ev: WakeUpEvent,
+    edited: 'startTime' | 'endTime' | 'minutesToFallBackAsleep'
+  ): WakeUpEvent {
+    const hasStart = !!ev.startTime;
+    const hasEnd = !!ev.endTime;
+    const hasDuration =
+      ev.minutesToFallBackAsleep != null && ev.minutesToFallBackAsleep >= 0;
+
+    if (edited === 'startTime') {
+      if (!hasStart && hasEnd && hasDuration) {
+        return { ...ev, startTime: subtractMinutes(ev.endTime, ev.minutesToFallBackAsleep!) };
+      }
+      if (hasStart && hasDuration) {
+        return { ...ev, endTime: addMinutes(ev.startTime, ev.minutesToFallBackAsleep!) };
+      }
+      if (hasStart && hasEnd) {
+        return { ...ev, minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime) };
+      }
+      return ev;
+    }
+
+    if (edited === 'endTime') {
+      if (!hasEnd && hasStart && hasDuration) {
+        return { ...ev, endTime: addMinutes(ev.startTime, ev.minutesToFallBackAsleep!) };
+      }
+      if (hasStart && hasEnd) {
+        return { ...ev, minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime) };
+      }
+      if (hasEnd && hasDuration) {
+        return { ...ev, startTime: subtractMinutes(ev.endTime, ev.minutesToFallBackAsleep!) };
+      }
+      return ev;
+    }
+
+    // edited === 'minutesToFallBackAsleep'
+    if (!hasDuration && hasStart && hasEnd) {
+      return { ...ev, minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime) };
+    }
+    if (hasDuration && hasStart) {
+      return { ...ev, endTime: addMinutes(ev.startTime, ev.minutesToFallBackAsleep!) };
+    }
+    if (hasDuration && hasEnd) {
+      return { ...ev, startTime: subtractMinutes(ev.endTime, ev.minutesToFallBackAsleep!) };
+    }
+    return ev;
   }
 
   function removeWakeUpEvent(id: string) {
@@ -1277,10 +1339,20 @@ export function MorningLog() {
                         <label className="form-label">Minutes to fall back asleep</label>
                         <input
                           type="number"
+                          min={0}
                           className="form-input"
                           value={event.minutesToFallBackAsleep ?? ''}
-                          readOnly
-                          placeholder="Auto-calculated from times above"
+                          placeholder="Enter duration or leave blank to auto-calculate"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const parsed =
+                              raw === '' ? null : Math.max(0, Math.floor(Number(raw)));
+                            updateWakeUpEvent(
+                              event.id,
+                              'minutesToFallBackAsleep',
+                              Number.isFinite(parsed as number) ? parsed : null
+                            );
+                          }}
                         />
                       </div>
                     )}
