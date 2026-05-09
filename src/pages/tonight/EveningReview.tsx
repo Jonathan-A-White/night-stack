@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { formatTime12h, getCurrentTime, getTodayDate, timestampToHHMM } from '../../utils';
+import { formatTime12h, getCurrentTime, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
@@ -41,17 +41,16 @@ export function EveningReview() {
   const supplements = useLiveQuery(() => db.supplementDefs.toArray());
   const middayCopingItems = useLiveQuery(() => db.middayCopingItems.toArray());
 
-  // Dynamic bedtime awareness for today's review.
-  // These hooks MUST be called before any early return to satisfy the
-  // Rules of Hooks — otherwise the component crashes once nightLog loads.
-  const isToday = nightLog?.date === getTodayDate();
-  const [currentTime, setCurrentTime] = useState(getCurrentTime());
+  // Re-render every minute so the bedtime recommendation banner can disappear
+  // once the target bedtime passes without a logged bedtime.
+  // These hooks MUST be called before any early return to satisfy the Rules of
+  // Hooks — otherwise the component crashes once nightLog loads.
+  const [, setCurrentTime] = useState(getCurrentTime());
 
   useEffect(() => {
-    if (!isToday) return;
     const interval = setInterval(() => setCurrentTime(getCurrentTime()), 60000);
     return () => clearInterval(interval);
-  }, [isToday]);
+  }, []);
 
   if (nightLog === undefined) {
     return (
@@ -91,15 +90,14 @@ export function EveningReview() {
 
   const loggedBedtimeHHMM = loggedBedtime !== null ? timestampToHHMM(loggedBedtime) : null;
 
-  const minutesPastBedtime = (() => {
-    if (!isToday) return null;
-    const [ch, cm] = currentTime.split(':').map(Number);
+  // True when the log's target bedtime is still in the future. The target is
+  // anchored to the log's calendar date so an evening reviewed shortly after
+  // midnight correctly registers as already past bedtime.
+  const isTargetBedtimeFuture = (() => {
+    const [y, mo, d] = nightLog.date.split('-').map(Number);
     const [bh, bm] = alarm.targetBedtime.split(':').map(Number);
-    let diff = (ch * 60 + cm) - (bh * 60 + bm);
-    if (diff < 0) diff += 24 * 60;
-    // More than 12 hours means we're before bedtime, not after
-    if (diff > 12 * 60 || diff === 0) return null;
-    return diff;
+    const target = new Date(y, mo - 1, d, bh, bm).getTime();
+    return Date.now() < target;
   })();
 
   // How late the user finished the evening log relative to target bedtime.
@@ -146,15 +144,11 @@ export function EveningReview() {
             ? ` — ${formatDuration(loggedVsTarget)} after your ${formatTime12h(alarm.targetBedtime)} target.`
             : '.'}
         </div>
-      ) : minutesPastBedtime !== null ? (
-        <div className="banner banner-warning">
-          Your ideal bedtime was {formatTime12h(alarm.targetBedtime)} ({formatDuration(minutesPastBedtime)} ago). Head to bed now!
-        </div>
-      ) : (
+      ) : isTargetBedtimeFuture ? (
         <div className="banner banner-success">
           Head to bed at {formatTime12h(alarm.targetBedtime)} for optimal sleep.
         </div>
-      )}
+      ) : null}
 
       {/* Alarm */}
       <div className="card">
