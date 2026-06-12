@@ -23,14 +23,16 @@ A practical guide for building Progressive Web Apps that feel native on both iOS
 13. [Preventing Scroll & Bounce Issues](#13-preventing-scroll--bounce-issues)
 14. [Native-Feel CSS](#14-native-feel-css)
 15. [On-Screen Keyboard Handling](#15-on-screen-keyboard-handling)
-16. [Version Management](#16-version-management)
-17. [Common Pitfalls](#17-common-pitfalls)
+16. [Testing Offline-First Logic](#16-testing-offline-first-logic)
+17. [CI/CD: GitHub Actions to GitHub Pages](#17-cicd-github-actions-to-github-pages)
+18. [Version Management](#18-version-management)
+19. [Common Pitfalls](#19-common-pitfalls)
 
 ---
 
 ## 1. Web App Manifest
 
-The manifest tells the browser how your app should behave when installed. Generate it at build time so you can inject environment-specific values (e.g., different `scope` for subdirectory deployments).
+The manifest tells the browser how your app should behave when installed. Generate it at build time (vite-plugin-pwa does this from the `manifest` option) so it stays in sync with your build configuration.
 
 ### Required Fields
 
@@ -58,6 +60,23 @@ The manifest tells the browser how your app should behave when installed. Genera
 - **`short_name`** is what appears below the icon on the home screen. Keep it under 12 characters.
 - **`start_url`** must be within `scope`. If deploying to a subdirectory (e.g., GitHub Pages), both must include the path prefix.
 - **`background_color`** is shown on the splash screen before the app loads. Match it to your app's initial background.
+
+### Subdirectory Deployments (e.g., GitHub Pages)
+
+You don't need to inject absolute paths into the manifest. Relative values resolve against the manifest's own URL, so the same manifest works at any base path:
+
+```json
+{ "start_url": ".", "scope": "." }
+```
+
+With Vite, set `base` so all asset URLs get the path prefix:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-repo/", // GitHub Pages serves at username.github.io/my-repo/
+});
+```
 
 ---
 
@@ -370,8 +389,10 @@ export const db = new AppDatabase();
 | Storage | Limit | Persistent? |
 |---------|-------|-------------|
 | `localStorage` | 5-10 MB | Cleared under pressure |
-| IndexedDB | 50%+ of disk | Can request persistence |
-| Cache API | 50%+ of disk | Cleared under pressure |
+| IndexedDB | 50%+ of disk | Covered by `persist()` |
+| Cache API | 50%+ of disk | Covered by `persist()` |
+
+`navigator.storage.persist()` applies to the whole origin — IndexedDB, Cache API, and `localStorage` together.
 
 ### Request Persistent Storage
 
@@ -769,7 +790,125 @@ input, select, textarea {
 
 ---
 
-## 16. Version Management
+## 16. Testing Offline-First Logic
+
+The highest-value tests in an offline-first PWA are the data layer: importers, dedupe, migrations, derived analytics — pure logic that reads and writes IndexedDB. With `fake-indexeddb`, your real Dexie code runs unmodified in Vitest, no browser needed:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.ts",
+  },
+  // ...
+});
+```
+
+```ts
+// src/test/setup.ts
+import "@testing-library/jest-dom/vitest";
+import "fake-indexeddb/auto"; // In-memory IndexedDB — Dexie works as-is
+```
+
+Tests then import the real database module:
+
+```ts
+import { db } from "../db";
+import { importRecords } from "../services/importer";
+
+beforeEach(async () => {
+  await db.items.clear(); // Isolate tests within a file
+});
+
+it("dedupes records imported twice", async () => {
+  await importRecords([record, record]);
+  expect(await db.items.count()).toBe(1);
+});
+```
+
+### What This Buys You
+
+- Schema definitions and Dexie migrations are exercised on every test run — a broken `version(n).stores()` upgrade fails loudly in CI instead of on a user's device.
+- Import/export round-trips (Section 8) become trivially testable.
+
+### What It Doesn't Cover
+
+Service worker behavior, install flow, and caching are not exercised by unit tests. Verify those manually in Chrome DevTools (Application tab → Service Workers, with "Offline" throttling), and on a real device before relying on them.
+
+---
+
+## 17. CI/CD: GitHub Actions to GitHub Pages
+
+One workflow handles both validation and deployment: every push and PR runs typecheck + tests + build; only pushes to `main` deploy.
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Run tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+### Why This Shape
+
+- **Typecheck as its own step** (`tsc --noEmit` before the build) so type errors fail with a clear step name instead of being buried in build output.
+- **Deploy is gated on `needs: test` and main-push-only** — PRs get full validation but can never deploy.
+- **Official Pages actions** (`upload-pages-artifact` + `deploy-pages`) deploy via OIDC, which is why `pages: write` and `id-token: write` permissions are needed. No `gh-pages` branch, no deploy keys.
+- **`concurrency: group: pages`** prevents two merges from deploying simultaneously out of order.
+- **`cache: npm` + `npm ci`** gives fast, reproducible installs from the lockfile.
+
+One PWA-specific consequence: every merge to `main` is a production deploy, which immediately triggers a service worker update for any user with the app open. Make sure your update flow handles that (Section 7).
+
+---
+
+## 18. Version Management
 
 Inject the version at build time so users can see what version they're running (helpful for bug reports and cache debugging):
 
@@ -793,7 +932,7 @@ Display the version in a Settings or About page. When users report issues, you c
 
 ---
 
-## 17. Common Pitfalls
+## 19. Common Pitfalls
 
 ### White Bars Around Content
 **Cause:** Safe area padding with no background color on the app container.
@@ -868,5 +1007,8 @@ Display the version in a Settings or About page. When users report issues, you c
 [ ] Icons: 192px, 512px, 512px maskable, SVG favicon, apple-touch-icon link tag
 [ ] HTTPS: required for service workers (localhost exempt)
 [ ] SPA routing: 404.html redirect for static hosts
+[ ] Subdirectory deploy: vite base set, manifest uses relative start_url/scope
+[ ] Tests: data layer (importers, dedupe, migrations) covered via fake-indexeddb
+[ ] CI: typecheck + tests + build on every PR; deploy gated to main
 [ ] Version: injected at build time, displayed in-app
 ```
