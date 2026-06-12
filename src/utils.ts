@@ -25,7 +25,7 @@ export function subtractMinutes(time: string, minutes: number): string {
  */
 export function addMinutes(time: string, minutes: number): string {
   const [h, m] = time.split(':').map(Number);
-  let totalMins = h * 60 + m + minutes;
+  const totalMins = h * 60 + m + minutes;
   const newH = Math.floor(totalMins / 60) % 24;
   const newM = totalMins % 60;
   return `${newH.toString().padStart(2, '0')}:${newM.toString().padStart(2, '0')}`;

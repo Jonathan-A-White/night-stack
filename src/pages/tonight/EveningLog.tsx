@@ -519,7 +519,6 @@ export function EveningLog() {
       // something upstream still wrote null — that's the regression
       // signal the analysis called for (see logging-fixes.md T5).
       if (saveTimeIsBedtime && nightLog.loggedBedtime == null) {
-        // eslint-disable-next-line no-console
         console.warn(
           `[EveningLog] saved live log ${nightLog.id} with null loggedBedtime`,
         );

@@ -5,7 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { db } from '../../db';
-import { formatTime12h, getEffectiveSleepData } from '../../utils';
+import { getEffectiveSleepData } from '../../utils';
 import type { NightLog } from '../../types';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 

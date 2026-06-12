@@ -833,6 +833,33 @@ it("dedupes records imported twice", async () => {
 - Schema definitions and Dexie migrations are exercised on every test run — a broken `version(n).stores()` upgrade fails loudly in CI instead of on a user's device.
 - Import/export round-trips (Section 8) become trivially testable.
 
+### Run Only the Tests Affected by Your Changes
+
+Vitest resolves the module graph, so it knows which test files (transitively) import the files you touched. Use that during development instead of running the whole suite:
+
+```jsonc
+// package.json
+"scripts": {
+  "test": "vitest run",            // Full suite — what CI runs
+  "test:watch": "vitest",          // Watch mode: reruns only tests related to each save
+  "test:changed": "vitest run --changed"  // One-shot: tests affected by uncommitted changes
+}
+```
+
+Variants of `--changed` cover the common workflows:
+
+```sh
+vitest run --changed              # Affected by uncommitted changes
+vitest run --changed HEAD~1       # Affected by the last commit
+vitest run --changed origin/main  # Affected by your whole branch
+vitest related src/utils.ts       # Tests that import a specific file
+```
+
+Two caveats:
+
+- Selection is based on **import tracing**. Changes that affect behavior without an import edge — vitest/Vite config, global setup files, environment variables, mocks resolved at runtime — won't trigger the right tests. When in doubt, run the full suite.
+- Keep CI running the full suite. Affected-test selection is a dev-loop optimization; CI is the safety net that catches what the heuristic misses. Only reach for `--changed origin/main` in CI if the full run becomes painfully slow.
+
 ### What It Doesn't Cover
 
 Service worker behavior, install flow, and caching are not exercised by unit tests. Verify those manually in Chrome DevTools (Application tab → Service Workers, with "Offline" throttling), and on a real device before relying on them.
@@ -871,6 +898,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Type check
         run: npx tsc --noEmit
       - name: Run tests
@@ -898,7 +927,7 @@ jobs:
 
 ### Why This Shape
 
-- **Typecheck as its own step** (`tsc --noEmit` before the build) so type errors fail with a clear step name instead of being buried in build output.
+- **Lint and typecheck as their own steps** (before the build) so failures get a clear step name instead of being buried in build output. Order them cheapest-first: lint, typecheck, tests, build.
 - **Deploy is gated on `needs: test` and main-push-only** — PRs get full validation but can never deploy.
 - **Official Pages actions** (`upload-pages-artifact` + `deploy-pages`) deploy via OIDC, which is why `pages: write` and `id-token: write` permissions are needed. No `gh-pages` branch, no deploy keys.
 - **`concurrency: group: pages`** prevents two merges from deploying simultaneously out of order.
