@@ -960,7 +960,7 @@ Display the version in a Settings or About page. When users report issues, you c
 
 ### Manifest `scope` and `start_url` Mismatch
 **Cause:** Deploying to a subdirectory without updating both values.
-**Fix:** Dynamically set both based on your deployment environment (see Section 1).
+**Fix:** Use relative values (`"start_url": "."`, `"scope": "."`) so the manifest works at any base path (see Section 1).
 
 ### Data Lost Between Page Navigations
 **Cause:** Debounced saves discarded when component unmounts.
