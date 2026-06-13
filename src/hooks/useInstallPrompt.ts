@@ -10,11 +10,13 @@ export function useInstallPrompt() {
   const [isInstalled, setIsInstalled] = useState(false);
   const [dismissed, setDismissed] = useState(() => sessionStorage.getItem('install-dismissed') === '1');
 
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) &&
+    !('MSStream' in window);
   const isStandalone =
     window.matchMedia('(display-mode: standalone)').matches ||
     window.matchMedia('(display-mode: fullscreen)').matches ||
-    (navigator as any).standalone === true;
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
   useEffect(() => {
     if (isStandalone) {

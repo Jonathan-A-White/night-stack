@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  Line, CartesianGrid,
+  CartesianGrid,
 } from 'recharts';
 import { db } from '../../db';
 import { recalculateAllCalculatedWeights } from '../../weightUtils';

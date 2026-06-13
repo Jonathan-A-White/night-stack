@@ -6,7 +6,6 @@ import { formatTime12h, getCurrentTime, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
-  NightLog,
   ClothingItem,
   BeddingItem,
   SupplementDef,

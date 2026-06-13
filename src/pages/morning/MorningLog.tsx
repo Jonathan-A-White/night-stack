@@ -440,7 +440,6 @@ export function MorningLog() {
       const headerEnd = csv.indexOf('\n');
       const firstRow = headerEnd >= 0 ? csv.slice(headerEnd + 1).split('\n')[0] : '';
       const lastRow = csv.trimEnd().split('\n').pop() ?? '';
-      // eslint-disable-next-line no-console
       console.debug(
         '[govee-import]',
         'targetNightDate=', targetNightDate,

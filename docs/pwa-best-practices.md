@@ -2,6 +2,8 @@
 
 A practical guide for building Progressive Web Apps that feel native on both iOS and Android. Derived from real-world lessons shipping a production PWA.
 
+> **Stack assumptions:** Examples use Vite + `vite-plugin-pwa` (Workbox), React, and Dexie for IndexedDB. The principles are general; the code is copy-paste ready for that stack.
+
 ---
 
 ## Table of Contents
@@ -19,14 +21,18 @@ A practical guide for building Progressive Web Apps that feel native on both iOS
 11. [Theme Color & Dark Mode](#11-theme-color--dark-mode)
 12. [SPA Routing on Static Hosts](#12-spa-routing-on-static-hosts)
 13. [Preventing Scroll & Bounce Issues](#13-preventing-scroll--bounce-issues)
-14. [Version Management](#14-version-management)
-15. [Common Pitfalls](#15-common-pitfalls)
+14. [Native-Feel CSS](#14-native-feel-css)
+15. [On-Screen Keyboard Handling](#15-on-screen-keyboard-handling)
+16. [Testing Offline-First Logic](#16-testing-offline-first-logic)
+17. [CI/CD: GitHub Actions to GitHub Pages](#17-cicd-github-actions-to-github-pages)
+18. [Version Management](#18-version-management)
+19. [Common Pitfalls](#19-common-pitfalls)
 
 ---
 
 ## 1. Web App Manifest
 
-The manifest tells the browser how your app should behave when installed. Generate it at build time so you can inject environment-specific values (e.g., different `scope` for subdirectory deployments).
+The manifest tells the browser how your app should behave when installed. Generate it at build time (vite-plugin-pwa does this from the `manifest` option) so it stays in sync with your build configuration.
 
 ### Required Fields
 
@@ -54,6 +60,23 @@ The manifest tells the browser how your app should behave when installed. Genera
 - **`short_name`** is what appears below the icon on the home screen. Keep it under 12 characters.
 - **`start_url`** must be within `scope`. If deploying to a subdirectory (e.g., GitHub Pages), both must include the path prefix.
 - **`background_color`** is shown on the splash screen before the app loads. Match it to your app's initial background.
+
+### Subdirectory Deployments (e.g., GitHub Pages)
+
+You don't need to inject absolute paths into the manifest. Relative values resolve against the manifest's own URL, so the same manifest works at any base path:
+
+```json
+{ "start_url": ".", "scope": "." }
+```
+
+With Vite, set `base` so all asset URLs get the path prefix:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  base: "/my-repo/", // GitHub Pages serves at username.github.io/my-repo/
+});
+```
 
 ---
 
@@ -250,13 +273,48 @@ Only do this if your app truly doesn't benefit from zoom (e.g., a game or full-s
 Use `registerType: "autoUpdate"` so users always get the latest version without manual intervention:
 
 ```js
-// Using vite-plugin-pwa
+// vite.config.ts
+VitePWA({ registerType: "autoUpdate", /* ... */ })
+```
+
+```js
+// App entry point
 import { registerSW } from "virtual:pwa-register";
 
 registerSW({ immediate: true });
 ```
 
-The `immediate: true` option ensures the service worker activates immediately rather than waiting for all tabs to close.
+`registerType: "autoUpdate"` makes the generated service worker call `skipWaiting()` and `clientsClaim()`, so a new version activates without waiting for all tabs to close. `immediate: true` registers the service worker as soon as the script runs instead of deferring to the window `load` event.
+
+### Update UX: The Mid-Session Deploy Problem
+
+Silent auto-update has one failure mode: if you deploy while a user has the app open, the new service worker activates and **replaces the precache**. Lazy-loaded chunks from the old build no longer exist, so the user's next route navigation can fail until they reload.
+
+Two mitigations (the first is usually enough):
+
+**1. Reload on chunk-load failure.** Vite fires a dedicated event when a dynamic import fails:
+
+```js
+window.addEventListener("vite:preloadError", (e) => {
+  e.preventDefault();
+  window.location.reload(); // Picks up the new build
+});
+```
+
+This is safe when auto-save (Section 9) means a reload loses nothing.
+
+**2. Prompt instead of auto-updating.** If a surprise reload could interrupt in-progress user state, use `registerType: "prompt"` and show a "New version available" toast:
+
+```js
+const updateSW = registerSW({
+  onNeedRefresh() {
+    // Show a toast; on click, activate the new SW and reload
+    showUpdateToast(() => updateSW(true));
+  },
+});
+```
+
+The trade-off: users who never tap the toast stay on the old version indefinitely. Prefer `autoUpdate` + the reload-on-error handler unless you have long-lived unsaved state.
 
 ### Workbox Caching Strategy
 
@@ -331,8 +389,10 @@ export const db = new AppDatabase();
 | Storage | Limit | Persistent? |
 |---------|-------|-------------|
 | `localStorage` | 5-10 MB | Cleared under pressure |
-| IndexedDB | 50%+ of disk | Can request persistence |
-| Cache API | 50%+ of disk | Cleared under pressure |
+| IndexedDB | 50%+ of disk | Covered by `persist()` |
+| Cache API | 50%+ of disk | Covered by `persist()` |
+
+`navigator.storage.persist()` applies to the whole origin — IndexedDB, Cache API, and `localStorage` together.
 
 ### Request Persistent Storage
 
@@ -342,6 +402,36 @@ if (navigator.storage && navigator.storage.persist) {
   console.log(granted ? "Storage is persistent" : "Storage may be cleared");
 }
 ```
+
+Chrome grants this automatically for installed PWAs. Note that Safari deletes **all** script-writable storage (including IndexedDB) for sites the user hasn't interacted with in 7 days — installed home-screen apps are exempt, which is one more reason to push iOS users toward Add to Home Screen.
+
+### Export & Import: The User's Only Backup
+
+For a purely local app, the device **is** the database — a lost phone or a cleared browser profile means lost data. Give users a way out:
+
+```js
+async function exportData() {
+  const payload = {
+    schemaVersion: db.verno,
+    exportedAt: new Date().toISOString(),
+    items: await db.items.toArray(),
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `myapp-backup-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importData(file) {
+  const payload = JSON.parse(await file.text());
+  // Validate schemaVersion and migrate if needed before writing
+  await db.items.bulkPut(payload.items);
+}
+```
+
+Include a schema version in the export so old backups can be migrated on import. For whole-database dumps across many tables, the `dexie-export-import` addon handles this generically. A versioned export format is also the natural seam if you later add sync — the export payload is already your wire format.
 
 ---
 
@@ -444,6 +534,10 @@ iOS ignores manifest icons entirely. You **must** use a `<link>` tag:
 
 If not provided, iOS will use a screenshot of your app as the icon.
 
+### Splash Screens
+
+Android generates the splash screen automatically from the manifest's `background_color`, `name`, and 512px icon — no extra work. iOS ignores this and shows a plain background unless you provide `apple-touch-startup-image` links, which require one image **per device size and orientation**. Don't hand-author these; if you want iOS splash screens, generate them with [pwa-asset-generator](https://github.com/elegantapp/pwa-asset-generator). Otherwise, just make sure `background_color` matches your app's initial paint so the transition is seamless on Android.
+
 ---
 
 ## 11. Theme Color & Dark Mode
@@ -510,19 +604,26 @@ SPAs with client-side routing break on static hosts (like GitHub Pages) when use
 </script>
 ```
 
-**`index.html`** — Restores the original URL:
+**`index.html`** — Decodes the `?/...` query back into the real URL (must run **before** your router initializes):
 
 ```html
 <script>
-  (function () {
-    var redirect = sessionStorage.redirect;
-    delete sessionStorage.redirect;
-    if (redirect && redirect !== location.href) {
-      history.replaceState(null, null, redirect);
+  (function (l) {
+    if (l.search[1] === "/") {
+      var decoded = l.search
+        .slice(1)
+        .split("&")
+        .map(function (s) {
+          return s.replace(/~and~/g, "&");
+        })
+        .join("?");
+      window.history.replaceState(null, null, l.pathname.slice(0, -1) + decoded + l.hash);
     }
-  })();
+  })(window.location);
 </script>
 ```
+
+These two scripts are a matched pair (the [spa-github-pages](https://github.com/rafgraph/spa-github-pages) technique) — the 404 page encodes the path into the query string, and index.html decodes it with `history.replaceState` so the router sees the original URL. Don't mix snippets from different variants of this trick; the encoding and decoding must agree.
 
 ### Service Worker Alternative
 
@@ -579,7 +680,264 @@ If pages use `min-h-screen`, they'll overflow the app container and cause double
 
 ---
 
-## 14. Version Management
+## 14. Native-Feel CSS
+
+A handful of CSS defaults betray "this is a web page" the moment someone touches the screen. Override them globally:
+
+```css
+html, body {
+  /* Disable pull-to-refresh and overscroll glow/bounce (Android Chrome) */
+  overscroll-behavior: none;
+}
+
+* {
+  /* Remove the grey/blue flash on tap */
+  -webkit-tap-highlight-color: transparent;
+}
+
+button, a, [role="button"] {
+  /* Remove the double-tap-to-zoom delay on interactive elements */
+  touch-action: manipulation;
+}
+```
+
+### Text Selection
+
+Long-pressing a button and getting a text-selection caret feels broken. Disable selection on UI chrome, but **keep it for content and inputs**:
+
+```css
+.app-chrome, button, nav {
+  user-select: none;
+  -webkit-user-select: none; /* Still needed on iOS Safari */
+}
+
+input, textarea, [contenteditable], .user-content {
+  user-select: text;
+  -webkit-user-select: text;
+}
+```
+
+On iOS, also suppress the long-press callout menu on images and links if they're UI elements:
+
+```css
+img {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+```
+
+### Sticky Hover
+
+On touch screens, `:hover` styles activate on tap and **stay stuck** until the user taps elsewhere — a highlighted button that won't un-highlight. Gate hover styles behind a capability query and use `:active` for touch feedback:
+
+```css
+@media (hover: hover) {
+  .button:hover { background: #e5e7eb; }
+}
+
+.button:active { background: #d1d5db; }
+```
+
+---
+
+## 15. On-Screen Keyboard Handling
+
+The virtual keyboard is the biggest cross-platform behavioral difference left in PWAs:
+
+- **Android Chrome (108+):** by default the keyboard resizes only the *visual* viewport — your layout, `100svh`, and `position: fixed` elements don't move, so a fixed bottom bar ends up **hidden behind the keyboard**.
+- **iOS Safari:** the keyboard always overlays the page; the layout never resizes.
+
+### Android: Opt Back Into Layout Resize
+
+If your layout should shrink when the keyboard opens (usually what you want for chat-style UIs with a bottom input), add `interactive-widget` to the viewport meta tag:
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+```
+
+This is Chromium-only; iOS ignores it.
+
+### Cross-Platform: Track the Visual Viewport
+
+For full control on both platforms, mirror `visualViewport` into a CSS variable and size keyboard-sensitive UI with it:
+
+```js
+function syncViewportHeight() {
+  const vv = window.visualViewport;
+  document.documentElement.style.setProperty("--vvh", `${vv.height}px`);
+}
+window.visualViewport.addEventListener("resize", syncViewportHeight);
+syncViewportHeight();
+```
+
+```css
+.chat-screen {
+  height: var(--vvh, 100svh); /* Shrinks when the keyboard opens */
+}
+```
+
+A simpler alternative for fixed bottom navigation: hide it while any input is focused (`focusin`/`focusout` on the container) instead of trying to reposition it.
+
+### Prevent iOS Zoom-on-Focus
+
+iOS Safari zooms the page when a focused input's font-size is below 16px, and in a PWA there's no pinch-out escape. Keep inputs at 16px or larger:
+
+```css
+input, select, textarea {
+  font-size: 16px;
+}
+```
+
+---
+
+## 16. Testing Offline-First Logic
+
+The highest-value tests in an offline-first PWA are the data layer: importers, dedupe, migrations, derived analytics — pure logic that reads and writes IndexedDB. With `fake-indexeddb`, your real Dexie code runs unmodified in Vitest, no browser needed:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: "./src/test/setup.ts",
+  },
+  // ...
+});
+```
+
+```ts
+// src/test/setup.ts
+import "@testing-library/jest-dom/vitest";
+import "fake-indexeddb/auto"; // In-memory IndexedDB — Dexie works as-is
+```
+
+Tests then import the real database module:
+
+```ts
+import { db } from "../db";
+import { importRecords } from "../services/importer";
+
+beforeEach(async () => {
+  await db.items.clear(); // Isolate tests within a file
+});
+
+it("dedupes records imported twice", async () => {
+  await importRecords([record, record]);
+  expect(await db.items.count()).toBe(1);
+});
+```
+
+### What This Buys You
+
+- Schema definitions and Dexie migrations are exercised on every test run — a broken `version(n).stores()` upgrade fails loudly in CI instead of on a user's device.
+- Import/export round-trips (Section 8) become trivially testable.
+
+### Run Only the Tests Affected by Your Changes
+
+Vitest resolves the module graph, so it knows which test files (transitively) import the files you touched. Use that during development instead of running the whole suite:
+
+```jsonc
+// package.json
+"scripts": {
+  "test": "vitest run",            // Full suite — what CI runs
+  "test:watch": "vitest",          // Watch mode: reruns only tests related to each save
+  "test:changed": "vitest run --changed"  // One-shot: tests affected by uncommitted changes
+}
+```
+
+Variants of `--changed` cover the common workflows:
+
+```sh
+vitest run --changed              # Affected by uncommitted changes
+vitest run --changed HEAD~1       # Affected by the last commit
+vitest run --changed origin/main  # Affected by your whole branch
+vitest related src/utils.ts       # Tests that import a specific file
+```
+
+Two caveats:
+
+- Selection is based on **import tracing**. Changes that affect behavior without an import edge — vitest/Vite config, global setup files, environment variables, mocks resolved at runtime — won't trigger the right tests. When in doubt, run the full suite.
+- Keep CI running the full suite. Affected-test selection is a dev-loop optimization; CI is the safety net that catches what the heuristic misses. Only reach for `--changed origin/main` in CI if the full run becomes painfully slow.
+
+### What It Doesn't Cover
+
+Service worker behavior, install flow, and caching are not exercised by unit tests. Verify those manually in Chrome DevTools (Application tab → Service Workers, with "Offline" throttling), and on a real device before relying on them.
+
+---
+
+## 17. CI/CD: GitHub Actions to GitHub Pages
+
+One workflow handles both validation and deployment: every push and PR runs typecheck + tests + build; only pushes to `main` deploy.
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Type check
+        run: npx tsc --noEmit
+      - name: Run tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+```
+
+### Why This Shape
+
+- **Lint and typecheck as their own steps** (before the build) so failures get a clear step name instead of being buried in build output. Order them cheapest-first: lint, typecheck, tests, build.
+- **Deploy is gated on `needs: test` and main-push-only** — PRs get full validation but can never deploy.
+- **Official Pages actions** (`upload-pages-artifact` + `deploy-pages`) deploy via OIDC, which is why `pages: write` and `id-token: write` permissions are needed. No `gh-pages` branch, no deploy keys.
+- **`concurrency: group: pages`** prevents two merges from deploying simultaneously out of order.
+- **`cache: npm` + `npm ci`** gives fast, reproducible installs from the lockfile.
+
+One PWA-specific consequence: every merge to `main` is a production deploy, which immediately triggers a service worker update for any user with the app open. Make sure your update flow handles that (Section 7).
+
+---
+
+## 18. Version Management
 
 Inject the version at build time so users can see what version they're running (helpful for bug reports and cache debugging):
 
@@ -603,7 +961,7 @@ Display the version in a Settings or About page. When users report issues, you c
 
 ---
 
-## 15. Common Pitfalls
+## 19. Common Pitfalls
 
 ### White Bars Around Content
 **Cause:** Safe area padding with no background color on the app container.
@@ -631,11 +989,31 @@ Display the version in a Settings or About page. When users report issues, you c
 
 ### Manifest `scope` and `start_url` Mismatch
 **Cause:** Deploying to a subdirectory without updating both values.
-**Fix:** Dynamically set both based on your deployment environment (see Section 1).
+**Fix:** Use relative values (`"start_url": "."`, `"scope": "."`) so the manifest works at any base path (see Section 1).
 
 ### Data Lost Between Page Navigations
 **Cause:** Debounced saves discarded when component unmounts.
 **Fix:** Always flush pending writes in the cleanup function (see Section 9).
+
+### Navigation Breaks Right After a Deploy
+**Cause:** Auto-updated service worker replaced the precache while a user had the old build open; old lazy chunks no longer exist.
+**Fix:** Reload on `vite:preloadError`, or switch to a prompt-based update flow (see Section 7).
+
+### Pull-to-Refresh Reloads the App
+**Cause:** Default overscroll behavior on Android Chrome.
+**Fix:** `overscroll-behavior: none` on `html, body` (see Section 14).
+
+### Buttons Stay Highlighted After Tapping
+**Cause:** `:hover` styles stick on touch screens until the next tap.
+**Fix:** Wrap hover styles in `@media (hover: hover)`; use `:active` for touch feedback (see Section 14).
+
+### Page Zooms When Focusing an Input (iOS)
+**Cause:** Input font-size below 16px triggers Safari's auto-zoom.
+**Fix:** Set `font-size: 16px` or larger on all inputs (see Section 15).
+
+### Bottom Bar Hidden Behind the Keyboard (Android)
+**Cause:** Modern Android Chrome doesn't resize the layout viewport for the keyboard by default.
+**Fix:** Add `interactive-widget=resizes-content` to the viewport meta tag, or size the UI from `visualViewport` (see Section 15).
 
 ---
 
@@ -649,10 +1027,17 @@ Display the version in a Settings or About page. When users report issues, you c
 [ ] Safe areas: env(safe-area-inset-*) padding on root container
 [ ] Scroll: body overflow hidden, root uses 100svh + overflow-y auto
 [ ] Background color: set on #root to prevent white bars behind safe area padding
-[ ] Offline storage: IndexedDB for data, Cache API for assets
+[ ] Offline storage: IndexedDB for data, Cache API for assets, persist() requested
+[ ] Data backup: JSON export/import with schema version (local-only apps)
 [ ] Auto-save: debounced writes with flush on unmount
+[ ] Updates: mid-session deploy handled (vite:preloadError reload or update prompt)
+[ ] Native feel: overscroll-behavior none, tap-highlight transparent, hover gated behind (hover: hover)
+[ ] Keyboard: bottom UI tested with keyboard open on Android; inputs >= 16px font
 [ ] Icons: 192px, 512px, 512px maskable, SVG favicon, apple-touch-icon link tag
 [ ] HTTPS: required for service workers (localhost exempt)
 [ ] SPA routing: 404.html redirect for static hosts
+[ ] Subdirectory deploy: vite base set, manifest uses relative start_url/scope
+[ ] Tests: data layer (importers, dedupe, migrations) covered via fake-indexeddb
+[ ] CI: typecheck + tests + build on every PR; deploy gated to main
 [ ] Version: injected at build time, displayed in-app
 ```
