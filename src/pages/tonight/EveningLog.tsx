@@ -18,12 +18,14 @@ import {
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { scheduleNotifications } from '../../services/notifications';
 import { WeightStepper } from '../../components/WeightStepper';
+import { NeckField } from '../../components/NeckField';
 import {
   formatWeight,
-  recalculateCalculatedWeights,
+  recalculateCalculatedMeasurements,
   resolveDefaultWeightLbs,
   roundWeightLbs,
 } from '../../weightUtils';
+import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
 import type {
   StackDeviation,
   EveningFlag,
@@ -32,7 +34,6 @@ import type {
   ClothingItem,
   BeddingItem,
   SupplementDef,
-  WeightEntry,
   MiddayCopingItem,
   MiddayCopingType,
   StruggleIntensity,
@@ -163,7 +164,7 @@ export function EveningLog() {
   // `latestWeight === undefined` forever and the weight stepper would never
   // initialize.
   const latestWeight = useLiveQuery(
-    async () => (await db.weightEntries.orderBy('timestamp').reverse().first()) ?? null,
+    async () => latestMeasurement('weight'),
   );
 
   // Step 1: Alarm
@@ -256,13 +257,17 @@ export function EveningLog() {
    */
   const [earlyBedtimeWarning, setEarlyBedtimeWarning] = useState(false);
 
-  // Weight entry (only surfaced if user weighs in the evening)
-  const weighInPeriod = settings?.weighInPeriod ?? 'morning';
-  const showWeightStep = weighInPeriod === 'evening';
+  // PM weight + neck are always asked (home-experiments Q4); each is
+  // skippable. `weighInPeriod` now only picks the trend series.
+  const showWeightStep = true;
   const unitSystem = settings?.unitSystem ?? 'us';
   const [weightLbs, setWeightLbs] = useState<number | null>(
     (draft?.weightLbs as number | null) ?? null,
   );
+  const [neckIn, setNeckIn] = useState<number | null>(
+    typeof draft?.neckIn === 'number' ? (draft.neckIn as number) : null,
+  );
+  const latestNeck = useLiveQuery(() => latestMeasurement('neck'), []);
   const [weightSkipped, setWeightSkipped] = useState(
     (draft?.weightSkipped as boolean) ?? false,
   );
@@ -275,7 +280,7 @@ export function EveningLog() {
     if (!settings) return;
     if (latestWeight === undefined) return;
     const defaultLbs = resolveDefaultWeightLbs({
-      previousWeightLbs: latestWeight ? latestWeight.weightLbs : null,
+      previousWeightLbs: latestWeight ? latestWeight.value : null,
       startingWeightLbs: settings.startingWeightLbs ?? null,
       sex: settings.sex ?? null,
       heightInches: settings.heightInches ?? null,
@@ -350,7 +355,7 @@ export function EveningLog() {
       hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
       roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
       selectedClothing, selectedBedding, eveningNotes,
-      weightLbs, weightSkipped,
+      weightLbs, weightSkipped, neckIn,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
@@ -360,7 +365,7 @@ export function EveningLog() {
     hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
     roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
     selectedClothing, selectedBedding, eveningNotes,
-    weightLbs, weightSkipped,
+    weightLbs, weightSkipped, neckIn,
     DRAFT_KEY,
   ]);
 
@@ -574,27 +579,33 @@ export function EveningLog() {
 
       await db.nightLogs.put(nightLog);
 
-      // Log evening weight if that's the user's preference
-      if (showWeightStep && weightLbs != null) {
-        const now = Date.now();
-        const entry: WeightEntry = {
-          id: crypto.randomUUID(),
-          nightLogId: nightLog.id,
+      // PM weight and neck (body-measurements.md): one row per
+      // (kind, date, period); re-saving the log updates rather than
+      // duplicates. Weight keeps its fill-forward behaviour when skipped;
+      // a skipped neck writes nothing.
+      if (weightLbs != null) {
+        const row = await upsertMeasurement({
+          kind: 'weight',
           date,
-          time: getCurrentTime(),
-          timestamp: now,
-          weightLbs: roundWeightLbs(weightLbs, 'us'),
           period: 'evening',
-          createdAt: now,
+          value: roundWeightLbs(weightLbs, 'us'),
+          nightLogId: nightLog.id,
           measured: !weightSkipped,
-        };
-        await db.weightEntries.add(entry);
-
+        });
         if (!weightSkipped) {
-          const all = await db.weightEntries.toArray();
-          const recalculated = recalculateCalculatedWeights(all, entry.id);
-          await db.weightEntries.bulkPut(recalculated);
+          const all = await db.bodyMeasurements.where('kind').equals('weight').toArray();
+          await db.bodyMeasurements.bulkPut(recalculateCalculatedMeasurements(all, row.id));
         }
+      }
+      if (neckIn != null) {
+        await upsertMeasurement({
+          kind: 'neck',
+          date,
+          period: 'evening',
+          value: neckIn,
+          nightLogId: nightLog.id,
+          measured: true,
+        });
       }
 
       // Schedule notifications
@@ -1208,7 +1219,13 @@ export function EveningLog() {
           )}
           {showWeightStep && weightLbs != null && (
             <div className="card">
-              <div className="card-title">Evening Weight</div>
+              <div className="card-title">Evening Weight &amp; Neck</div>
+              <NeckField
+                valueIn={neckIn}
+                onChange={setNeckIn}
+                unitSystem={unitSystem}
+                defaultIn={latestNeck?.value ?? null}
+              />
               {weightSkipped ? (
                 <div>
                   <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>

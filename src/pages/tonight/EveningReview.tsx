@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, timestampToHHMM } from '../../utils';
-import { WeightEditCard } from '../../components/WeightEditCard';
+import { BodyMeasurementEditCard } from '../../components/BodyMeasurementEditCard';
 import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
@@ -404,7 +404,8 @@ export function EveningReview() {
       </div>
 
       <OrthostaticSummaryCard nightDate={nightLog.date} />
-      <WeightEditCard nightLogId={nightLog.id} period="evening" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="evening" kind="weight" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="evening" kind="neck" />
 
       {/* Notes */}
       {eveningNotes && (

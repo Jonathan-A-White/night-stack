@@ -24,6 +24,7 @@ import { ExperimentsHome } from './pages/experiments/ExperimentsHome';
 import { EpisodeCapture } from './pages/experiments/EpisodeCapture';
 import { VitalsTab } from './pages/experiments/VitalsTab';
 import { OrthostaticEntry } from './pages/experiments/OrthostaticEntry';
+import { BodyTab } from './pages/experiments/BodyTab';
 import RemindersPage from './pages/settings/RemindersPage';
 import VitalsSettingsPage from './pages/settings/VitalsSettingsPage';
 import SettingsHome from './pages/settings/SettingsHome';
@@ -81,7 +82,7 @@ export function App() {
           <Route path="/experiments/episode" element={<EpisodeCapture />} />
           <Route path="/experiments/vitals" element={<VitalsTab />} />
           <Route path="/experiments/vitals/new" element={<OrthostaticEntry />} />
-          <Route path="/experiments/body" element={<ComingSoon title="Body" spec="body-measurements.md" />} />
+          <Route path="/experiments/body" element={<BodyTab />} />
           <Route path="/experiments/import" element={<ComingSoon title="Samsung import" spec="samsung-bulk-import.md" />} />
           <Route path="/experiments/export" element={<ComingSoon title="Export for doctor" spec="clinician-export.md" />} />
 

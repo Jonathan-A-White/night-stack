@@ -8,7 +8,7 @@ import {
   findNearestRoomReading,
   computeAdjustedSleepOnset,
 } from '../../utils';
-import { WeightEditCard } from '../../components/WeightEditCard';
+import { BodyMeasurementEditCard } from '../../components/BodyMeasurementEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
@@ -391,7 +391,8 @@ export function MorningReview() {
       </div>
 
       <OrthostaticSummaryCard nightDate={nightLog.date} />
-      <WeightEditCard nightLogId={nightLog.id} period="morning" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="morning" kind="weight" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="morning" kind="neck" />
 
       {(nightLog.eveningNotes || nightLog.morningNotes) && (
         <div className="card">

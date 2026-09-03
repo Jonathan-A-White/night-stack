@@ -5,7 +5,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { db } from '../../db';
-import { recalculateAllCalculatedWeights } from '../../weightUtils';
+import { recalculateAllCalculatedMeasurements } from '../../weightUtils';
 import { toLocalDateString, getEffectiveSleepData } from '../../utils';
 import {
   computeCoolingRate1to4F,
@@ -13,7 +13,7 @@ import {
 } from '../../services/recommender';
 import { getOvernightLow } from '../../services/weather';
 import { SubNav } from './Dashboard';
-import type { NightLog, SleepRating, WeightEntry } from '../../types';
+import type { NightLog, SleepRating, BodyMeasurement } from '../../types';
 
 type XVar =
   | 'roomTemp'
@@ -218,7 +218,7 @@ export function Correlations() {
     [cutoffDate]
   );
   const weights = useLiveQuery(
-    () => db.weightEntries.toArray(),
+    () => db.bodyMeasurements.where('kind').equals('weight').toArray(),
     []
   );
 
@@ -235,13 +235,13 @@ export function Correlations() {
     // Recompute interpolation on the fly. This is defensive: the save-time
     // recalc in the log pages should already keep stored values current, but
     // running it here ensures Correlations never shows stale interpolations.
-    const resolved = recalculateAllCalculatedWeights(weights);
+    const resolved = recalculateAllCalculatedMeasurements(weights);
 
     // Later entries overwrite earlier ones when two weights are linked to the
     // same night log (shouldn't happen in practice, but be safe).
-    const sorted = [...resolved].sort((a: WeightEntry, b: WeightEntry) => a.timestamp - b.timestamp);
+    const sorted = [...resolved].sort((a: BodyMeasurement, b: BodyMeasurement) => a.timestamp - b.timestamp);
     for (const w of sorted) {
-      if (w.nightLogId) map.set(w.nightLogId, w.weightLbs);
+      if (w.nightLogId) map.set(w.nightLogId, w.value);
     }
     return map;
   }, [weights]);

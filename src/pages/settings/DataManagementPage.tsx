@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
+import { buildFullExport, importBackup } from '../../services/backup';
 
 function todayISO(): string {
   const d = new Date();
@@ -52,6 +53,8 @@ export default function DataManagementPage() {
   const routineStepCount = useLiveQuery(() => db.routineSteps.count());
   const routineVariantCount = useLiveQuery(() => db.routineVariants.count());
   const routineSessionCount = useLiveQuery(() => db.routineSessions.count());
+  const bodyMeasurementCount = useLiveQuery(() => db.bodyMeasurements.count());
+  const orthostaticCount = useLiveQuery(() => db.orthostaticReadings.count());
 
   const [status, setStatus] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,40 +64,13 @@ export default function DataManagementPage() {
   const [rangeEnd, setRangeEnd] = useState('');
   const [rangeError, setRangeError] = useState('');
 
-  const buildConfigPayload = async () => ({
-    appSettings: (await db.appSettings.toArray())[0] ?? null,
-    supplementDefs: await db.supplementDefs.toArray(),
-    clothingItems: await db.clothingItems.toArray(),
-    beddingItems: await db.beddingItems.toArray(),
-    middayCopingItems: await db.middayCopingItems.toArray(),
-    wakeUpCauses: await db.wakeUpCauses.toArray(),
-    bedtimeReasons: await db.bedtimeReasons.toArray(),
-    alarmSchedules: await db.alarmSchedules.toArray(),
-    sleepRules: await db.sleepRules.toArray(),
-    routineSteps: await db.routineSteps.toArray(),
-    routineVariants: await db.routineVariants.toArray(),
-  });
-
+  // Export/import live in services/backup.ts so the round trip is tested
+  // (body-measurements.md). "Export All Data" and "Full export" now
+  // produce the same payload, which includes bodyMeasurements and
+  // orthostatic readings.
   const handleExport = async () => {
     try {
-      const data = {
-        nightLogs: await db.nightLogs.toArray(),
-        supplementDefs: await db.supplementDefs.toArray(),
-        clothingItems: await db.clothingItems.toArray(),
-        beddingItems: await db.beddingItems.toArray(),
-        middayCopingItems: await db.middayCopingItems.toArray(),
-        wakeUpCauses: await db.wakeUpCauses.toArray(),
-        bedtimeReasons: await db.bedtimeReasons.toArray(),
-        alarmSchedules: await db.alarmSchedules.toArray(),
-        sleepRules: await db.sleepRules.toArray(),
-        appSettings: await db.appSettings.toArray(),
-        routineSteps: await db.routineSteps.toArray(),
-        routineVariants: await db.routineVariants.toArray(),
-        routineSessions: await db.routineSessions.toArray(),
-      };
-
-      triggerJsonDownload(data, `nightstack-export-${todayISO()}.json`);
-
+      triggerJsonDownload(await buildFullExport(), `nightstack-export-${todayISO()}.json`);
       setStatus('Export complete.');
       setTimeout(() => setStatus(''), 3000);
     } catch {
@@ -104,16 +80,7 @@ export default function DataManagementPage() {
 
   const handleFullExport = async () => {
     try {
-      const config = await buildConfigPayload();
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        version: 1,
-        dateRange: null,
-        nightLogs: await db.nightLogs.toArray(),
-        weightEntries: await db.weightEntries.toArray(),
-        routineSessions: await db.routineSessions.toArray(),
-        config,
-      };
+      const payload = await buildFullExport();
       triggerJsonDownload(payload, `nightstack-export-full-${todayISO()}.json`);
       setStatus('Full export complete.');
       setTimeout(() => setStatus(''), 3000);
@@ -133,28 +100,7 @@ export default function DataManagementPage() {
     }
     setRangeError('');
     try {
-      const config = await buildConfigPayload();
-      const nightLogs = await db.nightLogs
-        .where('date')
-        .between(rangeStart, rangeEnd, true, true)
-        .toArray();
-      const weightEntries = await db.weightEntries
-        .where('date')
-        .between(rangeStart, rangeEnd, true, true)
-        .toArray();
-      const routineSessions = await db.routineSessions
-        .where('date')
-        .between(rangeStart, rangeEnd, true, true)
-        .toArray();
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        version: 1,
-        dateRange: { start: rangeStart, end: rangeEnd },
-        nightLogs,
-        weightEntries,
-        routineSessions,
-        config,
-      };
+      const payload = await buildFullExport({ start: rangeStart, end: rangeEnd });
       triggerJsonDownload(
         payload,
         `nightstack-export-${rangeStart}_to_${rangeEnd}.json`,
@@ -208,62 +154,8 @@ export default function DataManagementPage() {
     try {
       const text = await file.text();
       const data = JSON.parse(text);
-
-      await db.transaction('rw', [
-        db.nightLogs, db.supplementDefs, db.clothingItems, db.beddingItems,
-        db.middayCopingItems, db.wakeUpCauses, db.bedtimeReasons, db.alarmSchedules,
-        db.sleepRules, db.appSettings,
-        db.routineSteps, db.routineVariants, db.routineSessions,
-      ], async () => {
-          // Clear all tables
-          await db.nightLogs.clear();
-          await db.supplementDefs.clear();
-          await db.clothingItems.clear();
-          await db.beddingItems.clear();
-          await db.middayCopingItems.clear();
-          await db.wakeUpCauses.clear();
-          await db.bedtimeReasons.clear();
-          await db.alarmSchedules.clear();
-          await db.sleepRules.clear();
-          await db.appSettings.clear();
-          await db.routineSteps.clear();
-          await db.routineVariants.clear();
-          await db.routineSessions.clear();
-
-          // Load imported data
-          if (data.nightLogs?.length) await db.nightLogs.bulkAdd(data.nightLogs);
-          if (data.supplementDefs?.length) await db.supplementDefs.bulkAdd(data.supplementDefs);
-          if (data.clothingItems?.length) await db.clothingItems.bulkAdd(data.clothingItems);
-          if (data.beddingItems?.length) await db.beddingItems.bulkAdd(data.beddingItems);
-          if (data.middayCopingItems?.length) await db.middayCopingItems.bulkAdd(data.middayCopingItems);
-          if (data.wakeUpCauses?.length) await db.wakeUpCauses.bulkAdd(data.wakeUpCauses);
-          if (data.bedtimeReasons?.length) await db.bedtimeReasons.bulkAdd(data.bedtimeReasons);
-          if (data.alarmSchedules?.length) await db.alarmSchedules.bulkAdd(data.alarmSchedules);
-          if (data.sleepRules?.length) await db.sleepRules.bulkAdd(data.sleepRules);
-          if (data.appSettings?.length) await db.appSettings.bulkAdd(data.appSettings);
-
-          // Routine data — accept either top-level or nested under config (full-export shape)
-          const importedRoutineSteps = data.routineSteps ?? data.config?.routineSteps;
-          const importedRoutineVariants = data.routineVariants ?? data.config?.routineVariants;
-          const importedRoutineSessions = data.routineSessions;
-          if (importedRoutineSteps?.length) await db.routineSteps.bulkAdd(importedRoutineSteps);
-          if (importedRoutineVariants?.length) await db.routineVariants.bulkAdd(importedRoutineVariants);
-          if (importedRoutineSessions?.length) await db.routineSessions.bulkAdd(importedRoutineSessions);
-
-          // Seed a default variant if none were imported, to keep the app in a valid state
-          if (!importedRoutineVariants?.length) {
-            await db.routineVariants.add({
-              id: crypto.randomUUID(),
-              name: 'Full',
-              description: '',
-              stepIds: [],
-              isDefault: true,
-              sortOrder: 1,
-              createdAt: Date.now(),
-            });
-          }
-        }
-      );
+      // Pre-v12 backups (weightEntries, high_salt flags) are translated.
+      await importBackup(data);
 
       setStatus('Import complete. Data has been replaced.');
       setTimeout(() => setStatus(''), 3000);
@@ -437,6 +329,21 @@ export default function DataManagementPage() {
           <span className="summary-label">Routine Sessions</span>
           <span className="summary-value">{routineSessionCount ?? 0}</span>
         </div>
+        <div className="summary-row">
+          <span className="summary-label">Body Measurements</span>
+          <span className="summary-value">{bodyMeasurementCount ?? 0}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-label">Orthostatic Readings</span>
+          <span className="summary-value">{orthostaticCount ?? 0}</span>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-title">Export for doctor</div>
+        <Link to="/experiments/export" className="btn btn-secondary btn-full">
+          Clinician CSV and printable summary
+        </Link>
       </div>
 
       {/* Export / Import */}

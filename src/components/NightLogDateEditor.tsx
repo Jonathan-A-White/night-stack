@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { db } from '../db';
 import type { NightLog } from '../types';
+import { addDaysToDate } from '../utils';
 
 interface NightLogDateEditorProps {
   nightLog: NightLog;
@@ -35,12 +36,16 @@ export function NightLogDateEditor({ nightLog }: NightLogDateEditorProps) {
         date: draft,
         updatedAt: Date.now(),
       });
-      // Also re-file any weight entries linked to this night so the calendar
-      // and per-day views keep them in the right bucket.
-      await db.weightEntries
+      // Also re-file any body measurements linked to this night so the
+      // calendar and per-day views keep them in the right bucket. Evening
+      // rows carry the night date; morning rows the day after.
+      const nextMorning = addDaysToDate(draft, 1);
+      await db.bodyMeasurements
         .where('nightLogId')
         .equals(nightLog.id)
-        .modify({ date: draft });
+        .modify((m) => {
+          m.date = m.period === 'morning' ? nextMorning : draft;
+        });
       setEditing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save');

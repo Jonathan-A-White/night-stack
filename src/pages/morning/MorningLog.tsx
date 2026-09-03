@@ -5,7 +5,6 @@ import { db } from '../../db';
 import {
   addDaysToDate,
   addMinutes,
-  getCurrentTime,
   getTodayDate,
   getYesterdayDate,
   formatTime12h,
@@ -20,19 +19,20 @@ import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { findDuplicateSleepData } from '../../services/sleepDataDedupe';
 import { WeightStepper } from '../../components/WeightStepper';
+import { NeckField } from '../../components/NeckField';
 import {
   formatWeight,
-  recalculateCalculatedWeights,
+  recalculateCalculatedMeasurements,
   resolveDefaultWeightLbs,
   roundWeightLbs,
 } from '../../weightUtils';
+import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
 import type {
   SleepData,
   SleepRating,
   RoomReading,
   WakeUpEvent,
   BedtimeExplanation,
-  WeightEntry,
   ThermalComfort,
 } from '../../types';
 
@@ -124,7 +124,7 @@ export function MorningLog() {
   // `latestWeight === undefined` forever and the weight stepper would never
   // initialize.
   const latestWeight = useLiveQuery(
-    async () => (await db.weightEntries.orderBy('timestamp').reverse().first()) ?? null,
+    async () => latestMeasurement('weight'),
   );
 
   // Step 1: Sleep data import
@@ -193,12 +193,15 @@ export function MorningLog() {
   const [showBlankCauseConfirm, setShowBlankCauseConfirm] = useState(false);
 
   // Weight entry (only surfaced if user weighs in the morning)
-  const weighInPeriod = settings?.weighInPeriod ?? 'morning';
-  const showWeightStep = weighInPeriod === 'morning';
+  // AM weight + neck are always asked (home-experiments Q4); each is
+  // skippable. `weighInPeriod` now only picks the trend series.
+  const showWeightStep = true;
   const unitSystem = settings?.unitSystem ?? 'us';
   const [weightLbs, setWeightLbs] = useState<number | null>(null);
   const [weightSkipped, setWeightSkipped] = useState(false);
   const [weightInitialized, setWeightInitialized] = useState(false);
+  const [neckIn, setNeckIn] = useState<number | null>(null);
+  const latestNeck = useLiveQuery(() => latestMeasurement('neck'), []);
 
   // Initialize the stepper once settings + latest weight query resolve.
   useEffect(() => {
@@ -206,7 +209,7 @@ export function MorningLog() {
     if (!settings) return;
     if (latestWeight === undefined) return; // query not yet resolved
     const defaultLbs = resolveDefaultWeightLbs({
-      previousWeightLbs: latestWeight ? latestWeight.weightLbs : null,
+      previousWeightLbs: latestWeight ? latestWeight.value : null,
       startingWeightLbs: settings.startingWeightLbs ?? null,
       sex: settings.sex ?? null,
       heightInches: settings.heightInches ?? null,
@@ -257,6 +260,7 @@ export function MorningLog() {
         setWeightInitialized(true);
       }
       if (typeof draft.weightSkipped === 'boolean') setWeightSkipped(draft.weightSkipped);
+      if (typeof draft.neckIn === 'number') setNeckIn(draft.neckIn);
     } else {
       // No draft — seed from saved nightLog data so re-opening a saved
       // morning log shows the previously entered values.
@@ -298,6 +302,7 @@ export function MorningLog() {
       morningNotes,
       weightLbs,
       weightSkipped,
+      neckIn,
     };
     try {
       localStorage.setItem(draftKey, JSON.stringify(data));
@@ -319,6 +324,7 @@ export function MorningLog() {
     morningNotes,
     weightLbs,
     weightSkipped,
+    neckIn,
   ]);
 
   // --- Handlers ---
@@ -677,30 +683,36 @@ export function MorningLog() {
       updatedAt: Date.now(),
     });
 
-    // Log morning weight (if that's the user's preference)
-    if (showWeightStep && weightLbs != null) {
-      const now = Date.now();
-      const entry: WeightEntry = {
-        id: crypto.randomUUID(),
-        nightLogId: nightLog.id,
-        date: today,
-        time: getCurrentTime(),
-        timestamp: now,
-        weightLbs: roundWeightLbs(weightLbs, 'us'),
+    // AM weight and neck (body-measurements.md). The AM row is dated the
+    // morning after the night and linked to this night's log. One row per
+    // (kind, date, period); re-saving updates rather than duplicates.
+    const amDate = addDaysToDate(nightLog.date, 1);
+    if (weightLbs != null) {
+      const row = await upsertMeasurement({
+        kind: 'weight',
+        date: amDate,
         period: 'morning',
-        createdAt: now,
+        value: roundWeightLbs(weightLbs, 'us'),
+        nightLogId: nightLog.id,
         measured: !weightSkipped,
-      };
-      await db.weightEntries.add(entry);
-
+      });
       // When the user actively enters a weight, use it as a new anchor and
       // recompute any calculated entries between the previous measurement
       // and this one (plus fill-forward past the anchor).
       if (!weightSkipped) {
-        const all = await db.weightEntries.toArray();
-        const recalculated = recalculateCalculatedWeights(all, entry.id);
-        await db.weightEntries.bulkPut(recalculated);
+        const all = await db.bodyMeasurements.where('kind').equals('weight').toArray();
+        await db.bodyMeasurements.bulkPut(recalculateCalculatedMeasurements(all, row.id));
       }
+    }
+    if (neckIn != null) {
+      await upsertMeasurement({
+        kind: 'neck',
+        date: amDate,
+        period: 'morning',
+        value: neckIn,
+        nightLogId: nightLog.id,
+        measured: true,
+      });
     }
 
     // Clear draft on successful save (always keyed to the saved nightLog)
@@ -822,7 +834,13 @@ export function MorningLog() {
         <div>
           {showWeightStep && weightLbs != null && (
             <div className="card">
-              <div className="card-title">Morning Weight</div>
+              <div className="card-title">Morning Weight &amp; Neck</div>
+              <NeckField
+                valueIn={neckIn}
+                onChange={setNeckIn}
+                unitSystem={unitSystem}
+                defaultIn={latestNeck?.value ?? null}
+              />
               {weightSkipped ? (
                 <div>
                   <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>

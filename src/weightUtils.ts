@@ -1,4 +1,4 @@
-import type { Sex, UnitSystem, WeightEntry } from './types';
+import type { BodyMeasurement, Sex, UnitSystem, WeightEntry } from './types';
 
 // === Conversions ===
 
@@ -273,6 +273,36 @@ export function recalculateCalculatedWeights(
  * first. If there are zero measured entries, calculated entries are left
  * unchanged. Returns a new array; the input is not mutated.
  */
+/**
+ * BodyMeasurement adapters (home-experiments body-measurements.md). The
+ * interpolation logic above is written against `weightLbs`; these wrap it
+ * for the generalized table by mapping `value` ↔ `weightLbs`. Rows of
+ * different kinds must not be mixed in one call — filter by `kind` first.
+ */
+function toLegacy(rows: BodyMeasurement[]): WeightEntry[] {
+  return rows.map((r) => ({
+    id: r.id, nightLogId: r.nightLogId, date: r.date, time: r.time, timestamp: r.timestamp,
+    weightLbs: r.value, period: r.period, createdAt: r.createdAt, measured: r.measured,
+  }));
+}
+
+function fromLegacy(rows: WeightEntry[], byId: Map<string, BodyMeasurement>): BodyMeasurement[] {
+  return rows.map((w) => ({ ...byId.get(w.id)!, value: w.weightLbs, measured: w.measured }));
+}
+
+export function recalculateCalculatedMeasurements(
+  entries: BodyMeasurement[],
+  anchorId: string,
+): BodyMeasurement[] {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  return fromLegacy(recalculateCalculatedWeights(toLegacy(entries), anchorId), byId);
+}
+
+export function recalculateAllCalculatedMeasurements(entries: BodyMeasurement[]): BodyMeasurement[] {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  return fromLegacy(recalculateAllCalculatedWeights(toLegacy(entries)), byId);
+}
+
 export function recalculateAllCalculatedWeights(entries: WeightEntry[]): WeightEntry[] {
   const sorted = entries
     .map((e) => ({ ...e }))
