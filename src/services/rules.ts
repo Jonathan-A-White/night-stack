@@ -6,8 +6,10 @@ import type {
   ConditionClause,
   ConditionClauseKind,
   MiddayCopingItem,
+  OrthostaticReading,
 } from '../types';
 import { getOvernightLow } from './weather';
+import { computeOrthostatic } from './orthostatic';
 
 export interface RuleEvalContext {
   weather: ExternalWeather | null;
@@ -21,6 +23,13 @@ export interface RuleEvalContext {
    * map or omit the field.
    */
   middayCopingItems?: Map<string, MiddayCopingItem>;
+  /**
+   * Orthostatic readings dated today, for `orthostatic_flag_today`
+   * (home-experiments). Optional so existing callers keep compiling.
+   */
+  todayOrthostatic?: OrthostaticReading[];
+  /** Watch BP calibration date, only used to compute recalibration warnings. */
+  watchBpCalibratedAt?: number | null;
 }
 
 export interface EvaluatedRule {
@@ -221,9 +230,9 @@ function evaluateClause(clause: ConditionClause, ctx: RuleEvalContext): boolean 
     }
 
     case 'orthostatic_flag_today':
-      // TODO(insights-and-rules): evaluate against today's orthostatic
-      // readings once `RuleEvalContext.todayOrthostatic` exists.
-      return false;
+      return (ctx.todayOrthostatic ?? []).some(
+        (r) => computeOrthostatic(r, ctx.watchBpCalibratedAt ?? null).flags.length > 0,
+      );
   }
 }
 

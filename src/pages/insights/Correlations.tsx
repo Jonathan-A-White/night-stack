@@ -5,186 +5,58 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { db } from '../../db';
-import { recalculateAllCalculatedMeasurements } from '../../weightUtils';
-import { toLocalDateString, getEffectiveSleepData } from '../../utils';
-import {
-  computeCoolingRate1to4F,
-  computeHoursSinceLastMeal,
-} from '../../services/recommender';
-import { getOvernightLow } from '../../services/weather';
+import { toLocalDateString } from '../../utils';
 import { SubNav } from './Dashboard';
-import type { NightLog, SleepRating, BodyMeasurement } from '../../types';
-
-type XVar =
-  | 'roomTemp'
-  | 'externalLow'
-  | 'roomHumidity'
-  | 'lastMealMins'
-  | 'beddingLayers'
-  | 'clothingLayers'
-  | 'alcohol'
-  | 'anyFlag'
-  | 'weight'
-  | 'overate'
-  // Recommender v2 UX T5: surface the new derived features and pressure
-  // in the correlations picker so the user can explore them directly.
-  | 'hoursSinceLastMeal'
-  | 'coolingRate1to4F'
-  | 'pressure'
-  // Home-experiments night tag (night-tags.md). The full picker refactor
-  // lands with insights-and-rules.md.
-  | 'sodiumLevel';
-
-type YVar =
-  | 'sleepScore'
-  | 'deepSleep'
-  | 'remSleep'
-  | 'awakeMins'
-  | 'avgHR'
-  | 'minHR'
-  | 'wakeUpCount'
-  | 'restfulness';
-
-const X_OPTIONS: { value: XVar; label: string }[] = [
-  { value: 'roomTemp', label: 'Room temp (\u00b0F)' },
-  { value: 'externalLow', label: 'External overnight low (\u00b0F)' },
-  { value: 'roomHumidity', label: 'Room humidity (%)' },
-  { value: 'lastMealMins', label: 'Last meal (mins before bed)' },
-  { value: 'hoursSinceLastMeal', label: 'Hours since last meal' },
-  { value: 'coolingRate1to4F', label: 'Cooling rate 1\u20134am (\u00b0F/h)' },
-  { value: 'pressure', label: 'Pressure (weather low \u2212 room)' },
-  { value: 'beddingLayers', label: 'Number bedding layers' },
-  { value: 'clothingLayers', label: 'Number clothing layers' },
-  { value: 'alcohol', label: 'Alcohol (1/0)' },
-  { value: 'anyFlag', label: 'Any flag active (1/0, salt excluded)' },
-  { value: 'sodiumLevel', label: 'Sodium level (0 normal / 1 more / 2 much more)' },
-  { value: 'weight', label: 'Weight (lb)' },
-  { value: 'overate', label: 'Overate flag (1/0)' },
-];
-
-const Y_OPTIONS: { value: YVar; label: string }[] = [
-  { value: 'sleepScore', label: 'Sleep score' },
-  { value: 'deepSleep', label: 'Deep sleep (min)' },
-  { value: 'remSleep', label: 'REM sleep (min)' },
-  { value: 'awakeMins', label: 'Awake (min)' },
-  { value: 'avgHR', label: 'Avg heart rate (bpm)' },
-  { value: 'minHR', label: "Night's low HR (bpm)" },
-  { value: 'wakeUpCount', label: 'Wake-up events' },
-  { value: 'restfulness', label: 'Restfulness rating' },
-];
-
-function ratingToNum(r: SleepRating): number {
-  switch (r) {
-    case 'Excellent': return 4;
-    case 'Good': return 3;
-    case 'Fair': return 2;
-    case 'Attention': return 1;
-  }
-}
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
-}
-
-function getExternalLow(log: NightLog): number | null {
-  const temps = log.environment.externalWeather?.overnightTemps;
-  if (!temps || temps.length === 0) return null;
-  return Math.min(...temps.map((t) => t.value));
-}
+import {
+  GROUP_LABELS,
+  buildNightMetricCtx,
+  getMetric,
+  metricsForSide,
+  type MetricGroup,
+  type NightMetric,
+} from '../../services/nightMetrics';
 
 /**
- * Per-log derived features for the new ux.md T5 picker options. Computed
- * once per logs array and cached so selecting different X/Y vars doesn't
- * re-walk the roomTimeline on every scatter point.
+ * Scatter-plot builder. Both pickers are derived from the shared night
+ * metric registry (insights-and-rules.md, Q15): tags default to X,
+ * deltas and vitals to Y, and any 'both'-sided metric can go on either
+ * axis. Per-night context (body measurements, orthostatic readings) is
+ * built once per data change.
  */
-interface DerivedFeatures {
-  /** Hours between `eveningIntake.lastMealTime` and the bedtime anchor. */
-  hoursSinceLastMeal: number | null;
-  /** °F/hour drift between ~01:00 and ~04:00 on `roomTimeline`. */
-  coolingRate1to4F: number | null;
-  /**
-   * Tonight's overnightLow - startingRoomTempF. Positive: room already
-   * warmer than the forecast (typical). The UX spec calls this "pressure".
-   */
-  pressure: number | null;
-}
 
-function computeDerived(log: NightLog): DerivedFeatures {
-  const low = log.environment.externalWeather
-    ? getOvernightLow(log.environment.externalWeather)
-    : null;
-  const room = log.environment.roomTempF;
-  return {
-    hoursSinceLastMeal: computeHoursSinceLastMeal(log),
-    coolingRate1to4F: computeCoolingRate1to4F(log),
-    pressure: low !== null && room !== null ? low - room : null,
-  };
-}
+const GROUP_ORDER: MetricGroup[] = ['tags', 'body', 'vitals', 'environment', 'sleep'];
 
-function getXValue(
-  log: NightLog,
-  v: XVar,
-  weightByLogId: Map<string, number>,
-  derived: DerivedFeatures,
-): number | null {
-  switch (v) {
-    case 'roomTemp':
-      return log.environment.roomTempF;
-    case 'externalLow':
-      return getExternalLow(log);
-    case 'roomHumidity':
-      return log.environment.roomHumidity;
-    case 'lastMealMins': {
-      if (!log.eveningIntake.lastMealTime || !log.sleepData?.sleepTime) return null;
-      const effectiveSleepTime = getEffectiveSleepData(log)?.sleepTime ?? log.sleepData.sleepTime;
-      const mealMins = timeToMinutes(log.eveningIntake.lastMealTime);
-      let bedMins = timeToMinutes(effectiveSleepTime);
-      // Handle crossing midnight: if bedtime < meal time, add 24h to bedtime
-      if (bedMins < mealMins) bedMins += 24 * 60;
-      return bedMins - mealMins;
-    }
-    case 'hoursSinceLastMeal':
-      return derived.hoursSinceLastMeal;
-    case 'coolingRate1to4F':
-      return derived.coolingRate1to4F;
-    case 'pressure':
-      return derived.pressure;
-    case 'beddingLayers':
-      return log.bedding.length;
-    case 'clothingLayers':
-      return log.clothing.length;
-    case 'alcohol':
-      return log.eveningIntake.alcohol ? 1 : 0;
-    case 'anyFlag':
-      return log.eveningIntake.flags.some((f) => f.active) ? 1 : 0;
-    case 'weight': {
-      const w = weightByLogId.get(log.id);
-      return w ?? null;
-    }
-    case 'overate':
-      return log.eveningIntake.flags.some(
-        (f) => f.type === 'overate' && f.active,
-      )
-        ? 1
-        : 0;
-    case 'sodiumLevel':
-      return log.eveningIntake.sodiumLevel === 'normal' ? 0 : log.eveningIntake.sodiumLevel === 'more' ? 1 : 2;
-  }
-}
-
-function getYValue(log: NightLog, v: YVar): number | null {
-  if (!log.sleepData) return null;
-  switch (v) {
-    case 'sleepScore': return log.sleepData.sleepScore;
-    case 'deepSleep': return log.sleepData.deepSleep;
-    case 'remSleep': return log.sleepData.remSleep;
-    case 'awakeMins': return log.sleepData.awakeDuration;
-    case 'avgHR': return log.sleepData.avgHeartRate;
-    case 'minHR': return log.sleepData.minHeartRate;
-    case 'wakeUpCount': return log.wakeUpEvents.length;
-    case 'restfulness': return ratingToNum(log.sleepData.restfulnessRating);
-  }
+function MetricSelect({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  options: NightMetric[];
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div className="form-group">
+      <label className="form-label" htmlFor={id}>{label}</label>
+      <select id={id} className="form-input" value={value} onChange={(e) => onChange(e.target.value)}>
+        {GROUP_ORDER.map((g) => {
+          const items = options.filter((o) => o.group === g);
+          if (items.length === 0) return null;
+          return (
+            <optgroup key={g} label={GROUP_LABELS[g]}>
+              {items.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </optgroup>
+          );
+        })}
+      </select>
+    </div>
+  );
 }
 
 function linearRegression(points: { x: number; y: number }[]) {
@@ -210,8 +82,8 @@ function linearRegression(points: { x: number; y: number }[]) {
 }
 
 export function Correlations() {
-  const [xVar, setXVar] = useState<XVar>('roomTemp');
-  const [yVar, setYVar] = useState<YVar>('sleepScore');
+  const [xKey, setXKey] = useState('roomTemp');
+  const [yKey, setYKey] = useState('sleepScore');
 
   const cutoffDate = useMemo(() => {
     const d = new Date();
@@ -223,69 +95,35 @@ export function Correlations() {
     () => db.nightLogs.where('date').above(cutoffDate).toArray(),
     [cutoffDate]
   );
-  const weights = useLiveQuery(
-    () => db.bodyMeasurements.where('kind').equals('weight').toArray(),
-    []
+  const bodyRows = useLiveQuery(
+    () => db.bodyMeasurements.where('date').above(cutoffDate).toArray(),
+    [cutoffDate],
   );
+  const readings = useLiveQuery(
+    () => db.orthostaticReadings.where('date').above(cutoffDate).toArray(),
+    [cutoffDate],
+  );
+  const settings = useLiveQuery(() => db.appSettings.get('default'));
 
-  // Build a nightLogId → weight (lbs) map.
-  //
-  // Interpolation policy: calculated entries use their latest interpolation
-  // between surrounding measurements so the scatter plot always reflects the
-  // current state. We do NOT fabricate weights for night logs that have no
-  // WeightEntry at all — only entries that actually exist are plotted.
-  const weightByLogId = useMemo(() => {
-    const map = new Map<string, number>();
-    if (!weights) return map;
+  const xOptions = useMemo(() => metricsForSide('x'), []);
+  const yOptions = useMemo(() => metricsForSide('y'), []);
 
-    // Recompute interpolation on the fly. This is defensive: the save-time
-    // recalc in the log pages should already keep stored values current, but
-    // running it here ensures Correlations never shows stale interpolations.
-    const resolved = recalculateAllCalculatedMeasurements(weights);
-
-    // Later entries overwrite earlier ones when two weights are linked to the
-    // same night log (shouldn't happen in practice, but be safe).
-    const sorted = [...resolved].sort((a: BodyMeasurement, b: BodyMeasurement) => a.timestamp - b.timestamp);
-    for (const w of sorted) {
-      if (w.nightLogId) map.set(w.nightLogId, w.value);
-    }
-    return map;
-  }, [weights]);
-
-  // Derived features (ux.md T5): compute once per logs array. Cooling rate
-  // walks the roomTimeline and hoursSinceLastMeal parses HH:MM strings, so
-  // doing this inside the getXValue switch would re-derive on every
-  // picker flip. Memoize keyed on logs identity — Dexie returns a new
-  // reference when the underlying data changes.
-  const derivedByLogId = useMemo(() => {
-    const map = new Map<string, DerivedFeatures>();
-    if (!logs) return map;
-    for (const log of logs) {
-      map.set(log.id, computeDerived(log));
-    }
-    return map;
-  }, [logs]);
+  const contexts = useMemo(() => {
+    if (!logs) return [];
+    const calibratedAt = settings?.watchBpCalibratedAt ?? null;
+    return logs.map((log) => buildNightMetricCtx(log, bodyRows ?? [], readings ?? [], calibratedAt));
+  }, [logs, bodyRows, readings, settings]);
 
   const { points, regression, trendLine } = useMemo(() => {
-    if (!logs) return { points: [], regression: { slope: 0, intercept: 0, r: 0 }, trendLine: [] };
-
+    const xm = getMetric(xKey);
+    const ym = getMetric(yKey);
     const pts: { x: number; y: number }[] = [];
-    for (const log of logs) {
-      const derived = derivedByLogId.get(log.id) ?? {
-        hoursSinceLastMeal: null,
-        coolingRate1to4F: null,
-        pressure: null,
-      };
-      const x = getXValue(log, xVar, weightByLogId, derived);
-      const y = getYValue(log, yVar);
-      if (x !== null && y !== null) {
-        pts.push({ x, y });
-      }
+    for (const ctx of contexts) {
+      const x = xm.extract(ctx);
+      const y = ym.extract(ctx);
+      if (x !== null && y !== null) pts.push({ x, y });
     }
-
     const reg = linearRegression(pts);
-
-    // Build trend line from min to max x
     let trend: { x: number; y: number }[] = [];
     if (pts.length >= 2) {
       const xs = pts.map((p) => p.x);
@@ -296,12 +134,11 @@ export function Correlations() {
         { x: maxX, y: reg.slope * maxX + reg.intercept },
       ];
     }
-
     return { points: pts, regression: reg, trendLine: trend };
-  }, [logs, xVar, yVar, weightByLogId, derivedByLogId]);
+  }, [contexts, xKey, yKey]);
 
-  const xLabel = X_OPTIONS.find((o) => o.value === xVar)?.label ?? '';
-  const yLabel = Y_OPTIONS.find((o) => o.value === yVar)?.label ?? '';
+  const xLabel = getMetric(xKey).label;
+  const yLabel = getMetric(yKey).label;
 
   if (!logs) {
     return <div className="empty-state"><h3>Loading...</h3></div>;
@@ -316,35 +153,11 @@ export function Correlations() {
 
       <SubNav active="correlations" />
 
-      {/* Pickers */}
       <div className="card">
-        <div className="form-group">
-          <label className="form-label">X-axis (input variable)</label>
-          <select
-            className="form-input"
-            value={xVar}
-            onChange={(e) => setXVar(e.target.value as XVar)}
-          >
-            {X_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group">
-          <label className="form-label">Y-axis (output variable)</label>
-          <select
-            className="form-input"
-            value={yVar}
-            onChange={(e) => setYVar(e.target.value as YVar)}
-          >
-            {Y_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
+        <MetricSelect id="x-metric" label="X-axis" value={xKey} options={xOptions} onChange={setXKey} />
+        <MetricSelect id="y-metric" label="Y-axis" value={yKey} options={yOptions} onChange={setYKey} />
       </div>
 
-      {/* Correlation info */}
       {points.length >= 2 && (
         <div className="card">
           <div className="card-title">Correlation</div>
@@ -359,7 +172,6 @@ export function Correlations() {
         </div>
       )}
 
-      {/* Scatter plot */}
       {points.length > 0 ? (
         <div className="card">
           <div className="card-title">{yLabel} vs {xLabel}</div>

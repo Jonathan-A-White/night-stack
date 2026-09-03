@@ -115,6 +115,30 @@ export function buildEveningTagsForSave(input: EveningTagsInput): {
   };
 }
 
+/**
+ * Read the sodium level and position the user has picked in tonight's
+ * *unsaved* evening-log draft, so Tonight's plan can fire the
+ * "sleep on your side" rule before the log is saved (pack acceptance 6).
+ */
+export function readEveningDraftTags(eveningDate: string): {
+  sodiumLevel: SodiumLevel;
+  positionStarted: SleepPosition;
+} | null {
+  try {
+    const raw = localStorage.getItem(`evening-log-draft-${eveningDate}`);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Record<string, unknown>;
+    const level = d.sodiumLevel;
+    const pos = d.positionStarted;
+    return {
+      sodiumLevel: level === 'more' || level === 'much_more' ? level : 'normal',
+      positionStarted: pos === 'side' || pos === 'back' ? pos : 'unknown',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function buildMorningTagsForSave(input: {
   positionAtWake: Exclude<SleepPosition, 'unknown'> | null;
   wiredWake: boolean;

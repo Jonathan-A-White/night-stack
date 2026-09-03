@@ -5,15 +5,22 @@ import {
 } from 'recharts';
 import { db } from '../../db';
 import { getEffectiveSleepData } from '../../utils';
-import type { NightLog } from '../../types';
+import { buildNightMetricCtx, getMetric, type NightMetricCtx } from '../../services/nightMetrics';
 
-type MetricType = 'score' | 'sleep' | 'deep' | 'hr' | 'wake';
+/**
+ * Per-metric detail (7/30-night averages, 14-night line, per-night list).
+ * The legacy `:type` keys stay valid; new keys come from the night-metric
+ * registry (insights-and-rules.md).
+ */
+type MetricType =
+  | 'score' | 'sleep' | 'deep' | 'hr' | 'wake'
+  | 'weightDelta' | 'neckDelta' | 'orthoAm' | 'orthoPm' | 'episodes' | 'sodium';
 
 interface MetricConfig {
   title: string;
   description: string;
   format: (v: number) => string;
-  extract: (log: NightLog) => number | null;
+  extract: (ctx: NightMetricCtx) => number | null;
   yDomain?: [number, number];
 }
 
@@ -23,38 +30,28 @@ function formatMinutesAsHM(mins: number): string {
   return `${h}h ${m}m`;
 }
 
+const fromRegistry = (key: string, format: (v: number) => string, title?: string, description?: string): MetricConfig => {
+  const m = getMetric(key);
+  return { title: title ?? m.label, description: description ?? m.label, format, extract: m.extract };
+};
+
 const METRIC_CONFIG: Record<MetricType, MetricConfig> = {
-  score: {
-    title: 'Sleep Score',
-    description: 'Nightly sleep score over time',
-    format: (v) => String(Math.round(v)),
-    extract: (log) => log.sleepData?.sleepScore ?? null,
-    yDomain: [0, 100],
-  },
+  score: { ...fromRegistry('sleepScore', (v) => String(Math.round(v)), 'Sleep Score', 'Nightly sleep score over time'), yDomain: [0, 100] },
   sleep: {
     title: 'Total Sleep',
     description: 'Hours asleep per night',
     format: (v) => formatMinutesAsHM(v),
-    extract: (log) => getEffectiveSleepData(log)?.totalSleepDuration ?? log.sleepData?.totalSleepDuration ?? null,
+    extract: ({ log }) => getEffectiveSleepData(log)?.totalSleepDuration ?? log.sleepData?.totalSleepDuration ?? null,
   },
-  deep: {
-    title: 'Deep Sleep',
-    description: 'Minutes of deep sleep per night',
-    format: (v) => `${Math.round(v)} min`,
-    extract: (log) => log.sleepData?.deepSleep ?? null,
-  },
-  hr: {
-    title: 'Avg Heart Rate',
-    description: 'Overnight average heart rate',
-    format: (v) => `${Math.round(v)} bpm`,
-    extract: (log) => log.sleepData?.avgHeartRate ?? null,
-  },
-  wake: {
-    title: 'Wake-Ups',
-    description: 'Logged wake-up events per night',
-    format: (v) => String(Math.round(v)),
-    extract: (log) => log.wakeUpEvents.length,
-  },
+  deep: fromRegistry('deepSleep', (v) => `${Math.round(v)} min`, 'Deep Sleep', 'Minutes of deep sleep per night'),
+  hr: fromRegistry('avgHR', (v) => `${Math.round(v)} bpm`, 'Avg Heart Rate', 'Overnight average heart rate'),
+  wake: fromRegistry('wakeUpCount', (v) => String(Math.round(v)), 'Wake-Ups', 'Logged wake-up events per night'),
+  weightDelta: fromRegistry('weightDelta', (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} lb`, 'Overnight Weight Change', 'Morning weight minus bedtime weight'),
+  neckDelta: fromRegistry('neckDelta', (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} in`, 'Overnight Neck Change', 'Morning neck minus bedtime neck'),
+  orthoAm: fromRegistry('orthoAmSystolicDrop3', (v) => `${Math.round(v)} mmHg`, 'AM Systolic Drop', 'Supine minus standing (3 min), morning reading'),
+  orthoPm: fromRegistry('orthoPmSystolicDrop3', (v) => `${Math.round(v)} mmHg`, 'PM Systolic Drop', 'Supine minus standing (3 min), evening reading'),
+  episodes: fromRegistry('episodeCount', (v) => String(Math.round(v)), 'Episodes', '4am episodes captured per night'),
+  sodium: fromRegistry('sodiumLevel', (v) => ['normal', 'more', 'much more'][Math.round(v)] ?? String(v), 'Sodium Level', 'Evening sodium load (0 normal, 1 more, 2 much more)'),
 };
 
 export function MetricDetail() {
@@ -65,6 +62,9 @@ export function MetricDetail() {
     () => db.nightLogs.orderBy('date').reverse().limit(30).toArray(),
     []
   );
+  const bodyRows = useLiveQuery(() => db.bodyMeasurements.toArray(), []);
+  const readings = useLiveQuery(() => db.orthostaticReadings.toArray(), []);
+  const settings = useLiveQuery(() => db.appSettings.get('default'));
 
   const config = type ? METRIC_CONFIG[type as MetricType] : undefined;
 
@@ -83,9 +83,10 @@ export function MetricDetail() {
     return <div className="empty-state"><h3>Loading...</h3></div>;
   }
 
+  const calibratedAt = settings?.watchBpCalibratedAt ?? null;
   const rows = allLogs
     .map((log) => {
-      const value = config.extract(log);
+      const value = config.extract(buildNightMetricCtx(log, bodyRows ?? [], readings ?? [], calibratedAt));
       return value !== null ? { id: log.id, date: log.date, value } : null;
     })
     .filter((r): r is { id: string; date: string; value: number } => r !== null);
@@ -108,9 +109,9 @@ export function MetricDetail() {
       <div className="page-header">
         <button
           className="btn btn-secondary btn-sm mb-8"
-          onClick={() => navigate('/insights')}
+          onClick={() => navigate(-1)}
         >
-          {'\u2190 Back'}
+          {'← Back'}
         </button>
         <h1>{config.title}</h1>
         <p className="subtitle">{config.description}</p>
