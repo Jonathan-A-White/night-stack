@@ -212,6 +212,99 @@ body {
   cursor: pointer;
 }
 
+/* Clinician printable summary — always light, one page */
+.print-page {
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-text: #111111;
+  --color-text-secondary: #444444;
+  --color-border: #cccccc;
+  background: #ffffff;
+  color: #111111;
+  margin: -16px;
+  padding: 16px;
+  min-height: 100%;
+  font-size: 12px;
+}
+
+.print-page h1 {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.print-sub,
+.print-footer {
+  color: #444444;
+  font-size: 11px;
+  margin: 4px 0 10px;
+}
+
+.print-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.print-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.print-table caption {
+  text-align: left;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid #cccccc;
+  padding: 3px 5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.print-table th:first-child,
+.print-table td:first-child {
+  text-align: left;
+}
+
+.print-nights {
+  font-size: 10px;
+}
+
+@media print {
+  .no-print,
+  .app-switcher,
+  .bottom-tabs,
+  .install-banner {
+    display: none !important;
+  }
+
+  .app-content {
+    padding: 0;
+    overflow: visible;
+  }
+
+  .print-page {
+    margin: 0;
+  }
+
+  @page {
+    size: auto;
+    margin: 12mm;
+  }
+}
+
 .calendar-salt {
   position: absolute;
   top: 2px;
