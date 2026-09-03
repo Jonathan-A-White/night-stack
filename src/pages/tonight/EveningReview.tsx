@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, timestampToHHMM } from '../../utils';
 import { WeightEditCard } from '../../components/WeightEditCard';
+import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
   ClothingItem,
@@ -402,6 +403,7 @@ export function EveningReview() {
         )}
       </div>
 
+      <OrthostaticSummaryCard nightDate={nightLog.date} />
       <WeightEditCard nightLogId={nightLog.id} period="evening" />
 
       {/* Notes */}

@@ -22,6 +22,10 @@ import { CalendarPage } from './pages/calendar/CalendarPage';
 import { RoutineHome } from './pages/routine/RoutineHome';
 import { ExperimentsHome } from './pages/experiments/ExperimentsHome';
 import { EpisodeCapture } from './pages/experiments/EpisodeCapture';
+import { VitalsTab } from './pages/experiments/VitalsTab';
+import { OrthostaticEntry } from './pages/experiments/OrthostaticEntry';
+import RemindersPage from './pages/settings/RemindersPage';
+import VitalsSettingsPage from './pages/settings/VitalsSettingsPage';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
@@ -75,7 +79,8 @@ export function App() {
           {/* Experiments app — placeholders are replaced by their workstreams */}
           <Route path="/experiments" element={<ExperimentsHome />} />
           <Route path="/experiments/episode" element={<EpisodeCapture />} />
-          <Route path="/experiments/vitals" element={<ComingSoon title="Vitals" spec="vitals.md" />} />
+          <Route path="/experiments/vitals" element={<VitalsTab />} />
+          <Route path="/experiments/vitals/new" element={<OrthostaticEntry />} />
           <Route path="/experiments/body" element={<ComingSoon title="Body" spec="body-measurements.md" />} />
           <Route path="/experiments/import" element={<ComingSoon title="Samsung import" spec="samsung-bulk-import.md" />} />
           <Route path="/experiments/export" element={<ComingSoon title="Export for doctor" spec="clinician-export.md" />} />
@@ -94,8 +99,8 @@ export function App() {
           <Route path="/settings/location" element={<LocationPage />} />
           <Route path="/settings/sleep-environment" element={<SleepEnvironmentPage />} />
           <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
-          <Route path="/settings/reminders" element={<ComingSoon title="Reminders" spec="vitals.md" />} />
-          <Route path="/settings/vitals" element={<ComingSoon title="Vitals settings" spec="vitals.md" />} />
+          <Route path="/settings/reminders" element={<RemindersPage />} />
+          <Route path="/settings/vitals" element={<VitalsSettingsPage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/data/cleanup" element={<DataCleanupPage />} />
           <Route path="/settings/about" element={<AboutPage />} />

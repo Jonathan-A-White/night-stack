@@ -12,6 +12,7 @@ import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
+import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
 import { logToInputs, nightDistance } from '../../services/recommender';
 import type { NightLog, ThermalComfort } from '../../types';
 
@@ -389,6 +390,7 @@ export function MorningReview() {
         )}
       </div>
 
+      <OrthostaticSummaryCard nightDate={nightLog.date} />
       <WeightEditCard nightLogId={nightLog.id} period="morning" />
 
       {(nightLog.eveningNotes || nightLog.morningNotes) && (

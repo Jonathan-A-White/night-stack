@@ -15,15 +15,24 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === 'granted';
 }
 
-export function scheduleNotifications(
+export interface PlannedNotification {
+  time: string; // "HH:MM"
+  message: string;
+  enabled: boolean;
+}
+
+/**
+ * The full list of notifications for a night, with each gated by its
+ * preference. Pure so it can be unit-tested; `scheduleNotifications` turns
+ * it into timers. Home-experiments reminders (Q19): AM vitals at alarm +
+ * 15 min, PM vitals at target bedtime − 60 min, bedtime weigh-in at target
+ * bedtime − 10 min.
+ */
+export function buildNotificationPlan(
   alarm: AlarmInfo,
-  prefs: AppSettings['notificationPreferences']
-) {
-  clearScheduledNotifications();
-
-  if (!('Notification' in window) || Notification.permission !== 'granted') return;
-
-  const notifications: { time: string; message: string; enabled: boolean }[] = [
+  prefs: AppSettings['notificationPreferences'],
+): PlannedNotification[] {
+  return [
     {
       time: alarm.eatingCutoff,
       message: 'Eating cutoff — stop eating to sleep well tonight',
@@ -49,11 +58,35 @@ export function scheduleNotifications(
       message: "Don't forget to log last night's sleep",
       enabled: prefs.morningLog,
     },
+    {
+      time: addMins(alarm.actualAlarmTime, 15),
+      message: 'Time for your AM orthostatic reading',
+      enabled: prefs.amVitals,
+    },
+    {
+      time: subtractMins(alarm.targetBedtime, 60),
+      message: 'Time for your PM orthostatic reading',
+      enabled: prefs.pmVitals,
+    },
+    {
+      time: subtractMins(alarm.targetBedtime, 10),
+      message: 'Bedtime weigh-in and neck measurement',
+      enabled: prefs.bedtimeWeighIn,
+    },
   ];
+}
+
+export function scheduleNotifications(
+  alarm: AlarmInfo,
+  prefs: AppSettings['notificationPreferences']
+) {
+  clearScheduledNotifications();
+
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
 
   const now = new Date();
 
-  for (const notif of notifications) {
+  for (const notif of buildNotificationPlan(alarm, prefs)) {
     if (!notif.enabled) continue;
 
     const targetDate = getNextOccurrence(notif.time, now);
