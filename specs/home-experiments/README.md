@@ -165,6 +165,50 @@ run lint`, `npm run build`, `npm test` green before opening.
 - Any recommender (`recommender.ts`) changes beyond keeping it
   compiling against the new types.
 
+## Status (2026-09-03)
+
+All nine workstreams are implemented on branch
+`claude/nightstack-home-experiments-udr0ui`, one commit per workstream
+in dependency order, each validated with `npm run lint`, `npx tsc
+--noEmit`, `npm test` and `npm run build` before commit.
+
+| Workstream | Commit | Tests added |
+|---|---|---|
+| schema | `feat(schema)` | `schemaBackfill.test.ts`, `schemaV12.test.ts` (real v11 → v12 upgrade on fake-indexeddb) |
+| app-shell | `feat(app-shell)` | `apps.test.ts`, `appShell.test.tsx` |
+| episode-capture | `feat(episode-capture)` | `episodes.test.ts`, `episodeDraftStorage.test.ts`, `episodeCapture.test.tsx` |
+| vitals | `feat(vitals)` | `orthostatic.test.ts`, `notifications.test.ts`, `vitalsEntry.test.tsx` |
+| body-measurements | `feat(body-measurements)` | `bodyMeasurements.test.ts` (incl. backup round trip and pre-v12 import) |
+| night-tags | `feat(night-tags)` | `nightTags.test.ts` |
+| insights-and-rules | `feat(insights-and-rules)` | `nightMetrics.test.ts`, `homeExperimentRules.test.ts` |
+| clinician-export | `feat(clinician-export)` | `clinicianExport.test.ts` (CSV round trip) |
+| samsung-bulk-import | `feat(samsung-bulk-import)` | `samsungExport.test.ts` + `fixtures/samsung.ts` (hand-written, UNVERIFIED) |
+| pack | `test(pack)` | `appRoutes.test.tsx` mounts the whole app at all 41 routes on a seeded DB |
+
+Pack acceptance: items 1, 3, 4, 5, 6, 7 and 8 are covered by the tests
+above (288 → 461 tests). Items 2 (vitals entry under 60 s) and the
+on-phone halves of 3, 4 and 5 (PWA shortcut, print-to-PDF, opening the
+CSV in Sheets) need a manual pass on the phone.
+
+Deviations from the brief, decided by the orchestrator:
+
+- **Single branch, sequential commits, no PRs opened.** The session's
+  branch rules confine pushes to the designated branch, and the
+  workstreams overlap heavily in `EveningLog.tsx`, `MorningLog.tsx`
+  and `db.ts`; parallel agent branches would have conflicted. The
+  research agent also died on a usage-credit error, so research and
+  implementation were done inline.
+- **Tag steps live inside existing wizard steps** (evening Food & Drink,
+  morning Wake-Up Events) rather than as new numbered steps, to avoid
+  renumbering the 8- and 5-step wizards two days before the visit.
+- **Reminders fire only while the app is open** (pre-existing
+  `setTimeout` scheduler; no service-worker push). Documented on the
+  Reminders page.
+- **`weightEntries` is kept** (read-only, exported for one release)
+  alongside the new `bodyMeasurements`; drop in v13.
+- **Samsung parser is unverified** against a real export (Q21); the
+  first-real-export checklist is in `samsung-bulk-import.md`.
+
 ## Follow-up packs
 
 - `weight-table-cleanup` — drop `weightEntries`, fold the Weight
