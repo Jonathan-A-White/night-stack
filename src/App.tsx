@@ -21,6 +21,7 @@ import { ThermalBackfillReview } from './pages/insights/ThermalBackfillReview';
 import { CalendarPage } from './pages/calendar/CalendarPage';
 import { RoutineHome } from './pages/routine/RoutineHome';
 import { ExperimentsHome } from './pages/experiments/ExperimentsHome';
+import { EpisodeCapture } from './pages/experiments/EpisodeCapture';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
@@ -73,7 +74,7 @@ export function App() {
 
           {/* Experiments app — placeholders are replaced by their workstreams */}
           <Route path="/experiments" element={<ExperimentsHome />} />
-          <Route path="/experiments/episode" element={<ComingSoon title="Episode" spec="episode-capture.md" />} />
+          <Route path="/experiments/episode" element={<EpisodeCapture />} />
           <Route path="/experiments/vitals" element={<ComingSoon title="Vitals" spec="vitals.md" />} />
           <Route path="/experiments/body" element={<ComingSoon title="Body" spec="body-measurements.md" />} />
           <Route path="/experiments/import" element={<ComingSoon title="Samsung import" spec="samsung-bulk-import.md" />} />

@@ -244,6 +244,17 @@ export function TonightPlan() {
         </p>
       </div>
 
+      {/* Late-night shortcut into the 4am episode flow (episode-capture.md) */}
+      {(new Date().getHours() >= 22 || new Date().getHours() < 6) && (
+        <button
+          type="button"
+          className="btn btn-secondary btn-full mb-16"
+          onClick={() => navigate('/experiments/episode')}
+        >
+          ⚡ Episode now
+        </button>
+      )}
+
       {/* Alarm card */}
       <div className="card">
         <div className="card-title">Alarm</div>

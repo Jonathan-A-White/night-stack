@@ -15,6 +15,8 @@ import {
   computeAdjustedSleepOnset,
   createBlankWakeUpEvent,
 } from '../../utils';
+import { clearEpisodeDraftForNight } from '../experiments/episodeDraftStorage';
+import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { findDuplicateSleepData } from '../../services/sleepDataDedupe';
 import { WeightStepper } from '../../components/WeightStepper';
@@ -236,7 +238,16 @@ export function MorningLog() {
       if (draft.sleepData) setSleepData(draft.sleepData as SleepData);
       if (draft.roomTimeline) setRoomTimeline(draft.roomTimeline as RoomReading[]);
       if (typeof draft.hadWakeUps === 'boolean') setHadWakeUps(draft.hadWakeUps);
-      if (Array.isArray(draft.wakeUpEvents)) setWakeUpEvents(draft.wakeUpEvents as WakeUpEvent[]);
+      if (Array.isArray(draft.wakeUpEvents)) {
+        // Episode rows captured at 4am after this draft was written must
+        // not be lost to a stale draft: append any the draft lacks.
+        const drafted = draft.wakeUpEvents as WakeUpEvent[];
+        const missingEpisodes = nightLog.wakeUpEvents.filter(
+          (e) => e.source === 'episode' && !drafted.some((d) => d.id === e.id),
+        );
+        setWakeUpEvents([...drafted, ...missingEpisodes]);
+      }
+      if (nightLog.wakeUpEvents.some((e) => e.source === 'episode')) setHadWakeUps(true);
       if (draft.thermalComfort) setThermalComfort(draft.thermalComfort as ThermalComfort);
       if (typeof draft.bedtimeReason === 'string') setBedtimeReason(draft.bedtimeReason);
       if (typeof draft.bedtimeNotes === 'string') setBedtimeNotes(draft.bedtimeNotes);
@@ -652,7 +663,10 @@ export function MorningLog() {
     await db.nightLogs.update(nightLog.id, {
       sleepData,
       roomTimeline,
-      wakeUpEvents: hadWakeUps ? resolvedWakes : [],
+      // Episode rows from the 4am flow survive even if the toggle is off.
+      wakeUpEvents: hadWakeUps
+        ? resolvedWakes
+        : resolvedWakes.filter((w) => w.source === 'episode'),
       bedtimeExplanation,
       morningNotes,
       thermalComfort,
@@ -691,6 +705,7 @@ export function MorningLog() {
 
     // Clear draft on successful save (always keyed to the saved nightLog)
     localStorage.removeItem(getDraftKey(nightLog.date));
+    clearEpisodeDraftForNight(nightLog.date);
 
     navigate(`/morning/review/${nightLog.id}`);
   }
@@ -1272,6 +1287,12 @@ export function MorningLog() {
                         Delete
                       </button>
                     </div>
+                    {event.source === 'episode' && (
+                      <EpisodeWakeDetails
+                        event={event}
+                        onMinutesToSettle={(v) => updateWakeUpEvent(event.id, 'minutesToSettle', v)}
+                      />
+                    )}
                     <div className="flex gap-8">
                       <div className="form-group" style={{ flex: 1 }}>
                         <label className="form-label">Woke up at</label>

@@ -11,6 +11,7 @@ import {
 import { WeightEditCard } from '../../components/WeightEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
+import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
 import { logToInputs, nightDistance } from '../../services/recommender';
 import type { NightLog, ThermalComfort } from '../../types';
 
@@ -312,6 +313,7 @@ export function MorningReview() {
                   Fell back asleep: {e.fellBackAsleep}
                   {e.minutesToFallBackAsleep ? ` (${e.minutesToFallBackAsleep} min)` : ''}
                 </div>
+                {e.source === 'episode' && <EpisodeWakeDetails event={e} />}
                 {e.notes && <div className="text-sm">{e.notes}</div>}
               </div>
             );

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { loadEpisodeDraft } from './episodeDraftStorage';
 
 /**
  * Experiments app home. The Episode button is the one-tap entry for the
@@ -7,12 +9,25 @@ import { Link, useNavigate } from 'react-router-dom';
  */
 export function ExperimentsHome() {
   const navigate = useNavigate();
+  const [draft] = useState(() => loadEpisodeDraft());
   return (
     <div>
       <div className="page-header">
         <h1>Experiments</h1>
         <p className="subtitle">Home measurements for the 4am wake-ups</p>
       </div>
+
+      {draft && draft.step <= 5 && (
+        <div className="card">
+          <div className="card-title">Unfinished episode</div>
+          <p className="text-secondary text-sm mb-8">
+            An episode from the night of {draft.nightDate} still has optional details to fill in.
+          </p>
+          <button type="button" className="btn btn-secondary btn-full" onClick={() => navigate('/experiments/episode')}>
+            Finish episode details
+          </button>
+        </div>
+      )}
 
       <button
         type="button"

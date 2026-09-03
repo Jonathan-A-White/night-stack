@@ -490,6 +490,9 @@ export function EveningLog() {
         supplementTime: schedule.supplementTime,
       };
       nightLog.updatedAt = Date.now();
+      // A row the 4am episode flow auto-created is now a real evening log.
+      // The spread above already preserved its wakeUpEvents.
+      nightLog.autoCreated = false;
 
       // The moment the user finishes the evening log is treated as their
       // actual bedtime — independent of whatever the watch sleep tracker
