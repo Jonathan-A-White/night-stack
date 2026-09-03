@@ -715,3 +715,10 @@ importer UI must show a per-file "recognized / skipped" report so a
 format mismatch is visible, never silent. Fixture tests use
 hand-written files that follow the documented shape; the first real
 sample replaces them.
+
+**Update (2026-09-03, real export inspected):** option (a) holds —
+sleep CSV, sleep-stage CSV, per-minute HR binning JSON, per-session
+SpO2 rows with ~10-minute binning JSON, plus per-session respiratory
+rate and skin temperature CSVs. Stage codes are 40001–40004 (awake,
+light, deep, REM), not 40000–40003. Findings and the verified column
+map live in `samsung-bulk-import.md`. Blood pressure not yet recorded.
