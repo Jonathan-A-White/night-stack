@@ -75,7 +75,7 @@ questions. Files are ordered by dependency.
 | `vitals.md` | Orthostatic entry with coached timers; cuff/watch source; calibration age; derived drops/rises and flags (≥20 systolic, ≥10 diastolic, pulse rise ≥30 without drop); AM/PM reminders. | Blocked by `schema`, `app-shell`. Parallel. |
 | `body-measurements.md` | AM/PM weight and neck circumference on the `bodyMeasurements` table; overnight deltas; retarget every `weightEntries` reader; bedtime weigh-in reminder. | Blocked by `schema`, `app-shell`. Parallel. |
 | `night-tags.md` | `sodiumLevel` + sources + `electrolyteDose` + `positionStarted` in the evening log; `positionAtWake` + `wiredWake` in the morning log; imported Samsung wake time surfaced; retarget every `high_salt` reader. | Blocked by `schema`, `app-shell`. Parallel. |
-| `samsung-bulk-import.md` | Parse the Samsung Health personal-data export (sleep CSV + per-minute HR/SpO2); store `vitalSamples`; pre-episode trace view. UNVERIFIED against a real export until Jonathan supplies one (Q21). | Blocked by `schema`, `episode-capture` (trace anchors on episode timestamps). |
+| `samsung-bulk-import.md` | Parse the Samsung Health personal-data export (sleep CSV + per-minute HR/SpO2); store `vitalSamples`; pre-episode trace view. Verified against Jonathan's real export 2026-09-03 (Q21). | Blocked by `schema`, `episode-capture` (trace anchors on episode timestamps). |
 | `insights-and-rules.md` | New measures in `Correlations` (either axis, deltas default Y), `MetricDetail`, Experiments dashboard cards; `adrenergicNight` derived boolean; clause kinds `high_salt_and_supine` and `orthostatic_flag_today` with seeded rules. | Blocked by all four capture workstreams. |
 | `clinician-export.md` | One-tap CSV (one row per night) + print-styled HTML summary over a date range (14-day default), including tags, deltas, vitals, episodes, calibration flags. | Blocked by all four capture workstreams; `samsung-bulk-import` optional (adds SpO2 nadir column when present). |
 
@@ -206,8 +206,8 @@ Deviations from the brief, decided by the orchestrator:
   Reminders page.
 - **`weightEntries` is kept** (read-only, exported for one release)
   alongside the new `bodyMeasurements`; drop in v13.
-- **Samsung parser is unverified** against a real export (Q21); the
-  first-real-export checklist is in `samsung-bulk-import.md`.
+- **Samsung parser verified** against the real export on 2026-09-03
+  (Q21); findings are in `samsung-bulk-import.md`.
 
 ## Follow-up packs
 

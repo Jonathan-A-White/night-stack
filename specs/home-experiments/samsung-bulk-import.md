@@ -3,13 +3,59 @@
 **Blocked by:** `schema`, `episode-capture`. **Runs in parallel with:**
 `insights-and-rules`, `clinician-export`.
 
-> **UNVERIFIED FORMAT.** Q21: Jonathan has not yet inspected his
-> Samsung Health export. Everything about file and column names below
-> comes from public descriptions of the export (research §13) and must
-> be checked against the first real export. The importer is built to
-> be **loud about what it does not recognize**, and the fixtures are
-> hand-written to the documented shape. First-real-export checklist at
-> the end.
+> **VERIFIED 2026-09-03** against Jonathan's real export (Samsung
+> Health 7006003, ~6 months, 10,660 files / 140 MB). Findings are in
+> "What the real export looks like" below; the importer stays **loud
+> about what it does not recognize**. The fixtures follow the real
+> shape (stage codes, binning file names, per-session vitals CSVs).
+
+## What the real export looks like (verified)
+
+- Layout: ~30 top-level `com.samsung.<health|shealth>.<type>.<ts>.csv`
+  plus `jsons/<dataset>/<0-f>/<uuid>.<suffix>.json` — 10,660 files, of
+  which the app uses 4–6 CSVs and ~1,200 JSON blobs. Everything else
+  (`movement`, `pedometer_*`, `floors_climbed`, `hrv`, `exercise`,
+  `*.raw` sensor channels, …) is reported as skipped by dataset.
+- Every CSV: line 1 metadata (`com.samsung.shealth.sleep,7006003,11`),
+  line 2 header, core columns prefixed `com.samsung.health.<type>.`.
+  Times are UTC `YYYY-MM-DD HH:MM:SS.sss`; `time_offset` is `UTC-0400`.
+- `com.samsung.shealth.sleep`: one row per session; `sleep_duration`
+  (min), `sleep_score`, `efficiency`, `sleep_latency` (ms),
+  `total_light_duration`, `total_rem_duration`, `mental_recovery`,
+  `physical_recovery`, `sleep_cycle` and ~30 score-factor columns
+  (listed as ignored in the report). Naps appear as extra sessions;
+  the earliest session per night wins.
+- `com.samsung.health.sleep_stage`: `sleep_id` = sleep `datauuid`;
+  **stage codes 40001 awake, 40002 light, 40003 deep, 40004 REM**
+  (cross-checked: per-session sums reproduce `total_light_duration`,
+  `total_rem_duration` and `sleep_duration` exactly).
+- `com.samsung.shealth.tracker.heart_rate`: ~12k rows. Rows with
+  `tag_id` 21313 reference
+  `jsons/com.samsung.shealth.tracker.heart_rate/<x>/<uuid>.com.samsung.health.heart_rate.binning_data.json`
+  = `[{heart_rate, heart_rate_min, heart_rate_max, start_time, end_time}]`
+  with epoch-ms times, one entry per minute (~54k samples over 6
+  months). Rows without a binning file are single spot readings.
+- `com.samsung.shealth.tracker.oxygen_saturation`: one row per sleep
+  session (`start_time` = sleep start) with `spo2`/`min`/`max` and a
+  `binning` file `…oxygen_saturation.binning.json` of ~10-minute bins
+  `[{spo2, spo2_min, spo2_max, start_time, end_time}]`.
+- `com.samsung.health.respiratory_rate` (`average` breaths/min) and
+  `com.samsung.health.skin_temperature` (`min`/`max`/`temperature`
+  °C): one row per sleep session, `start_time` = sleep start. These
+  fill `avgRespiratoryRate` and `skinTempRange`; `avgHeartRate` /
+  `minHeartRate` come from the HR samples inside the session and
+  `bloodOxygenAvg` from the SpO2 row.
+- Not present yet: blood pressure (Jonathan has not recorded any).
+  When it appears it will be listed as skipped until a parser exists.
+
+Performance (the export can only be downloaded as full history):
+`planImport` classifies by name first, reads the CSVs, then reads only
+the binning files referenced by rows in the selected range. The page
+defaults to **last night** and offers 7 / 30 nights / all history
+without re-picking the folder. Measured on the real export: last night
+reads 14 files (5 MB); all history reads 1,238 files (12 MB) and plans
+in well under a second; the per-file report is ~60 lines (JSON blobs
+grouped by dataset) instead of 10,660.
 
 Decision: Q17 (in scope). Research: §13.
 
@@ -161,6 +207,9 @@ Feature: Trace
 
 ## Open questions
 
-- Stage code values (40000–40003) and the SpO2 file's exact name.
+- ~~Stage code values and the SpO2 file's exact name.~~ Verified above.
 - Whether `sleep_score` exists on older rows; when missing, the
   night's `sleepScore` is 0 and flagged in `morningNotes`.
+- Blood-pressure export shape (no readings recorded yet).
+- `sleep_latency`, `mental_recovery`, `physical_recovery` are present
+  and unused; candidates for the night-metric registry.
