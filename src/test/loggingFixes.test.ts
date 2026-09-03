@@ -285,6 +285,15 @@ describe('logging-fixes T6: blank wake cause stamping', () => {
         wasSweating: false,
         feltCold: false,
         racingHeart: false,
+        positionAtWake: 'unknown',
+        ecgTaken: false,
+        ecgVerdict: 'not_taken',
+        rhythmFelt: null,
+        lyingBp: null,
+        minutesToSettle: null,
+        wired: false,
+        capturedAt: null,
+        source: 'morning',
       },
     ];
 
@@ -325,6 +334,15 @@ describe('logging-fixes T6: blank wake cause stamping', () => {
         wasSweating: true,
         feltCold: false,
         racingHeart: false,
+        positionAtWake: 'unknown',
+        ecgTaken: false,
+        ecgVerdict: 'not_taken',
+        rhythmFelt: null,
+        lyingBp: null,
+        minutesToSettle: null,
+        wired: false,
+        capturedAt: null,
+        source: 'morning',
       },
     ];
 
@@ -359,6 +377,15 @@ describe('logging-fixes T2: per-wake thermal flags round-trip', () => {
       wasSweating: true,
       feltCold: false,
       racingHeart: true,
+      positionAtWake: 'unknown',
+      ecgTaken: false,
+      ecgVerdict: 'not_taken',
+      rhythmFelt: null,
+      lyingBp: null,
+      minutesToSettle: null,
+      wired: false,
+      capturedAt: null,
+      source: 'morning',
     };
 
     await db.nightLogs.update(log.id, {

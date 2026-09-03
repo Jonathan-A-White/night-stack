@@ -18,12 +18,16 @@ import {
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { scheduleNotifications } from '../../services/notifications';
 import { WeightStepper } from '../../components/WeightStepper';
+import { NeckField } from '../../components/NeckField';
 import {
   formatWeight,
-  recalculateCalculatedWeights,
+  recalculateCalculatedMeasurements,
   resolveDefaultWeightLbs,
   roundWeightLbs,
 } from '../../weightUtils';
+import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
+import { buildEveningTagsForSave, rankSodiumSourceChips } from '../../services/nightTags';
+import { NightTagsStep } from './steps/NightTagsStep';
 import type {
   StackDeviation,
   EveningFlag,
@@ -32,12 +36,14 @@ import type {
   ClothingItem,
   BeddingItem,
   SupplementDef,
-  WeightEntry,
   MiddayCopingItem,
   MiddayCopingType,
   StruggleIntensity,
   AcCurveProfile,
   FanSpeed,
+  SodiumLevel,
+  ElectrolyteDose,
+  SleepPosition,
 } from '../../types';
 
 const AC_CURVE_OPTIONS: { value: AcCurveProfile; label: string; hint: string }[] = [
@@ -163,7 +169,7 @@ export function EveningLog() {
   // `latestWeight === undefined` forever and the weight stepper would never
   // initialize.
   const latestWeight = useLiveQuery(
-    async () => (await db.weightEntries.orderBy('timestamp').reverse().first()) ?? null,
+    async () => latestMeasurement('weight'),
   );
 
   // Step 1: Alarm
@@ -185,7 +191,6 @@ export function EveningLog() {
   const [foodDescription, setFoodDescription] = useState((draft?.foodDescription as string) ?? '');
   const [flags, setFlags] = useState<EveningFlag[]>((draft?.flags as EveningFlag[]) ?? [
     { type: 'overate', label: 'Overate', active: false },
-    { type: 'high_salt', label: 'High salt', active: false },
     { type: 'nitrates', label: 'Nitrates', active: false },
     { type: 'questionable_food', label: 'Questionable food', active: false },
     { type: 'late_meal', label: 'Late meal', active: false },
@@ -257,13 +262,40 @@ export function EveningLog() {
    */
   const [earlyBedtimeWarning, setEarlyBedtimeWarning] = useState(false);
 
-  // Weight entry (only surfaced if user weighs in the evening)
-  const weighInPeriod = settings?.weighInPeriod ?? 'morning';
-  const showWeightStep = weighInPeriod === 'evening';
+  // PM weight + neck are always asked (home-experiments Q4); each is
+  // skippable. `weighInPeriod` now only picks the trend series.
+  const showWeightStep = true;
   const unitSystem = settings?.unitSystem ?? 'us';
   const [weightLbs, setWeightLbs] = useState<number | null>(
     (draft?.weightLbs as number | null) ?? null,
   );
+  const [neckIn, setNeckIn] = useState<number | null>(
+    typeof draft?.neckIn === 'number' ? (draft.neckIn as number) : null,
+  );
+  const latestNeck = useLiveQuery(() => latestMeasurement('neck'), []);
+
+  // Night tags (night-tags.md): sodium level + sources, drink dose,
+  // position getting into bed. `sodiumTouched` drives provenance.
+  const [sodiumLevel, setSodiumLevel] = useState<SodiumLevel>(
+    (draft?.sodiumLevel as SodiumLevel) ?? 'normal',
+  );
+  const [sodiumTouched, setSodiumTouched] = useState<boolean>(
+    (draft?.sodiumTouched as boolean) ?? false,
+  );
+  const [sodiumSources, setSodiumSources] = useState<string[]>(
+    Array.isArray(draft?.sodiumSources) ? (draft!.sodiumSources as string[]) : [],
+  );
+  const [electrolyteDose, setElectrolyteDose] = useState<ElectrolyteDose | null>(
+    (draft?.electrolyteDose as ElectrolyteDose | null) ?? null,
+  );
+  const [positionStarted, setPositionStarted] = useState<Exclude<SleepPosition, 'unknown'> | null>(
+    (draft?.positionStarted as Exclude<SleepPosition, 'unknown'> | null) ?? null,
+  );
+  const recentLogsForChips = useLiveQuery(
+    () => db.nightLogs.where('date').aboveOrEqual(getEveningLogDate(new Date(Date.now() - 30 * 86_400_000))).toArray(),
+    [],
+  );
+  const suggestedSources = rankSodiumSourceChips(recentLogsForChips ?? []);
   const [weightSkipped, setWeightSkipped] = useState(
     (draft?.weightSkipped as boolean) ?? false,
   );
@@ -276,7 +308,7 @@ export function EveningLog() {
     if (!settings) return;
     if (latestWeight === undefined) return;
     const defaultLbs = resolveDefaultWeightLbs({
-      previousWeightLbs: latestWeight ? latestWeight.weightLbs : null,
+      previousWeightLbs: latestWeight ? latestWeight.value : null,
       startingWeightLbs: settings.startingWeightLbs ?? null,
       sex: settings.sex ?? null,
       heightInches: settings.heightInches ?? null,
@@ -320,6 +352,12 @@ export function EveningLog() {
     }
     setLiquidIntake(existingLog.eveningIntake.liquidIntake);
 
+    // Night tags — provenance stays as stored until the picker is tapped.
+    setSodiumLevel(existingLog.eveningIntake.sodiumLevel);
+    setSodiumSources(existingLog.eveningIntake.sodiumSources);
+    setElectrolyteDose(existingLog.electrolyteDose);
+    setPositionStarted(existingLog.positionStarted === 'unknown' ? null : existingLog.positionStarted);
+
     // Midday struggle
     setHadStruggle(existingLog.middayStruggle.hadStruggle);
     setSelectedCoping(existingLog.middayStruggle.copingItemIds);
@@ -351,7 +389,8 @@ export function EveningLog() {
       hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
       roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
       selectedClothing, selectedBedding, eveningNotes,
-      weightLbs, weightSkipped,
+      weightLbs, weightSkipped, neckIn,
+      sodiumLevel, sodiumTouched, sodiumSources, electrolyteDose, positionStarted,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
@@ -361,7 +400,8 @@ export function EveningLog() {
     hadStruggle, selectedCoping, struggleTime, struggleIntensity, struggleNotes,
     roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
     selectedClothing, selectedBedding, eveningNotes,
-    weightLbs, weightSkipped,
+    weightLbs, weightSkipped, neckIn,
+    sodiumLevel, sodiumTouched, sodiumSources, electrolyteDose, positionStarted,
     DRAFT_KEY,
   ]);
 
@@ -491,6 +531,9 @@ export function EveningLog() {
         supplementTime: schedule.supplementTime,
       };
       nightLog.updatedAt = Date.now();
+      // A row the 4am episode flow auto-created is now a real evening log.
+      // The spread above already preserved its wakeUpEvents.
+      nightLog.autoCreated = false;
 
       // The moment the user finishes the evening log is treated as their
       // actual bedtime — independent of whatever the watch sleep tracker
@@ -534,13 +577,24 @@ export function EveningLog() {
         eatingCutoff: schedule.eatingCutoff,
         userInteracted: lastMealTimeTouched,
       });
+      const tags = buildEveningTagsForSave({
+        existing: existingLog ? existingLog.eveningIntake : null,
+        sodiumLevel,
+        sodiumTouched,
+        sodiumSources,
+        electrolyteDose,
+        positionStarted,
+      });
       nightLog.eveningIntake = {
         lastMealTime: resolvedLastMealTime,
         foodDescription,
         flags,
         alcohol: hasAlcohol ? alcohol : null,
         liquidIntake,
+        ...tags.eveningIntake,
       };
+      nightLog.electrolyteDose = tags.electrolyteDose;
+      nightLog.positionStarted = tags.positionStarted;
       // When the user hasn't got an AC installed yet, the AC card is hidden
       // from the form. Persist 'off'/null so the recommender's AC-curve
       // distance stays a no-op for the night (it treats both-sides-'off' as
@@ -567,27 +621,33 @@ export function EveningLog() {
 
       await db.nightLogs.put(nightLog);
 
-      // Log evening weight if that's the user's preference
-      if (showWeightStep && weightLbs != null) {
-        const now = Date.now();
-        const entry: WeightEntry = {
-          id: crypto.randomUUID(),
-          nightLogId: nightLog.id,
+      // PM weight and neck (body-measurements.md): one row per
+      // (kind, date, period); re-saving the log updates rather than
+      // duplicates. Weight keeps its fill-forward behaviour when skipped;
+      // a skipped neck writes nothing.
+      if (weightLbs != null) {
+        const row = await upsertMeasurement({
+          kind: 'weight',
           date,
-          time: getCurrentTime(),
-          timestamp: now,
-          weightLbs: roundWeightLbs(weightLbs, 'us'),
           period: 'evening',
-          createdAt: now,
+          value: roundWeightLbs(weightLbs, 'us'),
+          nightLogId: nightLog.id,
           measured: !weightSkipped,
-        };
-        await db.weightEntries.add(entry);
-
+        });
         if (!weightSkipped) {
-          const all = await db.weightEntries.toArray();
-          const recalculated = recalculateCalculatedWeights(all, entry.id);
-          await db.weightEntries.bulkPut(recalculated);
+          const all = await db.bodyMeasurements.where('kind').equals('weight').toArray();
+          await db.bodyMeasurements.bulkPut(recalculateCalculatedMeasurements(all, row.id));
         }
+      }
+      if (neckIn != null) {
+        await upsertMeasurement({
+          kind: 'neck',
+          date,
+          period: 'evening',
+          value: neckIn,
+          nightLogId: nightLog.id,
+          measured: true,
+        });
       }
 
       // Schedule notifications
@@ -944,6 +1004,22 @@ export function EveningLog() {
               />
             </div>
           </div>
+
+          <NightTagsStep
+            sodiumLevel={sodiumLevel}
+            onSodiumLevel={(v) => {
+              setSodiumLevel(v);
+              setSodiumTouched(true);
+            }}
+            sodiumSources={sodiumSources}
+            onSodiumSources={setSodiumSources}
+            suggestedSources={suggestedSources}
+            electrolyteDose={electrolyteDose}
+            onElectrolyteDose={setElectrolyteDose}
+            positionStarted={positionStarted}
+            onPositionStarted={setPositionStarted}
+            isProxy={!sodiumTouched && existingLog?.eveningIntake.sodiumLevelSource === 'proxy'}
+          />
         </div>
       )}
 
@@ -1201,7 +1277,13 @@ export function EveningLog() {
           )}
           {showWeightStep && weightLbs != null && (
             <div className="card">
-              <div className="card-title">Evening Weight</div>
+              <div className="card-title">Evening Weight &amp; Neck</div>
+              <NeckField
+                valueIn={neckIn}
+                onChange={setNeckIn}
+                unitSystem={unitSystem}
+                defaultIn={latestNeck?.value ?? null}
+              />
               {weightSkipped ? (
                 <div>
                   <div className="text-secondary text-sm mb-8" style={{ textAlign: 'center' }}>

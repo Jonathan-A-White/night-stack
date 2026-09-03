@@ -68,6 +68,15 @@ function makeWake(overrides: Partial<WakeUpEvent> = {}): WakeUpEvent {
     wasSweating: false,
     feltCold: false,
     racingHeart: false,
+    positionAtWake: 'unknown',
+    ecgTaken: false,
+    ecgVerdict: 'not_taken',
+    rhythmFelt: null,
+    lyingBp: null,
+    minutesToSettle: null,
+    wired: false,
+    capturedAt: null,
+    source: 'morning',
     ...overrides,
   };
 }
@@ -94,6 +103,9 @@ function makeLog(overrides: Partial<NightLog>): NightLog {
       flags: [],
       alcohol: null,
       liquidIntake: '',
+      sodiumLevel: 'normal',
+      sodiumLevelSource: 'user',
+      sodiumSources: [],
     },
     environment: {
       roomTempF: null,
@@ -121,6 +133,12 @@ function makeLog(overrides: Partial<NightLog>): NightLog {
     thermalComfort: null,
     thermalComfortSource: null,
     thermalProxyDismissed: false,
+    electrolyteDose: null,
+    positionStarted: 'unknown',
+    positionAtWake: 'unknown',
+    wiredWake: false,
+    autoCreated: false,
+    experimentNotes: '',
     ...overrides,
   };
 }

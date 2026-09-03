@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { BottomTabs } from './components/BottomTabs';
+import { Routes, Route } from 'react-router-dom';
+import { AppSwitcher } from './components/AppSwitcher';
+import { AppTabBar } from './components/AppTabBar';
+import { AppEntryRedirect } from './components/AppEntryRedirect';
 const EveningRoutineSettingsPage = lazy(() => import('./pages/settings/EveningRoutineSettingsPage'));
 const RoutineTracker = lazy(() => import('./pages/tonight/RoutineTracker'));
 import { TonightPlan } from './pages/tonight/TonightPlan';
@@ -16,6 +18,17 @@ import { BestNights } from './pages/insights/BestNights';
 import { MetricDetail } from './pages/insights/MetricDetail';
 import { ThermalBackfillReview } from './pages/insights/ThermalBackfillReview';
 import { CalendarPage } from './pages/calendar/CalendarPage';
+import { RoutineHome } from './pages/routine/RoutineHome';
+import { ExperimentsHome } from './pages/experiments/ExperimentsHome';
+import { EpisodeCapture } from './pages/experiments/EpisodeCapture';
+import { VitalsTab } from './pages/experiments/VitalsTab';
+import { OrthostaticEntry } from './pages/experiments/OrthostaticEntry';
+import { BodyTab } from './pages/experiments/BodyTab';
+import { ClinicianExportPage } from './pages/experiments/ClinicianExportPage';
+import { ClinicianSummaryPrint } from './pages/experiments/ClinicianSummaryPrint';
+import { SamsungImportPage } from './pages/experiments/SamsungImportPage';
+import RemindersPage from './pages/settings/RemindersPage';
+import VitalsSettingsPage from './pages/settings/VitalsSettingsPage';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
@@ -34,15 +47,24 @@ import WeightProfilePage from './pages/settings/WeightProfilePage';
 import { useTheme } from './hooks/useTheme';
 import { InstallBanner } from './components/InstallBanner';
 
+const loading = <div className="empty-state"><h3>Loading…</h3></div>;
+
 export function App() {
   useTheme();
 
   return (
     <div className="app-layout">
       <InstallBanner />
+      <AppSwitcher />
       <div className="app-content">
         <Routes>
-          <Route path="/" element={<Navigate to="/tonight" replace />} />
+          <Route path="/" element={<AppEntryRedirect />} />
+
+          {/* Routine app */}
+          <Route path="/routine" element={<RoutineHome />} />
+          <Route path="/tonight/routine" element={<Suspense fallback={loading}><RoutineTracker /></Suspense>} />
+
+          {/* Tracking app */}
           <Route path="/tonight" element={<TonightPlan />} />
           <Route path="/tonight/log" element={<EveningLog />} />
           <Route path="/tonight/review/:id" element={<EveningReview />} />
@@ -56,9 +78,20 @@ export function App() {
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/insights/metric/:type" element={<MetricDetail />} />
           <Route path="/insights/backfill" element={<ThermalBackfillReview />} />
+
+          {/* Experiments app — placeholders are replaced by their workstreams */}
+          <Route path="/experiments" element={<ExperimentsHome />} />
+          <Route path="/experiments/episode" element={<EpisodeCapture />} />
+          <Route path="/experiments/vitals" element={<VitalsTab />} />
+          <Route path="/experiments/vitals/new" element={<OrthostaticEntry />} />
+          <Route path="/experiments/body" element={<BodyTab />} />
+          <Route path="/experiments/import" element={<SamsungImportPage />} />
+          <Route path="/experiments/export" element={<ClinicianExportPage />} />
+          <Route path="/experiments/export/print" element={<ClinicianSummaryPrint />} />
+
+          {/* Settings (shared) */}
           <Route path="/settings" element={<SettingsHome />} />
-          <Route path="/settings/evening-routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><EveningRoutineSettingsPage /></Suspense>} />
-          <Route path="/tonight/routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><RoutineTracker /></Suspense>} />
+          <Route path="/settings/evening-routine" element={<Suspense fallback={loading}><EveningRoutineSettingsPage /></Suspense>} />
           <Route path="/settings/alarm-schedule" element={<AlarmSchedulePage />} />
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />
@@ -70,12 +103,14 @@ export function App() {
           <Route path="/settings/location" element={<LocationPage />} />
           <Route path="/settings/sleep-environment" element={<SleepEnvironmentPage />} />
           <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
+          <Route path="/settings/reminders" element={<RemindersPage />} />
+          <Route path="/settings/vitals" element={<VitalsSettingsPage />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/data/cleanup" element={<DataCleanupPage />} />
           <Route path="/settings/about" element={<AboutPage />} />
         </Routes>
       </div>
-      <BottomTabs />
+      <AppTabBar />
     </div>
   );
 }

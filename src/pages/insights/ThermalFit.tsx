@@ -8,10 +8,10 @@ import {
 import { db } from '../../db';
 import { toLocalDateString } from '../../utils';
 import { SubNav } from './Dashboard';
-import type { NightLog, BeddingItem, ClothingItem, EveningFlag } from '../../types';
+import type { NightLog, BeddingItem, ClothingItem } from '../../types';
+import { intakeMatches, type IntakeKey } from '../../services/nightTags';
 
 type OutcomeKey = 'just_right' | 'no_major_wake';
-type IntakeKey = EveningFlag['type'] | 'alcohol';
 type NonMatchMode = 'hide' | 'dim';
 
 interface Filters {
@@ -32,7 +32,8 @@ const OUTCOME_LABELS: Record<OutcomeKey, string> = {
 
 const INTAKE_LABELS: Record<IntakeKey, string> = {
   overate: 'Overate',
-  high_salt: 'High salt',
+  sodium_more: 'Salt: more than usual',
+  sodium_much_more: 'Salt: much more',
   nitrates: 'Nitrates',
   questionable_food: 'Questionable food',
   late_meal: 'Late meal',
@@ -40,7 +41,7 @@ const INTAKE_LABELS: Record<IntakeKey, string> = {
   custom: 'Custom flag',
 };
 const INTAKE_KEYS: IntakeKey[] = [
-  'overate', 'high_salt', 'nitrates', 'questionable_food', 'late_meal', 'alcohol',
+  'overate', 'sodium_more', 'sodium_much_more', 'nitrates', 'questionable_food', 'late_meal', 'alcohol',
 ];
 
 const COLOR_JUST_RIGHT = '#4caf87';
@@ -120,8 +121,7 @@ function hasNoMajorWake(log: NightLog): boolean {
 }
 
 function flagActive(log: NightLog, key: IntakeKey): boolean {
-  if (key === 'alcohol') return log.eveningIntake.alcohol !== null;
-  return log.eveningIntake.flags.some((f) => f.type === key && f.active);
+  return intakeMatches(log, key);
 }
 
 export function ThermalFit() {

@@ -47,6 +47,15 @@ function makeWake(cause: string): WakeUpEvent {
     wasSweating: false,
     feltCold: false,
     racingHeart: false,
+    positionAtWake: 'unknown',
+    ecgTaken: false,
+    ecgVerdict: 'not_taken',
+    rhythmFelt: null,
+    lyingBp: null,
+    minutesToSettle: null,
+    wired: false,
+    capturedAt: null,
+    source: 'morning',
   };
 }
 

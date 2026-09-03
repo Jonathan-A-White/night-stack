@@ -50,7 +50,45 @@ export interface NightLog {
    * re-surface previously dismissed nights.
    */
   thermalProxyDismissed: boolean;
+  /**
+   * Daytime sodium+potassium drink dose (home-experiments Q13). null means
+   * the question was never answered for this night (all pre-v12 rows).
+   */
+  electrolyteDose: ElectrolyteDose | null;
+  /** Position when getting into bed (evening log). 'unknown' when not asked. */
+  positionStarted: SleepPosition;
+  /**
+   * Position at the final morning wake (morning log). Each 4am episode
+   * carries its own `WakeUpEvent.positionAtWake`; this is the night-level
+   * answer.
+   */
+  positionAtWake: SleepPosition;
+  /** Morning label: woke wired / adrenergic at any point overnight. */
+  wiredWake: boolean;
+  /**
+   * True when this row was created by the 4am episode flow because no
+   * evening log existed (home-experiments Q6). The evening wizard merges
+   * into such a row and clears the flag; the calendar shows it as partial.
+   */
+  autoCreated: boolean;
+  /**
+   * Free text for a hand-run experiment's condition (e.g. "pinch: salt"),
+   * entered after the user unblinds it themselves (Q8). Exported in the
+   * clinician CSV; never shown in Tonight's plan.
+   */
+  experimentNotes: string;
 }
+
+// === Home-experiment enums ===
+
+/** Graded evening sodium load. Replaces the boolean `high_salt` flag. */
+export type SodiumLevel = 'normal' | 'more' | 'much_more';
+/** Sleep position. 'unknown' is the backfill / not-asked value. */
+export type SleepPosition = 'side' | 'back' | 'unknown';
+/** Daily electrolyte-drink dose. */
+export type ElectrolyteDose = 'none' | 'half' | 'full';
+/** Provenance for user-vs-inferred labels that always have a value. */
+export type ProvenanceSource = 'user' | 'proxy';
 
 /**
  * Overall thermal experience of the night, tagged in the morning.
@@ -88,10 +126,20 @@ export interface EveningIntake {
   flags: EveningFlag[];
   alcohol: AlcoholEntry | null;
   liquidIntake: string;
+  /**
+   * Graded sodium load for the evening (home-experiments Q11). Replaces
+   * the boolean `high_salt` flag; the v12 migration derives it from the
+   * flag with `sodiumLevelSource: 'proxy'`.
+   */
+  sodiumLevel: SodiumLevel;
+  /** 'user' once the evening log's picker is touched; 'proxy' from backfill. */
+  sodiumLevelSource: ProvenanceSource;
+  /** Free-text chips describing where the sodium came from. */
+  sodiumSources: string[];
 }
 
 export interface EveningFlag {
-  type: 'overate' | 'high_salt' | 'nitrates' | 'questionable_food' | 'late_meal' | 'custom';
+  type: 'overate' | 'nitrates' | 'questionable_food' | 'late_meal' | 'custom';
   label: string;
   active: boolean;
 }
@@ -202,6 +250,36 @@ export interface WakeUpEvent {
   wasSweating: boolean;
   feltCold: boolean;
   racingHeart: boolean;
+  // --- Episode fields (home-experiments). Defaults are the backfill values.
+  /** Position when this wake happened. */
+  positionAtWake: SleepPosition;
+  /** Whether an ECG was taken on the watch for this wake. */
+  ecgTaken: boolean;
+  /** The watch's verdict; 'not_taken' whenever ecgTaken is false. */
+  ecgVerdict: EcgVerdict;
+  /** Rhythm as felt, independent of the ECG. */
+  rhythmFelt: RhythmFelt | null;
+  /** Lying BP + pulse if a cuff was at hand. */
+  lyingBp: BpPoint | null;
+  /** Minutes until the arousal settled (asked in the morning). */
+  minutesToSettle: number | null;
+  /** Felt "wired" during this wake. */
+  wired: boolean;
+  /** Epoch ms when captured live by the episode flow; null when entered later. */
+  capturedAt: number | null;
+  /** How the row came to exist. 'episode' rows are the 4am captures. */
+  source: WakeUpEventSource;
+}
+
+export type EcgVerdict = 'sinus' | 'afib' | 'inconclusive' | 'not_taken';
+export type RhythmFelt = 'fast_regular' | 'irregular' | 'unsure';
+export type WakeUpEventSource = 'episode' | 'morning' | 'import';
+
+/** One blood-pressure reading with pulse. */
+export interface BpPoint {
+  systolic: number;
+  diastolic: number;
+  pulse: number;
 }
 
 export interface BedtimeExplanation {
@@ -319,7 +397,11 @@ export type ConditionClause =
   | { kind: 'iron_supplement_day' }
   | { kind: 'feeling_cold' }
   | { kind: 'midday_food_coping' }
-  | { kind: 'midday_nap_logged' };
+  | { kind: 'midday_nap_logged' }
+  /** Tonight's sodiumLevel is above normal AND positionStarted is back/unknown. */
+  | { kind: 'high_salt_and_supine' }
+  /** Any orthostatic reading dated today carries a flag. */
+  | { kind: 'orthostatic_flag_today' };
 
 export type ConditionClauseKind = ConditionClause['kind'];
 
@@ -349,6 +431,12 @@ export type UnitSystem = 'us' | 'metric';
 export type Sex = 'm' | 'f';
 export type WeighInPeriod = 'morning' | 'evening';
 
+/**
+ * @deprecated Read-only after Dexie v12. Every row was copied into
+ * `bodyMeasurements` with `kind: 'weight'` (ids preserved). The table is
+ * kept for one release so a failed migration or downgrade cannot lose
+ * data; it is dropped in v13. New code reads `BodyMeasurement`.
+ */
 export interface WeightEntry {
   id: string;
   nightLogId: string | null; // Links to the NightLog this weigh-in correlates with
@@ -366,6 +454,83 @@ export interface WeightEntry {
   measured: boolean;
 }
 
+// === Body Measurements (home-experiments) ===
+
+export type BodyMeasurementKind = 'weight' | 'neck';
+
+/**
+ * One body measurement at one moment. Generalizes the old `WeightEntry`
+ * over `kind`, so weight and neck circumference share storage, deltas,
+ * and edit UI. Canonical storage is imperial (lbs for weight, inches for
+ * neck); display converts via `AppSettings.unitSystem`.
+ */
+export interface BodyMeasurement {
+  id: string;
+  kind: BodyMeasurementKind;
+  nightLogId: string | null;
+  date: string; // "YYYY-MM-DD" calendar date of the measurement
+  time: string; // "HH:MM"
+  timestamp: number; // epoch ms for sorting
+  period: WeighInPeriod;
+  /** lbs for weight, inches for neck. */
+  value: number;
+  /** True when the user actively entered this; false for interpolated rows. */
+  measured: boolean;
+  createdAt: number;
+}
+
+// === Orthostatic Vitals (home-experiments) ===
+
+export type VitalsSource = 'cuff' | 'watch';
+export type OrthostaticSlot = 'am' | 'pm';
+
+/**
+ * One orthostatic protocol run: supine after 5 min, then standing at 1 and
+ * 3 min. Derived drops/rises/flags are computed at read time, never stored.
+ * `date` is the calendar date of the reading (NOT the evening date): an
+ * 'am' reading on D belongs to night D-1, a 'pm' reading on D to night D.
+ */
+export interface OrthostaticReading {
+  id: string;
+  date: string;
+  slot: OrthostaticSlot;
+  timestamp: number; // epoch ms of the supine reading
+  source: VitalsSource;
+  supine: BpPoint;
+  standing1: BpPoint | null; // null when the stage was skipped
+  standing3: BpPoint | null;
+  notes: string;
+  createdAt: number;
+}
+
+// === Per-minute vitals from the Samsung Health bulk export ===
+
+export type VitalSampleKind = 'hr' | 'spo2';
+
+/** Compound primary key [kind+timestamp] makes re-imports idempotent. */
+export interface VitalSample {
+  kind: VitalSampleKind;
+  timestamp: number; // epoch ms, minute resolution
+  value: number; // bpm or percent
+  /** Night whose overnight window contains the sample; null outside any night. */
+  nightLogId: string | null;
+  importBatchId: string;
+}
+
+export interface ImportBatchFile {
+  name: string;
+  recognized: boolean;
+  rows: number;
+  note: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  importedAt: number;
+  source: 'samsung_export';
+  files: ImportBatchFile[];
+}
+
 // === App Settings ===
 
 export interface AppSettings {
@@ -380,7 +545,17 @@ export interface AppSettings {
     bedtimeWarning: boolean;
     bedtime: boolean;
     morningLog: boolean;
+    /** Home-experiments reminders (Q19). All opt-in, default false. */
+    amVitals: boolean;
+    pmVitals: boolean;
+    bedtimeWeighIn: boolean;
   };
+  /**
+   * Epoch ms of the last Galaxy Watch BP cuff calibration (Q3). null when
+   * never recorded. Watch readings older than 28 days after this date are
+   * flagged as needing recalibration.
+   */
+  watchBpCalibratedAt: number | null;
   // Weight profile
   unitSystem: UnitSystem;
   weighInPeriod: WeighInPeriod;

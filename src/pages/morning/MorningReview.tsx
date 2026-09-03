@@ -8,9 +8,13 @@ import {
   findNearestRoomReading,
   computeAdjustedSleepOnset,
 } from '../../utils';
-import { WeightEditCard } from '../../components/WeightEditCard';
+import { BodyMeasurementEditCard } from '../../components/BodyMeasurementEditCard';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
+import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
+import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
+import { SodiumLevelChip } from '../../components/SodiumLevelChip';
+import { VitalTraceChart } from '../../components/VitalTraceChart';
 import { logToInputs, nightDistance } from '../../services/recommender';
 import type { NightLog, ThermalComfort } from '../../types';
 
@@ -118,6 +122,28 @@ export function MorningReview() {
       </div>
 
       <NightLogDateEditor nightLog={nightLog} />
+
+      <div className="card">
+          <div className="card-title">Night tags</div>
+          <div className="summary-row">
+            <span className="summary-label">Sodium</span>
+            <span className="summary-value"><SodiumLevelChip log={nightLog} /></span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Position: to bed → at wake</span>
+            <span className="summary-value">{nightLog.positionStarted} → {nightLog.positionAtWake}</span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Woke wired</span>
+            <span className={`summary-value ${nightLog.wiredWake ? 'text-warning' : ''}`}>{nightLog.wiredWake ? 'yes' : 'no'}</span>
+          </div>
+          {nightLog.electrolyteDose && (
+            <div className="summary-row">
+              <span className="summary-label">Electrolyte drink</span>
+              <span className="summary-value">{nightLog.electrolyteDose}</span>
+            </div>
+          )}
+      </div>
 
       {nightLog.thermalComfort && (
         <div className="card">
@@ -312,6 +338,8 @@ export function MorningReview() {
                   Fell back asleep: {e.fellBackAsleep}
                   {e.minutesToFallBackAsleep ? ` (${e.minutesToFallBackAsleep} min)` : ''}
                 </div>
+                {e.source === 'episode' && <EpisodeWakeDetails event={e} />}
+                {e.source === 'episode' && e.capturedAt !== null && <VitalTraceChart capturedAt={e.capturedAt} />}
                 {e.notes && <div className="text-sm">{e.notes}</div>}
               </div>
             );
@@ -387,7 +415,9 @@ export function MorningReview() {
         )}
       </div>
 
-      <WeightEditCard nightLogId={nightLog.id} period="morning" />
+      <OrthostaticSummaryCard nightDate={nightLog.date} />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="morning" kind="weight" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="morning" kind="neck" />
 
       {(nightLog.eveningNotes || nightLog.morningNotes) && (
         <div className="card">

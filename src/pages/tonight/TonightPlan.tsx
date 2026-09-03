@@ -14,6 +14,8 @@ import {
 } from '../../utils';
 import { fetchOvernightWeather, getOvernightLow } from '../../services/weather';
 import { evaluateRules, type EvaluatedRule } from '../../services/rules';
+import { readEveningDraftTags } from '../../services/nightTags';
+import { createBlankNightLog } from '../../utils';
 import {
   describePressure,
   estimateStartingRoomTemp,
@@ -64,6 +66,11 @@ export function TonightPlan() {
   const clothingItems = useLiveQuery(() => db.clothingItems.toArray(), []);
   const beddingItems = useLiveQuery(() => db.beddingItems.toArray(), []);
   // Today's night log (if already logged) — drives midday-coping rules.
+  const todayOrthostatic = useLiveQuery(
+    () => db.orthostaticReadings.where('date').equals(getTodayDate()).toArray(),
+    [],
+  );
+  const appSettings = useLiveQuery(() => db.appSettings.get('default'));
   const todayLog = useLiveQuery(
     () => db.nightLogs.where('date').equals(getTodayDate()).first(),
     []
@@ -158,15 +165,34 @@ export function TonightPlan() {
     const itemMap = new Map<string, MiddayCopingItem>(
       (middayCopingItems ?? []).map((m) => [m.id, m]),
     );
+    // Overlay tonight's unsaved evening-draft tags on the current log so
+    // "Sleep on your side tonight" can fire before the log is saved
+    // (home-experiments insights-and-rules.md). A blank log stands in
+    // when nothing has been saved yet for tonight.
+    const draftTags = readEveningDraftTags(getEveningLogDate());
+    let currentLog = todayLog ?? null;
+    if (draftTags) {
+      const base = currentLog ?? createBlankNightLog(getEveningLogDate(), {
+        expectedAlarmTime: '', actualAlarmTime: '', isOverridden: false,
+        targetBedtime: '', eatingCutoff: '', supplementTime: '',
+      });
+      currentLog = {
+        ...base,
+        eveningIntake: { ...base.eveningIntake, sodiumLevel: draftTags.sodiumLevel },
+        positionStarted: draftTags.positionStarted,
+      };
+    }
     const result = evaluateRules(rules, {
       weather,
       currentRoomTemp: null,
       recentLogs: recentLogs ?? [],
-      currentLog: todayLog ?? null,
+      currentLog,
       middayCopingItems: itemMap,
+      todayOrthostatic: todayOrthostatic ?? [],
+      watchBpCalibratedAt: appSettings?.watchBpCalibratedAt ?? null,
     });
     setEvaluatedRules(result);
-  }, [rules, weather, recentLogs, todayLog, middayCopingItems]);
+  }, [rules, weather, recentLogs, todayLog, middayCopingItems, todayOrthostatic, appSettings]);
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
 
@@ -243,6 +269,17 @@ export function TonightPlan() {
             : `Alarm for ${DAY_NAMES[alarmDow]}`}
         </p>
       </div>
+
+      {/* Late-night shortcut into the 4am episode flow (episode-capture.md) */}
+      {(new Date().getHours() >= 22 || new Date().getHours() < 6) && (
+        <button
+          type="button"
+          className="btn btn-secondary btn-full mb-16"
+          onClick={() => navigate('/experiments/episode')}
+        >
+          ⚡ Episode now
+        </button>
+      )}
 
       {/* Alarm card */}
       <div className="card">

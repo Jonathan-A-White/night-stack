@@ -50,7 +50,7 @@ describe('seedDatabase', () => {
     expect(reasons).toHaveLength(8);
 
     const rules = await db.sleepRules.toArray();
-    expect(rules).toHaveLength(12);
+    expect(rules).toHaveLength(14);
     expect(rules.every((r) => r.source === 'seeded')).toBe(true);
     expect(rules.every((r) => r.isActive)).toBe(true);
   });
@@ -94,7 +94,8 @@ describe('seedDatabase', () => {
     const lowRules = rules.filter((r) => r.priority === 'low');
 
     // 10 legacy rules + 2 midday coping rules (medium + low)
-    expect(highRules).toHaveLength(5);
+    // + 2 home-experiment rules (both high)
+    expect(highRules).toHaveLength(7);
     expect(medRules).toHaveLength(5);
     expect(lowRules).toHaveLength(2);
   });

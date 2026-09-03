@@ -3,7 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import { formatTime12h, getCurrentTime, timestampToHHMM } from '../../utils';
-import { WeightEditCard } from '../../components/WeightEditCard';
+import { BodyMeasurementEditCard } from '../../components/BodyMeasurementEditCard';
+import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
+import { SodiumLevelChip } from '../../components/SodiumLevelChip';
 import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import type {
   ClothingItem,
@@ -247,6 +249,28 @@ export function EveningReview() {
             </span>
           </div>
         )}
+        <div className="summary-row">
+          <span className="summary-label">Sodium</span>
+          <span className="summary-value"><SodiumLevelChip log={nightLog} /></span>
+        </div>
+        {eveningIntake.sodiumSources.length > 0 && (
+          <div className="summary-row">
+            <span className="summary-label">Sources</span>
+            <span className="summary-value">{eveningIntake.sodiumSources.join(', ')}</span>
+          </div>
+        )}
+        {nightLog.electrolyteDose && (
+          <div className="summary-row">
+            <span className="summary-label">Electrolyte drink</span>
+            <span className="summary-value">{nightLog.electrolyteDose}</span>
+          </div>
+        )}
+        {nightLog.positionStarted !== 'unknown' && (
+          <div className="summary-row">
+            <span className="summary-label">Position to bed</span>
+            <span className="summary-value">{nightLog.positionStarted}</span>
+          </div>
+        )}
         {eveningIntake.flags.filter((f) => f.active).length > 0 && (
           <div className="summary-row">
             <span className="summary-label">Flags</span>
@@ -402,7 +426,9 @@ export function EveningReview() {
         )}
       </div>
 
-      <WeightEditCard nightLogId={nightLog.id} period="evening" />
+      <OrthostaticSummaryCard nightDate={nightLog.date} />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="evening" kind="weight" />
+      <BodyMeasurementEditCard nightLogId={nightLog.id} period="evening" kind="neck" />
 
       {/* Notes */}
       {eveningNotes && (

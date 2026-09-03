@@ -297,6 +297,9 @@ export function CalendarPage() {
                     className={`calendar-dot${hasFull ? ' dot-full' : ' dot-evening'}`}
                   />
                 )}
+                {eveningLog && eveningLog.eveningIntake.sodiumLevel !== 'normal' && (
+                  <span className="calendar-salt" aria-label="salt above normal">🧂</span>
+                )}
               </button>
             );
           })}
@@ -311,7 +314,11 @@ export function CalendarPage() {
             <div className="calendar-entry-info">
               <div className="fw-600">Evening log</div>
               <div className="text-secondary text-sm">
-                {hasEvening ? 'Logged' : 'Not logged'}
+                {hasEvening
+                  ? selectedEveningLog?.autoCreated
+                    ? 'Partial — created by a 4am episode'
+                    : 'Logged'
+                  : 'Not logged'}
               </div>
             </div>
             <div className="calendar-entry-actions">
