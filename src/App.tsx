@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import { AppSwitcher } from './components/AppSwitcher';
 import { AppTabBar } from './components/AppTabBar';
 import { AppEntryRedirect } from './components/AppEntryRedirect';
-import { ComingSoon } from './components/ComingSoon';
 const EveningRoutineSettingsPage = lazy(() => import('./pages/settings/EveningRoutineSettingsPage'));
 const RoutineTracker = lazy(() => import('./pages/tonight/RoutineTracker'));
 import { TonightPlan } from './pages/tonight/TonightPlan';
@@ -25,6 +24,9 @@ import { EpisodeCapture } from './pages/experiments/EpisodeCapture';
 import { VitalsTab } from './pages/experiments/VitalsTab';
 import { OrthostaticEntry } from './pages/experiments/OrthostaticEntry';
 import { BodyTab } from './pages/experiments/BodyTab';
+import { ClinicianExportPage } from './pages/experiments/ClinicianExportPage';
+import { ClinicianSummaryPrint } from './pages/experiments/ClinicianSummaryPrint';
+import { SamsungImportPage } from './pages/experiments/SamsungImportPage';
 import RemindersPage from './pages/settings/RemindersPage';
 import VitalsSettingsPage from './pages/settings/VitalsSettingsPage';
 import SettingsHome from './pages/settings/SettingsHome';
@@ -83,8 +85,9 @@ export function App() {
           <Route path="/experiments/vitals" element={<VitalsTab />} />
           <Route path="/experiments/vitals/new" element={<OrthostaticEntry />} />
           <Route path="/experiments/body" element={<BodyTab />} />
-          <Route path="/experiments/import" element={<ComingSoon title="Samsung import" spec="samsung-bulk-import.md" />} />
-          <Route path="/experiments/export" element={<ComingSoon title="Export for doctor" spec="clinician-export.md" />} />
+          <Route path="/experiments/import" element={<SamsungImportPage />} />
+          <Route path="/experiments/export" element={<ClinicianExportPage />} />
+          <Route path="/experiments/export/print" element={<ClinicianSummaryPrint />} />
 
           {/* Settings (shared) */}
           <Route path="/settings" element={<SettingsHome />} />
