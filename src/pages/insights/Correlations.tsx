@@ -30,7 +30,10 @@ type XVar =
   // in the correlations picker so the user can explore them directly.
   | 'hoursSinceLastMeal'
   | 'coolingRate1to4F'
-  | 'pressure';
+  | 'pressure'
+  // Home-experiments night tag (night-tags.md). The full picker refactor
+  // lands with insights-and-rules.md.
+  | 'sodiumLevel';
 
 type YVar =
   | 'sleepScore'
@@ -53,7 +56,8 @@ const X_OPTIONS: { value: XVar; label: string }[] = [
   { value: 'beddingLayers', label: 'Number bedding layers' },
   { value: 'clothingLayers', label: 'Number clothing layers' },
   { value: 'alcohol', label: 'Alcohol (1/0)' },
-  { value: 'anyFlag', label: 'Any flag active (1/0)' },
+  { value: 'anyFlag', label: 'Any flag active (1/0, salt excluded)' },
+  { value: 'sodiumLevel', label: 'Sodium level (0 normal / 1 more / 2 much more)' },
   { value: 'weight', label: 'Weight (lb)' },
   { value: 'overate', label: 'Overate flag (1/0)' },
 ];
@@ -164,6 +168,8 @@ function getXValue(
       )
         ? 1
         : 0;
+    case 'sodiumLevel':
+      return log.eveningIntake.sodiumLevel === 'normal' ? 0 : log.eveningIntake.sodiumLevel === 'more' ? 1 : 2;
   }
 }
 

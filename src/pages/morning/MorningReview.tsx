@@ -13,6 +13,7 @@ import { NightLogDateEditor } from '../../components/NightLogDateEditor';
 import { ThermalComfortChip } from '../../components/ThermalComfortChip';
 import { EpisodeWakeDetails } from '../../components/EpisodeWakeDetails';
 import { OrthostaticSummaryCard } from '../../components/OrthostaticSummaryCard';
+import { SodiumLevelChip } from '../../components/SodiumLevelChip';
 import { logToInputs, nightDistance } from '../../services/recommender';
 import type { NightLog, ThermalComfort } from '../../types';
 
@@ -120,6 +121,28 @@ export function MorningReview() {
       </div>
 
       <NightLogDateEditor nightLog={nightLog} />
+
+      <div className="card">
+          <div className="card-title">Night tags</div>
+          <div className="summary-row">
+            <span className="summary-label">Sodium</span>
+            <span className="summary-value"><SodiumLevelChip log={nightLog} /></span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Position: to bed → at wake</span>
+            <span className="summary-value">{nightLog.positionStarted} → {nightLog.positionAtWake}</span>
+          </div>
+          <div className="summary-row">
+            <span className="summary-label">Woke wired</span>
+            <span className={`summary-value ${nightLog.wiredWake ? 'text-warning' : ''}`}>{nightLog.wiredWake ? 'yes' : 'no'}</span>
+          </div>
+          {nightLog.electrolyteDose && (
+            <div className="summary-row">
+              <span className="summary-label">Electrolyte drink</span>
+              <span className="summary-value">{nightLog.electrolyteDose}</span>
+            </div>
+          )}
+      </div>
 
       {nightLog.thermalComfort && (
         <div className="card">

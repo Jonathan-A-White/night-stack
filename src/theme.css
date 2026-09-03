@@ -212,6 +212,14 @@ body {
   cursor: pointer;
 }
 
+.calendar-salt {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  line-height: 1;
+}
+
 .body-table {
   width: 100%;
   border-collapse: collapse;

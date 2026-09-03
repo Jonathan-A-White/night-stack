@@ -27,6 +27,8 @@ import {
   roundWeightLbs,
 } from '../../weightUtils';
 import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
+import { buildMorningTagsForSave } from '../../services/nightTags';
+import { WakeTagsStep } from './steps/WakeTagsStep';
 import type {
   SleepData,
   SleepRating,
@@ -34,6 +36,7 @@ import type {
   WakeUpEvent,
   BedtimeExplanation,
   ThermalComfort,
+  SleepPosition,
 } from '../../types';
 
 const TOTAL_STEPS = 5;
@@ -203,6 +206,10 @@ export function MorningLog() {
   const [neckIn, setNeckIn] = useState<number | null>(null);
   const latestNeck = useLiveQuery(() => latestMeasurement('neck'), []);
 
+  // Wake tags (night-tags.md): position at the final wake, woke wired.
+  const [positionAtWake, setPositionAtWake] = useState<Exclude<SleepPosition, 'unknown'> | null>(null);
+  const [wiredWake, setWiredWake] = useState(false);
+
   // Initialize the stepper once settings + latest weight query resolve.
   useEffect(() => {
     if (weightInitialized) return;
@@ -261,6 +268,8 @@ export function MorningLog() {
       }
       if (typeof draft.weightSkipped === 'boolean') setWeightSkipped(draft.weightSkipped);
       if (typeof draft.neckIn === 'number') setNeckIn(draft.neckIn);
+      if (draft.positionAtWake === 'side' || draft.positionAtWake === 'back') setPositionAtWake(draft.positionAtWake);
+      if (typeof draft.wiredWake === 'boolean') setWiredWake(draft.wiredWake);
     } else {
       // No draft — seed from saved nightLog data so re-opening a saved
       // morning log shows the previously entered values.
@@ -271,6 +280,8 @@ export function MorningLog() {
         setWakeUpEvents(nightLog.wakeUpEvents);
       }
       if (nightLog.thermalComfort) setThermalComfort(nightLog.thermalComfort);
+      if (nightLog.positionAtWake !== 'unknown') setPositionAtWake(nightLog.positionAtWake);
+      setWiredWake(nightLog.wiredWake);
       if (nightLog.bedtimeExplanation) {
         setBedtimeReason(nightLog.bedtimeExplanation.reason);
         setBedtimeNotes(nightLog.bedtimeExplanation.notes);
@@ -303,6 +314,8 @@ export function MorningLog() {
       weightLbs,
       weightSkipped,
       neckIn,
+      positionAtWake,
+      wiredWake,
     };
     try {
       localStorage.setItem(draftKey, JSON.stringify(data));
@@ -325,6 +338,8 @@ export function MorningLog() {
     weightLbs,
     weightSkipped,
     neckIn,
+    positionAtWake,
+    wiredWake,
   ]);
 
   // --- Handlers ---
@@ -680,6 +695,7 @@ export function MorningLog() {
       // the author here. If they clear the label (null), drop the source
       // back to null so a later backfill proxy can take over if applicable.
       thermalComfortSource: thermalComfort ? 'user' : null,
+      ...buildMorningTagsForSave({ positionAtWake, wiredWake }),
       updatedAt: Date.now(),
     });
 
@@ -1419,6 +1435,14 @@ export function MorningLog() {
               </button>
             </div>
           )}
+
+          <WakeTagsStep
+            positionAtWake={positionAtWake}
+            onPositionAtWake={setPositionAtWake}
+            wiredWake={wiredWake}
+            onWiredWake={setWiredWake}
+            watchWakeTime={sleepData?.wakeTime ?? null}
+          />
         </div>
       )}
 

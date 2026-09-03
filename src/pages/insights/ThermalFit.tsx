@@ -8,12 +8,10 @@ import {
 import { db } from '../../db';
 import { toLocalDateString } from '../../utils';
 import { SubNav } from './Dashboard';
-import type { NightLog, BeddingItem, ClothingItem, EveningFlag } from '../../types';
+import type { NightLog, BeddingItem, ClothingItem } from '../../types';
+import { intakeMatches, type IntakeKey } from '../../services/nightTags';
 
 type OutcomeKey = 'just_right' | 'no_major_wake';
-// `sodium_more` matches nights at 'more' or 'much_more'; `sodium_much_more`
-// only the latter. They replace the old boolean `high_salt` flag key.
-type IntakeKey = EveningFlag['type'] | 'alcohol' | 'sodium_more' | 'sodium_much_more';
 type NonMatchMode = 'hide' | 'dim';
 
 interface Filters {
@@ -123,10 +121,7 @@ function hasNoMajorWake(log: NightLog): boolean {
 }
 
 function flagActive(log: NightLog, key: IntakeKey): boolean {
-  if (key === 'alcohol') return log.eveningIntake.alcohol !== null;
-  if (key === 'sodium_more') return log.eveningIntake.sodiumLevel !== 'normal';
-  if (key === 'sodium_much_more') return log.eveningIntake.sodiumLevel === 'much_more';
-  return log.eveningIntake.flags.some((f) => f.type === key && f.active);
+  return intakeMatches(log, key);
 }
 
 export function ThermalFit() {

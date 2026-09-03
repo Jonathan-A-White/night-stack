@@ -297,6 +297,9 @@ export function CalendarPage() {
                     className={`calendar-dot${hasFull ? ' dot-full' : ' dot-evening'}`}
                   />
                 )}
+                {eveningLog && eveningLog.eveningIntake.sodiumLevel !== 'normal' && (
+                  <span className="calendar-salt" aria-label="salt above normal">🧂</span>
+                )}
               </button>
             );
           })}

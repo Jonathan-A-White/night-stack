@@ -26,6 +26,8 @@ import {
   roundWeightLbs,
 } from '../../weightUtils';
 import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
+import { buildEveningTagsForSave, rankSodiumSourceChips } from '../../services/nightTags';
+import { NightTagsStep } from './steps/NightTagsStep';
 import type {
   StackDeviation,
   EveningFlag,
@@ -39,6 +41,9 @@ import type {
   StruggleIntensity,
   AcCurveProfile,
   FanSpeed,
+  SodiumLevel,
+  ElectrolyteDose,
+  SleepPosition,
 } from '../../types';
 
 const AC_CURVE_OPTIONS: { value: AcCurveProfile; label: string; hint: string }[] = [
@@ -268,6 +273,29 @@ export function EveningLog() {
     typeof draft?.neckIn === 'number' ? (draft.neckIn as number) : null,
   );
   const latestNeck = useLiveQuery(() => latestMeasurement('neck'), []);
+
+  // Night tags (night-tags.md): sodium level + sources, drink dose,
+  // position getting into bed. `sodiumTouched` drives provenance.
+  const [sodiumLevel, setSodiumLevel] = useState<SodiumLevel>(
+    (draft?.sodiumLevel as SodiumLevel) ?? 'normal',
+  );
+  const [sodiumTouched, setSodiumTouched] = useState<boolean>(
+    (draft?.sodiumTouched as boolean) ?? false,
+  );
+  const [sodiumSources, setSodiumSources] = useState<string[]>(
+    Array.isArray(draft?.sodiumSources) ? (draft!.sodiumSources as string[]) : [],
+  );
+  const [electrolyteDose, setElectrolyteDose] = useState<ElectrolyteDose | null>(
+    (draft?.electrolyteDose as ElectrolyteDose | null) ?? null,
+  );
+  const [positionStarted, setPositionStarted] = useState<Exclude<SleepPosition, 'unknown'> | null>(
+    (draft?.positionStarted as Exclude<SleepPosition, 'unknown'> | null) ?? null,
+  );
+  const recentLogsForChips = useLiveQuery(
+    () => db.nightLogs.where('date').aboveOrEqual(getEveningLogDate(new Date(Date.now() - 30 * 86_400_000))).toArray(),
+    [],
+  );
+  const suggestedSources = rankSodiumSourceChips(recentLogsForChips ?? []);
   const [weightSkipped, setWeightSkipped] = useState(
     (draft?.weightSkipped as boolean) ?? false,
   );
@@ -324,6 +352,12 @@ export function EveningLog() {
     }
     setLiquidIntake(existingLog.eveningIntake.liquidIntake);
 
+    // Night tags — provenance stays as stored until the picker is tapped.
+    setSodiumLevel(existingLog.eveningIntake.sodiumLevel);
+    setSodiumSources(existingLog.eveningIntake.sodiumSources);
+    setElectrolyteDose(existingLog.electrolyteDose);
+    setPositionStarted(existingLog.positionStarted === 'unknown' ? null : existingLog.positionStarted);
+
     // Midday struggle
     setHadStruggle(existingLog.middayStruggle.hadStruggle);
     setSelectedCoping(existingLog.middayStruggle.copingItemIds);
@@ -356,6 +390,7 @@ export function EveningLog() {
       roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
       selectedClothing, selectedBedding, eveningNotes,
       weightLbs, weightSkipped, neckIn,
+      sodiumLevel, sodiumTouched, sodiumSources, electrolyteDose, positionStarted,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
   }, [
@@ -366,6 +401,7 @@ export function EveningLog() {
     roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
     selectedClothing, selectedBedding, eveningNotes,
     weightLbs, weightSkipped, neckIn,
+    sodiumLevel, sodiumTouched, sodiumSources, electrolyteDose, positionStarted,
     DRAFT_KEY,
   ]);
 
@@ -541,18 +577,24 @@ export function EveningLog() {
         eatingCutoff: schedule.eatingCutoff,
         userInteracted: lastMealTimeTouched,
       });
+      const tags = buildEveningTagsForSave({
+        existing: existingLog ? existingLog.eveningIntake : null,
+        sodiumLevel,
+        sodiumTouched,
+        sodiumSources,
+        electrolyteDose,
+        positionStarted,
+      });
       nightLog.eveningIntake = {
         lastMealTime: resolvedLastMealTime,
         foodDescription,
         flags,
         alcohol: hasAlcohol ? alcohol : null,
         liquidIntake,
-        // Night-tags workstream adds the picker; until then preserve what the
-        // row already carries (proxy-backfilled values on historical nights).
-        sodiumLevel: existingLog?.eveningIntake.sodiumLevel ?? 'normal',
-        sodiumLevelSource: existingLog?.eveningIntake.sodiumLevelSource ?? 'user',
-        sodiumSources: existingLog?.eveningIntake.sodiumSources ?? [],
+        ...tags.eveningIntake,
       };
+      nightLog.electrolyteDose = tags.electrolyteDose;
+      nightLog.positionStarted = tags.positionStarted;
       // When the user hasn't got an AC installed yet, the AC card is hidden
       // from the form. Persist 'off'/null so the recommender's AC-curve
       // distance stays a no-op for the night (it treats both-sides-'off' as
@@ -962,6 +1004,22 @@ export function EveningLog() {
               />
             </div>
           </div>
+
+          <NightTagsStep
+            sodiumLevel={sodiumLevel}
+            onSodiumLevel={(v) => {
+              setSodiumLevel(v);
+              setSodiumTouched(true);
+            }}
+            sodiumSources={sodiumSources}
+            onSodiumSources={setSodiumSources}
+            suggestedSources={suggestedSources}
+            electrolyteDose={electrolyteDose}
+            onElectrolyteDose={setElectrolyteDose}
+            positionStarted={positionStarted}
+            onPositionStarted={setPositionStarted}
+            isProxy={!sodiumTouched && existingLog?.eveningIntake.sodiumLevelSource === 'proxy'}
+          />
         </div>
       )}
 
