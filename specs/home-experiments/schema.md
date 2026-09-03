@@ -94,6 +94,12 @@ export interface EveningFlag {
    * row and clears the flag; the calendar shows it as "partial".
    */
   autoCreated: boolean;
+  /**
+   * Free text for a hand-run experiment's condition (e.g. "pinch: salt"),
+   * entered after Jonathan unblinds it himself (Q8). Exported in the
+   * clinician CSV; never shown in Tonight's plan.
+   */
+  experimentNotes: string;
 ```
 
 ### `WakeUpEvent` additions (episode fields)
@@ -255,6 +261,7 @@ this.version(12).stores({
 | `electrolyteDose` | `null` |
 | `positionStarted`, `positionAtWake` | `'unknown'` |
 | `wiredWake`, `autoCreated` | `false` |
+| `experimentNotes` | `''` |
 | each `wakeUpEvents[i]` | `backfillWakeUpEventV12`: `positionAtWake 'unknown'`, `ecgTaken false`, `ecgVerdict 'not_taken'`, `rhythmFelt null`, `lyingBp null`, `minutesToSettle null`, `wired false`, `capturedAt null`, `source 'morning'` |
 
 Every rule is guarded by `=== undefined` so re-running is a no-op and
