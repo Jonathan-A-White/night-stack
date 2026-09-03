@@ -50,6 +50,9 @@ function makeNightLog(date: string, sleepData: SleepData | null): NightLog {
       flags: [],
       alcohol: null,
       liquidIntake: '',
+      sodiumLevel: 'normal',
+      sodiumLevelSource: 'user',
+      sodiumSources: [],
     },
     environment: {
       roomTempF: null,
@@ -77,6 +80,12 @@ function makeNightLog(date: string, sleepData: SleepData | null): NightLog {
     thermalComfort: null,
     thermalComfortSource: null,
     thermalProxyDismissed: false,
+    electrolyteDose: null,
+    positionStarted: 'unknown',
+    positionAtWake: 'unknown',
+    wiredWake: false,
+    autoCreated: false,
+    experimentNotes: '',
   };
 }
 

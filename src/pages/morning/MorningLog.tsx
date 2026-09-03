@@ -13,6 +13,7 @@ import {
   subtractMinutes,
   timestampToHHMM,
   computeAdjustedSleepOnset,
+  createBlankWakeUpEvent,
 } from '../../utils';
 import { parseSamsungHealthJSON, parseGoveeCSV, type ParsedWakeUpEvent } from '../../services/importers';
 import { findDuplicateSleepData } from '../../services/sleepDataDedupe';
@@ -325,18 +326,15 @@ export function MorningLog() {
       const matchedCause = (wakeUpCauses ?? []).find(
         (c) => c.label.toLowerCase() === ev.cause.toLowerCase()
       );
-      return {
-        id: crypto.randomUUID(),
+      return createBlankWakeUpEvent({
         startTime: ev.startTime,
         endTime: ev.endTime,
         cause: matchedCause?.id ?? '',
         fellBackAsleep: ev.endTime ? 'yes' : 'no',
         minutesToFallBackAsleep: calcMinutesBetween(ev.startTime, ev.endTime),
         notes: ev.notes,
-        wasSweating: false,
-        feltCold: false,
-        racingHeart: false,
-      } satisfies WakeUpEvent;
+        source: 'import',
+      });
     });
   }
 
@@ -468,21 +466,7 @@ export function MorningLog() {
   }
 
   function addWakeUpEvent() {
-    setWakeUpEvents((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        startTime: '',
-        endTime: '',
-        cause: '',
-        fellBackAsleep: 'yes',
-        minutesToFallBackAsleep: null,
-        notes: '',
-        wasSweating: false,
-        feltCold: false,
-        racingHeart: false,
-      },
-    ]);
+    setWakeUpEvents((prev) => [...prev, createBlankWakeUpEvent()]);
   }
 
   function updateWakeUpEvent(id: string, field: keyof WakeUpEvent, value: unknown) {

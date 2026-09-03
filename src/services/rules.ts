@@ -60,6 +60,8 @@ export const CLAUSE_KINDS: ClauseMeta[] = [
   { kind: 'feeling_cold', label: 'Feeling cold at bedtime', hasThreshold: false },
   { kind: 'midday_food_coping', label: 'Midday slump: food used to cope', hasThreshold: false },
   { kind: 'midday_nap_logged', label: 'Midday slump: nap logged', hasThreshold: false },
+  { kind: 'high_salt_and_supine', label: 'Salt above normal and not side-sleeping', hasThreshold: false },
+  { kind: 'orthostatic_flag_today', label: 'Orthostatic flag today', hasThreshold: false },
 ];
 
 const CLAUSE_META_BY_KIND: Record<ConditionClauseKind, ClauseMeta> = Object.fromEntries(
@@ -104,6 +106,10 @@ export function formatClause(clause: ConditionClause): string {
       return 'Midday slump: food used to cope';
     case 'midday_nap_logged':
       return 'Midday slump: nap logged';
+    case 'high_salt_and_supine':
+      return 'Salt above normal and not side-sleeping';
+    case 'orthostatic_flag_today':
+      return 'Orthostatic flag today';
   }
 }
 
@@ -204,6 +210,20 @@ function evaluateClause(clause: ConditionClause, ctx: RuleEvalContext): boolean 
       if (!hadStruggle) return false;
       return copingItemIds.some((id) => ctx.middayCopingItems!.get(id)?.type === 'nap');
     }
+
+    case 'high_salt_and_supine': {
+      // Fires on sodium alone when position is not yet known (pack
+      // acceptance 6): only an explicit side-sleep suppresses it.
+      if (!ctx.currentLog) return false;
+      const { sodiumLevel } = ctx.currentLog.eveningIntake;
+      if (sodiumLevel === 'normal') return false;
+      return ctx.currentLog.positionStarted !== 'side';
+    }
+
+    case 'orthostatic_flag_today':
+      // TODO(insights-and-rules): evaluate against today's orthostatic
+      // readings once `RuleEvalContext.todayOrthostatic` exists.
+      return false;
   }
 }
 

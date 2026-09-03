@@ -337,13 +337,15 @@ export function createBlankNightLog(date: string, alarm: {
       foodDescription: '',
       flags: [
         { type: 'overate', label: 'Overate', active: false },
-        { type: 'high_salt', label: 'High salt', active: false },
         { type: 'nitrates', label: 'Nitrates', active: false },
         { type: 'questionable_food', label: 'Questionable food', active: false },
         { type: 'late_meal', label: 'Late meal', active: false },
       ],
       alcohol: null,
       liquidIntake: '',
+      sodiumLevel: 'normal',
+      sodiumLevelSource: 'user',
+      sodiumSources: [],
     },
     environment: {
       roomTempF: null,
@@ -371,5 +373,43 @@ export function createBlankNightLog(date: string, alarm: {
     thermalComfort: null,
     thermalComfortSource: null,
     thermalProxyDismissed: false,
+    electrolyteDose: null,
+    positionStarted: 'unknown',
+    positionAtWake: 'unknown',
+    wiredWake: false,
+    autoCreated: false,
+    experimentNotes: '',
+  };
+}
+
+/**
+ * Create a WakeUpEvent with every field at its default. Callers spread
+ * their own values over it so adding a field to the type never leaves a
+ * literal missing it.
+ */
+export function createBlankWakeUpEvent(
+  overrides: Partial<import('./types').WakeUpEvent> = {},
+): import('./types').WakeUpEvent {
+  return {
+    id: crypto.randomUUID(),
+    startTime: '',
+    endTime: '',
+    cause: '',
+    fellBackAsleep: 'yes',
+    minutesToFallBackAsleep: null,
+    notes: '',
+    wasSweating: false,
+    feltCold: false,
+    racingHeart: false,
+    positionAtWake: 'unknown',
+    ecgTaken: false,
+    ecgVerdict: 'not_taken',
+    rhythmFelt: null,
+    lyingBp: null,
+    minutesToSettle: null,
+    wired: false,
+    capturedAt: null,
+    source: 'morning',
+    ...overrides,
   };
 }

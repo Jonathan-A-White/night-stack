@@ -412,7 +412,7 @@ describe('nightDistance (distance-function T6)', () => {
 
   it('dropped flags never contribute: toggling eveningIntake.flags does not change nightDistance', () => {
     // Build two nights where the *only* difference is
-    // eveningIntake.flags (overate / late_meal / high_salt). Since
+    // eveningIntake.flags (overate / late_meal). Since
     // logToInputs no longer reads those flags, the nightDistance between
     // the two must be identical to the nightDistance when the flags are
     // equal. Guards against a future re-introduction of the zero-signal
@@ -425,10 +425,10 @@ describe('nightDistance (distance-function T6)', () => {
     const baselineB = logToInputs(b);
     const dBaseline = nightDistance(baselineA, baselineB);
 
-    // Now flip overate/late_meal/high_salt on one side only. If the
+    // Now flip overate/late_meal on one side only. If the
     // recommender's distance function were still reading these flags,
     // distance would jump; it must stay the same.
-    for (const type of ['overate', 'late_meal', 'high_salt'] as const) {
+    for (const type of ['overate', 'late_meal'] as const) {
       const flag = a.eveningIntake.flags.find((f) => f.type === type);
       if (flag) flag.active = true;
     }
@@ -437,7 +437,7 @@ describe('nightDistance (distance-function T6)', () => {
     expect(dToggled).toBe(dBaseline);
 
     // And flip them on both sides → same distance again (symmetry).
-    for (const type of ['overate', 'late_meal', 'high_salt'] as const) {
+    for (const type of ['overate', 'late_meal'] as const) {
       const flag = b.eveningIntake.flags.find((f) => f.type === type);
       if (flag) flag.active = true;
     }
@@ -572,6 +572,15 @@ function wakeEvent(
     wasSweating: opts.wasSweating ?? false,
     feltCold: opts.feltCold ?? false,
     racingHeart: false,
+    positionAtWake: 'unknown',
+    ecgTaken: false,
+    ecgVerdict: 'not_taken',
+    rhythmFelt: null,
+    lyingBp: null,
+    minutesToSettle: null,
+    wired: false,
+    capturedAt: null,
+    source: 'morning',
   };
 }
 

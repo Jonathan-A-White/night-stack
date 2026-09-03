@@ -229,8 +229,17 @@ describe('createBlankNightLog', () => {
     expect(log.wakeUpEvents).toEqual([]);
     expect(log.clothing).toEqual([]);
     expect(log.bedding).toEqual([]);
-    expect(log.eveningIntake.flags).toHaveLength(5);
+    expect(log.eveningIntake.flags).toHaveLength(4);
     expect(log.eveningIntake.flags.every((f) => !f.active)).toBe(true);
+    expect(log.eveningIntake.sodiumLevel).toBe('normal');
+    expect(log.eveningIntake.sodiumLevelSource).toBe('user');
+    expect(log.eveningIntake.sodiumSources).toEqual([]);
+    expect(log.electrolyteDose).toBeNull();
+    expect(log.positionStarted).toBe('unknown');
+    expect(log.positionAtWake).toBe('unknown');
+    expect(log.wiredWake).toBe(false);
+    expect(log.autoCreated).toBe(false);
+    expect(log.experimentNotes).toBe('');
     expect(log.middayStruggle.hadStruggle).toBe(false);
     expect(log.middayStruggle.copingItemIds).toEqual([]);
     expect(log.middayStruggle.intensity).toBeNull();

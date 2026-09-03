@@ -185,7 +185,6 @@ export function EveningLog() {
   const [foodDescription, setFoodDescription] = useState((draft?.foodDescription as string) ?? '');
   const [flags, setFlags] = useState<EveningFlag[]>((draft?.flags as EveningFlag[]) ?? [
     { type: 'overate', label: 'Overate', active: false },
-    { type: 'high_salt', label: 'High salt', active: false },
     { type: 'nitrates', label: 'Nitrates', active: false },
     { type: 'questionable_food', label: 'Questionable food', active: false },
     { type: 'late_meal', label: 'Late meal', active: false },
@@ -540,6 +539,11 @@ export function EveningLog() {
         flags,
         alcohol: hasAlcohol ? alcohol : null,
         liquidIntake,
+        // Night-tags workstream adds the picker; until then preserve what the
+        // row already carries (proxy-backfilled values on historical nights).
+        sodiumLevel: existingLog?.eveningIntake.sodiumLevel ?? 'normal',
+        sodiumLevelSource: existingLog?.eveningIntake.sodiumLevelSource ?? 'user',
+        sodiumSources: existingLog?.eveningIntake.sodiumSources ?? [],
       };
       // When the user hasn't got an AC installed yet, the AC card is hidden
       // from the form. Persist 'off'/null so the recommender's AC-curve

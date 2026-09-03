@@ -4,8 +4,14 @@ import type {
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
   WeightEntry, MiddayCopingItem, MiddayStruggle,
   RoutineStep, RoutineVariant, RoutineSession,
+  BodyMeasurement, OrthostaticReading, VitalSample, ImportBatch,
 } from './types';
 import { parseConditionString } from './services/rules';
+import {
+  backfillAppSettingsV12,
+  backfillNightLogV12,
+  weightEntryToBodyMeasurement,
+} from './services/schemaBackfill';
 
 export class NightStackDB extends Dexie {
   nightLogs!: Table<NightLog>;
@@ -22,6 +28,10 @@ export class NightStackDB extends Dexie {
   routineSteps!: Table<RoutineStep>;
   routineVariants!: Table<RoutineVariant>;
   routineSessions!: Table<RoutineSession>;
+  bodyMeasurements!: Table<BodyMeasurement>;
+  orthostaticReadings!: Table<OrthostaticReading>;
+  vitalSamples!: Table<VitalSample>;
+  importBatches!: Table<ImportBatch>;
 
   constructor() {
     super('nightstack');
@@ -189,7 +199,73 @@ export class NightStackDB extends Dexie {
         if (i.warmth === undefined) i.warmth = null;
       });
     });
+    this.version(12).stores({
+      nightLogs: 'id, date',
+      appSettings: 'id',
+      sleepRules: 'id, priority',
+      // Deprecated after v12 (read-only, dropped in v13); schema unchanged.
+      weightEntries: 'id, date, nightLogId, timestamp',
+      bodyMeasurements: 'id, date, nightLogId, timestamp, kind, [kind+date+period]',
+      orthostaticReadings: 'id, date, timestamp, [date+slot]',
+      vitalSamples: '[kind+timestamp], nightLogId, timestamp, importBatchId',
+      importBatches: 'id, importedAt',
+    }).upgrade(async (tx) => {
+      // Home-experiments pack (specs/home-experiments/schema.md):
+      //   - nightLogs: sodiumLevel replaces the high_salt flag (proxy
+      //     provenance), night-tag fields, per-wake episode fields.
+      //   - appSettings: three opt-in reminders + watch BP calibration date.
+      //   - weightEntries → bodyMeasurements (kind 'weight', ids preserved);
+      //     the old table stays as a safety net until v13.
+      //   - two seeded rules, deduped by name (v5 pattern).
+      await tx.table('nightLogs').toCollection().modify((log: Record<string, unknown>) => {
+        backfillNightLogV12(log);
+      });
+      await tx.table('appSettings').toCollection().modify((s: Record<string, unknown>) => {
+        backfillAppSettingsV12(s);
+      });
+      const bodyTable = tx.table('bodyMeasurements');
+      if ((await bodyTable.count()) === 0) {
+        const rows = (await tx.table('weightEntries').toArray()) as WeightEntry[];
+        if (rows.length > 0) {
+          await bodyTable.bulkAdd(rows.map(weightEntryToBodyMeasurement));
+        }
+      }
+      const rulesTable = tx.table('sleepRules');
+      const existing = await rulesTable.toArray();
+      const newRules = seedHomeExperimentRules(Date.now()).filter(
+        (r) => !existing.some((e) => e.name === r.name),
+      );
+      if (newRules.length > 0) {
+        await rulesTable.bulkAdd(newRules);
+      }
+    });
   }
+}
+
+/** Sleep rules that pair with the home-experiments capture (Q16). */
+function seedHomeExperimentRules(createdAt: number): SleepRule[] {
+  return [
+    {
+      id: crypto.randomUUID(),
+      name: 'Salt night — side sleep',
+      condition: { combinator: 'and', clauses: [{ kind: 'high_salt_and_supine' }] },
+      recommendation: 'Sleep on your side tonight.',
+      priority: 'high',
+      isActive: true,
+      source: 'seeded',
+      createdAt,
+    },
+    {
+      id: crypto.randomUUID(),
+      name: 'Orthostatic flag',
+      condition: { combinator: 'and', clauses: [{ kind: 'orthostatic_flag_today' }] },
+      recommendation: "Bring today's orthostatic reading to the doctor.",
+      priority: 'high',
+      isActive: true,
+      source: 'seeded',
+      createdAt,
+    },
+  ];
 }
 
 function buildDefaultRoutineVariant(): RoutineVariant {
@@ -281,6 +357,9 @@ export async function seedDatabase(): Promise<void> {
       bedtimeWarning: true,
       bedtime: true,
       morningLog: true,
+      amVitals: false,
+      pmVitals: false,
+      bedtimeWeighIn: false,
     },
     unitSystem: 'us',
     weighInPeriod: 'morning',
@@ -289,6 +368,7 @@ export async function seedDatabase(): Promise<void> {
     startingWeightLbs: null,
     age: null,
     acInstalled: false,
+    watchBpCalibratedAt: null,
   });
 
   // Alarm schedule
@@ -386,6 +466,7 @@ export async function seedDatabase(): Promise<void> {
     { id: crypto.randomUUID(), name: 'Magnesium total ceiling', condition: { combinator: 'and', clauses: [{ kind: 'always' }] }, recommendation: 'Keep total daily magnesium under 600-800mg. Currently: ~100mg (Focus Factor) + 200mg (Calm citrate) + 400mg (glycinate) = 700mg. Watch for loose stools.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
     { id: crypto.randomUUID(), name: 'Supplement spacing', condition: { combinator: 'and', clauses: [{ kind: 'iron_supplement_day' }] }, recommendation: 'On iron mornings, keep 2+ hours before lunch (Focus Factor has zinc/magnesium that compete with iron absorption). Take zinc picolinate at dinner, not with iron.', priority: 'medium', isActive: true, source: 'seeded', createdAt: now },
     ...seedMiddayCopingRules(now),
+    ...seedHomeExperimentRules(now),
   ];
   await db.sleepRules.bulkAdd(rules);
 
