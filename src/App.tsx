@@ -1,6 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { BottomTabs } from './components/BottomTabs';
+import { Routes, Route } from 'react-router-dom';
+import { AppSwitcher } from './components/AppSwitcher';
+import { AppTabBar } from './components/AppTabBar';
+import { AppEntryRedirect } from './components/AppEntryRedirect';
+import { ComingSoon } from './components/ComingSoon';
 const EveningRoutineSettingsPage = lazy(() => import('./pages/settings/EveningRoutineSettingsPage'));
 const RoutineTracker = lazy(() => import('./pages/tonight/RoutineTracker'));
 import { TonightPlan } from './pages/tonight/TonightPlan';
@@ -16,6 +19,8 @@ import { BestNights } from './pages/insights/BestNights';
 import { MetricDetail } from './pages/insights/MetricDetail';
 import { ThermalBackfillReview } from './pages/insights/ThermalBackfillReview';
 import { CalendarPage } from './pages/calendar/CalendarPage';
+import { RoutineHome } from './pages/routine/RoutineHome';
+import { ExperimentsHome } from './pages/experiments/ExperimentsHome';
 import SettingsHome from './pages/settings/SettingsHome';
 import AlarmSchedulePage from './pages/settings/AlarmSchedulePage';
 import SupplementStackPage from './pages/settings/SupplementStackPage';
@@ -34,15 +39,24 @@ import WeightProfilePage from './pages/settings/WeightProfilePage';
 import { useTheme } from './hooks/useTheme';
 import { InstallBanner } from './components/InstallBanner';
 
+const loading = <div className="empty-state"><h3>Loading…</h3></div>;
+
 export function App() {
   useTheme();
 
   return (
     <div className="app-layout">
       <InstallBanner />
+      <AppSwitcher />
       <div className="app-content">
         <Routes>
-          <Route path="/" element={<Navigate to="/tonight" replace />} />
+          <Route path="/" element={<AppEntryRedirect />} />
+
+          {/* Routine app */}
+          <Route path="/routine" element={<RoutineHome />} />
+          <Route path="/tonight/routine" element={<Suspense fallback={loading}><RoutineTracker /></Suspense>} />
+
+          {/* Tracking app */}
           <Route path="/tonight" element={<TonightPlan />} />
           <Route path="/tonight/log" element={<EveningLog />} />
           <Route path="/tonight/review/:id" element={<EveningReview />} />
@@ -56,9 +70,18 @@ export function App() {
           <Route path="/insights/best-nights" element={<BestNights />} />
           <Route path="/insights/metric/:type" element={<MetricDetail />} />
           <Route path="/insights/backfill" element={<ThermalBackfillReview />} />
+
+          {/* Experiments app — placeholders are replaced by their workstreams */}
+          <Route path="/experiments" element={<ExperimentsHome />} />
+          <Route path="/experiments/episode" element={<ComingSoon title="Episode" spec="episode-capture.md" />} />
+          <Route path="/experiments/vitals" element={<ComingSoon title="Vitals" spec="vitals.md" />} />
+          <Route path="/experiments/body" element={<ComingSoon title="Body" spec="body-measurements.md" />} />
+          <Route path="/experiments/import" element={<ComingSoon title="Samsung import" spec="samsung-bulk-import.md" />} />
+          <Route path="/experiments/export" element={<ComingSoon title="Export for doctor" spec="clinician-export.md" />} />
+
+          {/* Settings (shared) */}
           <Route path="/settings" element={<SettingsHome />} />
-          <Route path="/settings/evening-routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><EveningRoutineSettingsPage /></Suspense>} />
-          <Route path="/tonight/routine" element={<Suspense fallback={<div className="empty-state"><h3>Loading…</h3></div>}><RoutineTracker /></Suspense>} />
+          <Route path="/settings/evening-routine" element={<Suspense fallback={loading}><EveningRoutineSettingsPage /></Suspense>} />
           <Route path="/settings/alarm-schedule" element={<AlarmSchedulePage />} />
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />
@@ -70,12 +93,14 @@ export function App() {
           <Route path="/settings/location" element={<LocationPage />} />
           <Route path="/settings/sleep-environment" element={<SleepEnvironmentPage />} />
           <Route path="/settings/weight-profile" element={<WeightProfilePage />} />
+          <Route path="/settings/reminders" element={<ComingSoon title="Reminders" spec="vitals.md" />} />
+          <Route path="/settings/vitals" element={<ComingSoon title="Vitals settings" spec="vitals.md" />} />
           <Route path="/settings/data" element={<DataManagementPage />} />
           <Route path="/settings/data/cleanup" element={<DataCleanupPage />} />
           <Route path="/settings/about" element={<AboutPage />} />
         </Routes>
       </div>
-      <BottomTabs />
+      <AppTabBar />
     </div>
   );
 }

@@ -15,6 +15,25 @@
   --radius: 12px;
   --radius-sm: 8px;
   --tab-height: 64px;
+  --switcher-height: 44px;
+}
+
+/*
+ * Force the dark palette on a subtree regardless of the data-theme
+ * setting. Used by the 4am episode flow (home-experiments app-shell.md).
+ * Redeclares every token the light theme overrides.
+ */
+.force-dark {
+  --color-bg: #0f0f1a;
+  --color-surface: #1a1a2e;
+  --color-surface-2: #252540;
+  --color-surface-3: #30304d;
+  --color-text: #e8e8ed;
+  --color-text-secondary: #9999aa;
+  --color-border: #333355;
+  --color-input-bg: #1e1e35;
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 
 [data-theme="light"] {
@@ -69,6 +88,42 @@ body {
   padding: 16px;
   padding-bottom: calc(var(--tab-height) + 16px);
   -webkit-overflow-scrolling: touch;
+}
+
+/* App switcher (Routine / Tracking / Experiments) */
+.app-switcher {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  margin: 8px 16px 0;
+  padding: 4px;
+  height: var(--switcher-height);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.app-switcher-segment {
+  flex: 1;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-switcher-segment.active {
+  background: var(--color-surface-3);
+  color: var(--color-accent);
+}
+
+.episode-button {
+  min-height: 72px;
+  font-size: 20px;
+  margin-bottom: 8px;
 }
 
 /* Bottom tabs */

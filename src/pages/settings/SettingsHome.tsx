@@ -11,6 +11,8 @@ const settingsItems = [
   { label: 'Bedtime Reasons', path: '/settings/bedtime-reasons' },
   { label: 'Sleep Rules', path: '/settings/sleep-rules' },
   { label: 'Weight Profile', path: '/settings/weight-profile' },
+  { label: 'Reminders', path: '/settings/reminders' },
+  { label: 'Vitals', path: '/settings/vitals' },
   { label: 'Location', path: '/settings/location' },
   { label: 'Sleep Environment', path: '/settings/sleep-environment' },
   { label: 'Data Management', path: '/settings/data' },

@@ -33,6 +33,18 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '.',
         scope: '.',
+        // Home-screen long-press shortcut straight into the 4am episode
+        // flow (home-experiments app-shell.md). Relative URL per
+        // docs/pwa-best-practices.md so it stays inside the scope.
+        shortcuts: [
+          {
+            name: 'Episode now',
+            short_name: 'Episode',
+            description: 'Record a 4am wake-up episode in one tap',
+            url: './experiments/episode',
+            icons: [{ src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' }],
+          },
+        ],
         icons: [
           {
             src: 'pwa-192x192.png',
