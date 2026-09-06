@@ -294,6 +294,24 @@ export function computeRecommendedStart(
   now: Date = new Date(),
 ): Date | null {
   if (bufferedMs == null) return null;
+  const deadline = resolveTonightDeadline(targetBedtimeHHMM, now);
+  return computeRecommendedStartFromDeadline(deadline, bufferedMs);
+}
+
+/**
+ * Generalized form: a concrete deadline (any routine's `schedule`, see
+ * `routineSchedule.ts`) minus the buffered expected duration.
+ */
+export function computeRecommendedStartFromDeadline(
+  deadline: Date | null,
+  bufferedMs: number | null,
+): Date | null {
+  if (deadline == null || bufferedMs == null) return null;
+  return new Date(deadline.getTime() - bufferedMs);
+}
+
+/** "HH:MM" bedtime → tonight's Date, rolling an early-morning time forward. */
+function resolveTonightDeadline(targetBedtimeHHMM: string, now: Date): Date | null {
   // Defend against callers passing undefined/null/empty — the alarm schedule
   // may not be loaded yet when the card first mounts.
   if (typeof targetBedtimeHHMM !== 'string' || targetBedtimeHHMM.length === 0) {
@@ -317,7 +335,7 @@ export function computeRecommendedStart(
     bedtime.setDate(bedtime.getDate() + 1);
   }
 
-  return new Date(bedtime.getTime() - bufferedMs);
+  return bedtime;
 }
 
 /** Format a ms value as "MM:SS" or "-MM:SS" (negative when exceeded PB), "H:MM:SS" at ≥1h. */

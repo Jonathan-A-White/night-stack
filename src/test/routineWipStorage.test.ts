@@ -6,6 +6,7 @@ import {
   saveWip,
   stepIdsEqual,
   WIP_KEY,
+  wipKeyFor,
   type WipSession,
   type WipStep,
   type WipStepStatus,
@@ -15,8 +16,10 @@ import type { RoutineStep, RoutineVariant } from '../types';
 function makeStep(partial: Partial<RoutineStep>): RoutineStep {
   return {
     id: partial.id ?? 'step-1',
+    routineId: partial.routineId ?? 'evening',
     name: partial.name ?? 'Step',
     description: partial.description ?? '',
+    secretNames: partial.secretNames ?? [],
     sortOrder: partial.sortOrder ?? 0,
     isActive: partial.isActive ?? true,
     createdAt: partial.createdAt ?? 0,
@@ -26,6 +29,7 @@ function makeStep(partial: Partial<RoutineStep>): RoutineStep {
 function makeVariant(partial: Partial<RoutineVariant>): RoutineVariant {
   return {
     id: partial.id ?? 'var-1',
+    routineId: partial.routineId ?? 'evening',
     name: partial.name ?? 'Full',
     description: partial.description ?? '',
     stepIds: partial.stepIds ?? [],
@@ -58,6 +62,7 @@ function makeWipStep(
 function makeWip(partial: Partial<WipSession> & { steps: WipStep[] }): WipSession {
   return {
     id: partial.id ?? 'wip-1',
+    routineId: partial.routineId ?? 'evening',
     variantId: partial.variantId ?? 'var-1',
     variantName: partial.variantName ?? 'Full',
     startedAt: partial.startedAt ?? 0,
@@ -363,11 +368,11 @@ describe('reconcileWipWithVariant', () => {
         makeWipStep('b', 'Do Vitamins'),
       ],
     });
-    saveWip(wip);
+    saveWip('evening', wip);
     // Nothing in sessionStorage — that's the bug we're fixing.
     expect(sessionStorage.getItem(WIP_KEY)).toBeNull();
     // localStorage holds the WIP across the simulated kill.
-    const reloaded = loadWip(new Date('2026-04-11T22:05:00'));
+    const reloaded = loadWip('evening', new Date('2026-04-11T22:05:00'));
     expect(reloaded).not.toBeNull();
     expect(reloaded?.id).toBe(wip.id);
     expect(reloaded?.steps).toHaveLength(2);
@@ -382,6 +387,7 @@ describe('reconcileWipWithVariant', () => {
     localStorage.clear();
     const startedAt = new Date('2026-04-11T23:50:00').getTime();
     saveWip(
+      'evening',
       makeWip({
         startedAt,
         currentStepIndex: 0,
@@ -389,7 +395,7 @@ describe('reconcileWipWithVariant', () => {
         steps: [makeWipStep('a', 'A', 'pending', { startedAt })],
       }),
     );
-    const reloaded = loadWip(new Date('2026-04-12T07:00:00'));
+    const reloaded = loadWip('evening', new Date('2026-04-12T07:00:00'));
     expect(reloaded).not.toBeNull();
     expect(reloaded?.startedAt).toBe(startedAt);
   });
@@ -400,28 +406,30 @@ describe('reconcileWipWithVariant', () => {
     localStorage.clear();
     const startedAt = new Date('2026-04-09T22:00:00').getTime();
     saveWip(
+      'evening',
       makeWip({
         startedAt,
         steps: [makeWipStep('a', 'A')],
       }),
     );
-    const reloaded = loadWip(new Date('2026-04-11T15:00:00'));
+    const reloaded = loadWip('evening', new Date('2026-04-11T15:00:00'));
     expect(reloaded).toBeNull();
     // And the stale entry has been cleaned out of storage.
-    expect(localStorage.getItem(WIP_KEY)).toBeNull();
+    expect(localStorage.getItem(wipKeyFor('evening'))).toBeNull();
   });
 
   it('saveWip(null) clears the persisted WIP', () => {
     localStorage.clear();
     saveWip(
+      'evening',
       makeWip({
         startedAt: Date.now(),
         steps: [makeWipStep('a', 'A')],
       }),
     );
-    expect(localStorage.getItem(WIP_KEY)).not.toBeNull();
-    saveWip(null);
-    expect(localStorage.getItem(WIP_KEY)).toBeNull();
+    expect(localStorage.getItem(wipKeyFor('evening'))).not.toBeNull();
+    saveWip('evening', null);
+    expect(localStorage.getItem(wipKeyFor('evening'))).toBeNull();
   });
 
   it('preserves per-step progress fields on kept steps', () => {

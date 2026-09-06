@@ -24,6 +24,7 @@ import {
   type RecommenderInputs,
 } from '../../services/recommender';
 import type { ExternalWeather, MiddayCopingItem, AcCurveProfile } from '../../types';
+import { EVENING_ROUTINE_ID } from '../../services/routineSeeds';
 import { RoutineStartCard } from './RoutineStartCard';
 
 const RECOMMENDATION_CATEGORY_LABEL: Record<Recommendation['items'][number]['category'], string> = {
@@ -76,6 +77,8 @@ export function TonightPlan() {
     []
   );
   const middayCopingItems = useLiveQuery(() => db.middayCopingItems.toArray());
+  // The evening routine (well-known id) for the start card below.
+  const eveningRoutine = useLiveQuery(() => db.routines.get(EVENING_ROUTINE_ID), []);
 
   const [overrideTime, setOverrideTime] = useState('');
   const [weather, setWeather] = useState<ExternalWeather | null>(null);
@@ -340,8 +343,8 @@ export function TonightPlan() {
       )}
 
       {/* Evening routine start card (hidden in late mode) */}
-      {!isLateBedtime && (
-        <RoutineStartCard targetBedtimeHHMM={schedule.targetBedtime} />
+      {!isLateBedtime && eveningRoutine && eveningRoutine.isActive && (
+        <RoutineStartCard routine={eveningRoutine} targetBedtimeHHMM={schedule.targetBedtime} />
       )}
 
       {/* Weather */}

@@ -1,9 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppSwitcher } from './components/AppSwitcher';
 import { AppTabBar } from './components/AppTabBar';
 import { AppEntryRedirect } from './components/AppEntryRedirect';
-const EveningRoutineSettingsPage = lazy(() => import('./pages/settings/EveningRoutineSettingsPage'));
+import { editorPathFor } from './services/routinePaths';
+import { EVENING_ROUTINE_ID } from './services/routineSeeds';
+const RoutinesSettingsPage = lazy(() => import('./pages/settings/RoutinesSettingsPage'));
+const RoutineEditorPage = lazy(() => import('./pages/settings/RoutineEditorPage'));
+const VaultSettingsPage = lazy(() => import('./pages/settings/VaultSettingsPage'));
 const RoutineTracker = lazy(() => import('./pages/tonight/RoutineTracker'));
 import { TonightPlan } from './pages/tonight/TonightPlan';
 import { EveningLog } from './pages/tonight/EveningLog';
@@ -60,8 +64,10 @@ export function App() {
         <Routes>
           <Route path="/" element={<AppEntryRedirect />} />
 
-          {/* Routine app */}
+          {/* Routine app. /tonight/routine stays the evening routine's tracker
+              (no param → EVENING_ROUTINE_ID); other routines track by id. */}
           <Route path="/routine" element={<RoutineHome />} />
+          <Route path="/routine/:routineId/track" element={<Suspense fallback={loading}><RoutineTracker /></Suspense>} />
           <Route path="/tonight/routine" element={<Suspense fallback={loading}><RoutineTracker /></Suspense>} />
 
           {/* Tracking app */}
@@ -91,7 +97,10 @@ export function App() {
 
           {/* Settings (shared) */}
           <Route path="/settings" element={<SettingsHome />} />
-          <Route path="/settings/evening-routine" element={<Suspense fallback={loading}><EveningRoutineSettingsPage /></Suspense>} />
+          <Route path="/settings/evening-routine" element={<Navigate to={editorPathFor(EVENING_ROUTINE_ID)} replace />} />
+          <Route path="/settings/routines" element={<Suspense fallback={loading}><RoutinesSettingsPage /></Suspense>} />
+          <Route path="/settings/routines/:routineId" element={<Suspense fallback={loading}><RoutineEditorPage /></Suspense>} />
+          <Route path="/settings/vault" element={<Suspense fallback={loading}><VaultSettingsPage /></Suspense>} />
           <Route path="/settings/alarm-schedule" element={<AlarmSchedulePage />} />
           <Route path="/settings/supplements" element={<SupplementStackPage />} />
           <Route path="/settings/clothing" element={<ClothingItemsPage />} />

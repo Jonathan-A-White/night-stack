@@ -24,6 +24,7 @@ export interface WipStep {
 
 export interface WipSession {
   id: string;
+  routineId: string;
   variantId: string | null;
   variantName: string;
   startedAt: number;
@@ -32,7 +33,37 @@ export interface WipSession {
   steps: WipStep[];
 }
 
+/**
+ * Legacy single-routine key. Still read (and migrated) for the evening
+ * routine so an upgrade mid-routine does not lose progress.
+ */
 export const WIP_KEY = 'routine-session-wip';
+
+/** Per-routine key. Each routine can have its own in-progress session. */
+export function wipKeyFor(routineId: string): string {
+  return `${WIP_KEY}:${routineId}`;
+}
+
+/**
+ * A WIP younger than this always resumes, whatever the evening-date rule
+ * says. Keeps a daytime routine that spans noon (the evening-date
+ * boundary) from being dropped on resume.
+ */
+const RECENT_WIP_MS = 6 * 60 * 60 * 1000;
+
+function parseWip(raw: string | null, routineId: string): WipSession | null {
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as Partial<WipSession>;
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (!Array.isArray(parsed.steps)) return null;
+  if (typeof parsed.startedAt !== 'number') return null;
+  return { ...(parsed as WipSession), routineId: parsed.routineId ?? routineId };
+}
+
+function isExpired(wip: WipSession, now: Date): boolean {
+  if (now.getTime() - wip.startedAt < RECENT_WIP_MS) return false;
+  return getEveningLogDate(new Date(wip.startedAt)) !== getEveningLogDate(now);
+}
 
 /**
  * Persist the in-progress routine in localStorage so it survives the app
@@ -43,42 +74,72 @@ export const WIP_KEY = 'routine-session-wip';
  *
  * To keep stale sessions from a previous evening from resurfacing days
  * later, the WIP is treated as expired if its `startedAt` falls on a
- * different evening (per `getEveningLogDate`) than "now". This is the
- * same evening-rollover semantics the rest of the app uses, so a routine
- * started at 10pm and resumed the next morning at 8am still counts as the
- * same evening — but a routine left dangling for a full day or more is
- * silently dropped.
+ * different evening (per `getEveningLogDate`) than "now" — unless it is
+ * less than six hours old. This is the same evening-rollover semantics
+ * the rest of the app uses, so a routine started at 10pm and resumed the
+ * next morning at 8am still counts as the same evening — but a routine
+ * left dangling for a full day or more is silently dropped.
+ *
+ * `routineId` selects the per-routine key. For the evening routine the
+ * pre-v13 single key is consulted as a fallback and migrated in place.
  */
-export function loadWip(now: Date = new Date()): WipSession | null {
+export function loadWip(routineId: string, now: Date = new Date()): WipSession | null {
   try {
-    const raw = localStorage.getItem(WIP_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as WipSession;
-    if (!parsed || typeof parsed !== 'object') return null;
-    if (!Array.isArray(parsed.steps)) return null;
-    if (typeof parsed.startedAt !== 'number') return null;
-    if (
-      getEveningLogDate(new Date(parsed.startedAt)) !== getEveningLogDate(now)
-    ) {
-      localStorage.removeItem(WIP_KEY);
+    const key = wipKeyFor(routineId);
+    let wip = parseWip(localStorage.getItem(key), routineId);
+    if (!wip && routineId === LEGACY_WIP_ROUTINE_ID) {
+      wip = parseWip(localStorage.getItem(WIP_KEY), routineId);
+      if (wip) {
+        localStorage.removeItem(WIP_KEY);
+        localStorage.setItem(key, JSON.stringify(wip));
+      }
+    }
+    if (!wip) return null;
+    if (isExpired(wip, now)) {
+      localStorage.removeItem(key);
       return null;
     }
-    return parsed;
+    return wip;
   } catch {
     return null;
   }
 }
 
-export function saveWip(wip: WipSession | null): void {
+/** Routine the legacy single WIP key belongs to (`EVENING_ROUTINE_ID`). */
+export const LEGACY_WIP_ROUTINE_ID = 'evening';
+
+export function saveWip(routineId: string, wip: WipSession | null): void {
   try {
+    const key = wipKeyFor(routineId);
     if (wip == null) {
-      localStorage.removeItem(WIP_KEY);
+      localStorage.removeItem(key);
+      if (routineId === LEGACY_WIP_ROUTINE_ID) localStorage.removeItem(WIP_KEY);
       return;
     }
-    localStorage.setItem(WIP_KEY, JSON.stringify(wip));
+    localStorage.setItem(key, JSON.stringify({ ...wip, routineId }));
   } catch {
     // best-effort — storage quota / private mode
   }
+}
+
+/** Ids of routines that currently have a live (unexpired) WIP. */
+export function listRoutinesWithWip(now: Date = new Date()): string[] {
+  const out: string[] = [];
+  try {
+    const prefix = `${WIP_KEY}:`;
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(prefix)) continue;
+      const routineId = key.slice(prefix.length);
+      if (loadWip(routineId, now)) out.push(routineId);
+    }
+    if (localStorage.getItem(WIP_KEY) && !out.includes(LEGACY_WIP_ROUTINE_ID)) {
+      if (loadWip(LEGACY_WIP_ROUTINE_ID, now)) out.push(LEGACY_WIP_ROUTINE_ID);
+    }
+  } catch {
+    // best-effort
+  }
+  return out;
 }
 
 /**
