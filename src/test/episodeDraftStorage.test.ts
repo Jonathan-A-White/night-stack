@@ -8,12 +8,15 @@ import {
   type EpisodeDraft,
 } from '../pages/experiments/episodeDraftStorage';
 
+// `startedAt` is relative to the wall clock because drafts expire 48 h
+// after it and `clearEpisodeDraftForNight` reads with the real "now"; a
+// hard-coded date made the suite fail two days after it was written.
 const draft: EpisodeDraft = {
   nightDate: '2026-09-03',
   nightLogId: 'n1',
   eventId: 'e1',
   step: 1,
-  startedAt: new Date(2026, 8, 4, 4, 31).getTime(),
+  startedAt: Date.now() - 60 * 60 * 1000,
 };
 
 describe('episodeDraftStorage', () => {
@@ -25,9 +28,9 @@ describe('episodeDraftStorage', () => {
     expect(loadEpisodeDraft()).toEqual(draft);
   });
 
-  it('survives evening rollover (still offered at 13:00 the same day)', () => {
+  it('survives evening rollover (still offered 8.5 h later, past noon)', () => {
     saveEpisodeDraft(draft);
-    const now = new Date(2026, 8, 4, 13, 0);
+    const now = new Date(draft.startedAt + 8.5 * 60 * 60 * 1000);
     expect(loadEpisodeDraft(now)).toEqual(draft);
   });
 
