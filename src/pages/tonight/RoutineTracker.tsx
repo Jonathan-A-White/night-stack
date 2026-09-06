@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
 import {
@@ -21,6 +21,10 @@ import type {
   RoutineStepStatus,
   RoutineVariant,
 } from '../../types';
+import { EVENING_ROUTINE_ID } from '../../services/routineSeeds';
+import { deadlineCountdownLabel, resolveDeadline } from '../../services/routineSchedule';
+import { ROUTINE_HOME_PATH, editorPathFor } from '../../services/routinePaths';
+import { SecretReveal } from '../../components/SecretReveal';
 import {
   loadWip,
   mergeReorderedActiveStepIds,
@@ -49,31 +53,6 @@ function msToMMSS(ms: number): string {
 function formatDelta(ms: number): string {
   const sign = ms >= 0 ? '+' : '-';
   return `${sign}${msToMMSS(Math.abs(ms))}`;
-}
-
-/**
- * Resolve a "HH:MM" target bedtime to the concrete Date for TONIGHT. Mirrors
- * the "early morning rolls forward a day" logic used by computeRecommendedStart
- * so the countdown stays correct if the routine is running near / past
- * midnight.
- */
-function resolveBedtimeDate(
-  targetBedtimeHHMM: string,
-  now: Date = new Date(),
-): Date | null {
-  const match = /^(\d{1,2}):(\d{2})$/.exec(targetBedtimeHHMM.trim());
-  if (!match) return null;
-  const hh = parseInt(match[1], 10);
-  const mm = parseInt(match[2], 10);
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
-  const bedtime = new Date(
-    now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0,
-  );
-  if (hh < 12 && now.getHours() >= 12) {
-    bedtime.setDate(bedtime.getDate() + 1);
-  }
-  return bedtime;
 }
 
 function formatUntilBed(ms: number): string {
@@ -180,18 +159,42 @@ function buildWipSteps(
   });
 }
 
+/**
+ * Tracker for one routine. Mounted at `/tonight/routine` (the evening
+ * routine, no param) and at `/routine/:routineId/track` for every other
+ * routine; the id decides which steps, variants, sessions and WIP key
+ * are in play.
+ */
 export default function RoutineTracker() {
+  const params = useParams<{ routineId?: string }>();
+  const routineId = params.routineId ?? EVENING_ROUTINE_ID;
+  return <RoutineTrackerFor key={routineId} routineId={routineId} />;
+}
+
+function RoutineTrackerFor({ routineId }: { routineId: string }) {
   const navigate = useNavigate();
 
-  const variants = useLiveQuery(
-    () => db.routineVariants.orderBy('sortOrder').toArray(),
-    [],
+  // `undefined` while loading, `null` when the id is unknown.
+  const routine = useLiveQuery(
+    async () => (await db.routines.get(routineId)) ?? null,
+    [routineId],
   );
-  const allSteps = useLiveQuery(() => db.routineSteps.toArray(), []);
-  const sessions = useLiveQuery(() => db.routineSessions.toArray(), []);
+  const variants = useLiveQuery(
+    () => db.routineVariants.where('routineId').equals(routineId).sortBy('sortOrder'),
+    [routineId],
+  );
+  const allSteps = useLiveQuery(
+    () => db.routineSteps.where('routineId').equals(routineId).toArray(),
+    [routineId],
+  );
+  const sessions = useLiveQuery(
+    () => db.routineSessions.where('routineId').equals(routineId).toArray(),
+    [routineId],
+  );
 
   // Tomorrow's alarm drives tonight's target bedtime — used by the small
-  // "time until bed" countdown rendered above the active step timer.
+  // "time until bed" countdown rendered above the active step timer when
+  // the routine's schedule is anchored to bedtime.
   const tomorrowDow = getTomorrowDayOfWeek();
   const alarmSchedule = useLiveQuery(
     () => db.alarmSchedules.where('dayOfWeek').equals(tomorrowDow).first(),
@@ -205,6 +208,10 @@ export default function RoutineTracker() {
     return calculateSchedule(alarmTime).targetBedtime;
   }, [alarmSchedule]);
 
+  const isEvening = routineId === EVENING_ROUTINE_ID;
+  const homePath = isEvening ? '/tonight' : ROUTINE_HOME_PATH;
+  const settingsPath = editorPathFor(routineId);
+
   // Selected variant id (starts as null, resolved once variants load).
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
@@ -213,7 +220,7 @@ export default function RoutineTracker() {
   const [tonightStepIds, setTonightStepIds] = useState<string[] | null>(null);
 
   // Work-in-progress session.
-  const [wip, setWip] = useState<WipSession | null>(() => loadWip());
+  const [wip, setWip] = useState<WipSession | null>(() => loadWip(routineId));
 
   // Tick for timer rendering (every 200ms while a step is active).
   const [, setTick] = useState(0);
@@ -231,7 +238,7 @@ export default function RoutineTracker() {
   const [sessionNotes, setSessionNotes] = useState('');
 
   // "Resume" banner hides after the user interacts with it.
-  const [showResumeBanner, setShowResumeBanner] = useState<boolean>(() => loadWip() != null);
+  const [showResumeBanner, setShowResumeBanner] = useState<boolean>(() => loadWip(routineId) != null);
 
   // Drag-and-drop state for reordering steps. `index` updates live as the
   // dragged row moves so the row currently held under the pointer can be
@@ -246,8 +253,8 @@ export default function RoutineTracker() {
   // Persist WIP to localStorage on every change so it survives the app
   // being killed mid-routine.
   useEffect(() => {
-    saveWip(wip);
-  }, [wip]);
+    saveWip(routineId, wip);
+  }, [routineId, wip]);
 
   // Tick interval — run only while a step is active (and completion screen
   // not reached). Keeps the timer readout moving.
@@ -389,8 +396,19 @@ export default function RoutineTracker() {
   }, [sessions]);
 
   // Loading guard.
-  if (!variants || !allSteps || !sessions) {
+  if (routine === undefined || !variants || !allSteps || !sessions) {
     return <div className="empty-state"><h3>Loading&hellip;</h3></div>;
+  }
+
+  if (routine === null) {
+    return (
+      <div className="empty-state">
+        <h3>Routine not found</h3>
+        <p className="text-secondary text-sm">
+          <Link to={ROUTINE_HOME_PATH}>Back to routines</Link>
+        </p>
+      </div>
+    );
   }
 
   if (variants.length === 0) {
@@ -398,7 +416,7 @@ export default function RoutineTracker() {
       <div className="empty-state">
         <h3>No variants configured</h3>
         <p className="text-secondary text-sm">
-          <Link to="/settings/evening-routine">Configure in Settings</Link>
+          <Link to={settingsPath}>Configure in Settings</Link>
         </p>
       </div>
     );
@@ -444,6 +462,7 @@ export default function RoutineTracker() {
     // user runs a later sub-routine for newly-added items.
     const newWip: WipSession = {
       id: crypto.randomUUID(),
+      routineId,
       variantId: selectedVariant.id,
       variantName: selectedVariant.name,
       startedAt: todaySessionStartedAt ?? now,
@@ -889,7 +908,7 @@ export default function RoutineTracker() {
     }
     setWip(null);
     setShowResumeBanner(false);
-    navigate('/tonight');
+    navigate(homePath);
   };
 
   const handleDiscardResume = () => {
@@ -936,6 +955,7 @@ export default function RoutineTracker() {
 
     const session: RoutineSession = {
       id: wip.id,
+      routineId,
       date: today,
       variantId: wip.variantId,
       variantName: wip.variantName,
@@ -954,20 +974,20 @@ export default function RoutineTracker() {
       }
       await db.routineSessions.add(session);
     });
-    saveWip(null);
+    saveWip(routineId, null);
     setWip(null);
     setSessionNotes('');
     setTonightStepIds(null);
-    navigate('/tonight');
+    navigate(homePath);
   };
 
   const handleDiscardCompletion = () => {
     const ok = window.confirm('Discard this session?');
     if (!ok) return;
-    saveWip(null);
+    saveWip(routineId, null);
     setWip(null);
     setSessionNotes('');
-    navigate('/tonight');
+    navigate(homePath);
   };
 
   // ===== Render helpers =====
@@ -1129,13 +1149,15 @@ export default function RoutineTracker() {
     const timerMs = pb != null ? pb - elapsed : elapsed;
     const isNegative = timerMs < 0;
 
-    // Small "time until bed" countdown rendered above the main step timer.
-    // Ticks with the same 200ms interval that drives the main timer re-render.
-    const bedtimeDate = targetBedtimeHHMM
-      ? resolveBedtimeDate(targetBedtimeHHMM)
-      : null;
-    const msUntilBed = bedtimeDate ? bedtimeDate.getTime() - Date.now() : null;
+    // Small "time until deadline" countdown rendered above the main step
+    // timer. Ticks with the same 200ms interval that drives the main timer
+    // re-render. Hidden for routines with no deadline.
+    const deadlineDate = resolveDeadline(routine.schedule, targetBedtimeHHMM);
+    const msUntilBed = deadlineDate ? deadlineDate.getTime() - Date.now() : null;
     const bedtimeOverdue = msUntilBed != null && msUntilBed < 0;
+    const stepDef = allSteps.find((s) => s.id === currentStep.stepId) ?? null;
+    const description = stepDef?.description.trim() ?? '';
+    const secretNames = stepDef?.secretNames ?? [];
 
     return (
       <div>
@@ -1164,7 +1186,7 @@ export default function RoutineTracker() {
                 {formatUntilBed(msUntilBed)}
               </div>
               <div className="routine-timer-label">
-                {bedtimeOverdue ? 'past bedtime' : 'until bed'}
+                {deadlineCountdownLabel(routine.schedule, bedtimeOverdue)}
               </div>
             </div>
           )}
@@ -1174,6 +1196,12 @@ export default function RoutineTracker() {
           <div className="routine-timer-label">
             {pb != null ? 'remaining vs. target' : 'elapsed (no target yet)'}
           </div>
+          {description && (
+            <div className="routine-step-description">{description}</div>
+          )}
+          {secretNames.map((name) => (
+            <SecretReveal key={name} name={name} />
+          ))}
           <textarea
             className="form-input routine-step-notes-input"
             placeholder="Notes for this step (optional)"
@@ -1301,7 +1329,7 @@ export default function RoutineTracker() {
                 className="btn btn-secondary btn-full mt-16"
                 onClick={handleLongPressPunt}
               >
-                Punt to morning
+                {isEvening ? 'Punt to morning' : 'Punt (do later)'}
               </button>
               <button
                 className="btn btn-danger btn-full mt-16"
@@ -1328,7 +1356,7 @@ export default function RoutineTracker() {
         >
           &times; Close
         </button>
-        <h1>Evening Routine</h1>
+        <h1>{routine.name}</h1>
         {selectedVariant && (
           <p className="subtitle">{selectedVariant.name}</p>
         )}
@@ -1361,13 +1389,13 @@ export default function RoutineTracker() {
         {orderedSteps.length === 0 ? (
           <p className="text-secondary text-sm">
             No steps in this variant.{' '}
-            <Link to="/settings/evening-routine">Configure in Settings.</Link>
+            <Link to={settingsPath}>Configure in Settings.</Link>
           </p>
         ) : (
           <>
             {todayAlreadyDoneCount > 0 && (
               <p className="text-secondary text-sm mb-8">
-                {todayAlreadyDoneCount} of {orderedSteps.length} already done tonight &mdash; you&rsquo;ll pick up on the first remaining step.
+                {todayAlreadyDoneCount} of {orderedSteps.length} already done {isEvening ? 'tonight' : 'today'} &mdash; you&rsquo;ll pick up on the first remaining step.
               </p>
             )}
             {orderedSteps.map((step, i) => {

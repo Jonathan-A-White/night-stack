@@ -1,12 +1,18 @@
 import { db } from '../db';
-import type { WeightEntry } from '../types';
+import type { Routine, WeightEntry } from '../types';
 import { backfillAppSettingsV12, backfillNightLogV12, weightEntryToBodyMeasurement } from './schemaBackfill';
+import { EVENING_ROUTINE_ID, buildDefaultVariant, buildEveningRoutine } from './routineSeeds';
 
 /**
  * JSON backup export/import, extracted from DataManagementPage so the
  * round trip can be tested (body-measurements.md). Import translates
  * pre-v12 backups: `weightEntries` → `bodyMeasurements`, `high_salt`
- * flags → `sodiumLevel`, missing night/settings fields → defaults.
+ * flags → `sodiumLevel`, missing night/settings fields → defaults; and
+ * pre-v13 routine data (no `routines`, no `routineId`) → the evening
+ * routine.
+ *
+ * The vault (`vaultConfig`, `secrets`) is deliberately never exported:
+ * secrets stay on the device.
  */
 
 type Loose = Record<string, unknown>;
@@ -22,9 +28,122 @@ export async function buildConfigPayload() {
     bedtimeReasons: await db.bedtimeReasons.toArray(),
     alarmSchedules: await db.alarmSchedules.toArray(),
     sleepRules: await db.sleepRules.toArray(),
+    routines: await db.routines.toArray(),
     routineSteps: await db.routineSteps.toArray(),
     routineVariants: await db.routineVariants.toArray(),
   };
+}
+
+/** Routine-only export (Settings → Data Management → Export Routines). */
+export async function buildRoutinesExport(includeSessions: boolean) {
+  return {
+    exportedAt: new Date().toISOString(),
+    version: 2,
+    kind: 'nightstack-routines' as const,
+    includesSessions: includeSessions,
+    routines: await db.routines.toArray(),
+    routineSteps: await db.routineSteps.toArray(),
+    routineVariants: await db.routineVariants.toArray(),
+    ...(includeSessions ? { routineSessions: await db.routineSessions.toArray() } : {}),
+  };
+}
+
+export interface NormalizedRoutines {
+  routines: Loose[];
+  routineSteps: Loose[];
+  routineVariants: Loose[];
+  routineSessions: Loose[];
+}
+
+/**
+ * Bring any routine payload (v1 single-routine or v2 multi-routine, top
+ * level or nested under `config`) to the v13 shape: every row has a
+ * `routineId`, every referenced routine exists, every step has
+ * `secretNames`, and every routine has at least one variant with exactly
+ * one default. Pure; the callers below write it.
+ */
+export function normalizeRoutinePayload(data: Loose): NormalizedRoutines | null {
+  const config = (data.config ?? {}) as Loose;
+  const pick = (key: string): unknown => data[key] ?? config[key];
+  const stepsRaw = pick('routineSteps');
+  const variantsRaw = pick('routineVariants');
+  if (!Array.isArray(stepsRaw) || !Array.isArray(variantsRaw)) return null;
+
+  const now = Date.now();
+  const routines: Loose[] = asArray(pick('routines')).map((r) => ({ ...r }));
+  const ids = new Set(routines.map((r) => r.id as string));
+  const ensureRoutine = (id: string) => {
+    if (ids.has(id)) return;
+    ids.add(id);
+    routines.push(
+      id === EVENING_ROUTINE_ID
+        ? (buildEveningRoutine(now) as unknown as Loose)
+        : ({
+            ...buildEveningRoutine(now),
+            id,
+            name: `Imported routine ${routines.length + 1}`,
+            schedule: { anchor: 'none' },
+            sortOrder: routines.length + 1,
+          } as unknown as Loose),
+    );
+  };
+  const stamp = (row: Loose): Loose => {
+    const routineId = typeof row.routineId === 'string' ? row.routineId : EVENING_ROUTINE_ID;
+    ensureRoutine(routineId);
+    return { ...row, routineId };
+  };
+
+  const routineSteps = (stepsRaw as Loose[]).map((s) => {
+    const stamped = stamp(s);
+    if (!Array.isArray(stamped.secretNames)) stamped.secretNames = [];
+    return stamped;
+  });
+  const routineVariants = (variantsRaw as Loose[]).map(stamp);
+  const routineSessions = asArray(data.routineSessions).map(stamp);
+
+  // Every routine in the file must remain runnable.
+  for (const routine of routines) {
+    const rid = routine.id as string;
+    const mine = routineVariants.filter((v) => v.routineId === rid);
+    if (mine.length === 0) {
+      routineVariants.push(buildDefaultVariant(rid, now) as unknown as Loose);
+    } else if (!mine.some((v) => v.isDefault === true)) {
+      mine[0].isDefault = true;
+    }
+    routine.isActive = routine.isActive !== false;
+    if (typeof routine.sortOrder !== 'number') routine.sortOrder = routines.indexOf(routine) + 1;
+    if (!routine.schedule || typeof routine.schedule !== 'object') {
+      routine.schedule = rid === EVENING_ROUTINE_ID ? { anchor: 'bedtime' } : { anchor: 'none' };
+    }
+    if (typeof routine.description !== 'string') routine.description = '';
+    if (typeof routine.createdAt !== 'number') routine.createdAt = now;
+  }
+  return { routines, routineSteps, routineVariants, routineSessions };
+}
+
+/**
+ * Replace only the routine tables from a routine file. Returns the
+ * number of sessions written (0 when the file carried none), or null
+ * when the file has no routine data.
+ */
+export async function importRoutines(data: Loose): Promise<number | null> {
+  const normalized = normalizeRoutinePayload(data);
+  if (!normalized) return null;
+  await db.transaction(
+    'rw',
+    [db.routines, db.routineSteps, db.routineVariants, db.routineSessions],
+    async () => {
+      await db.routines.clear();
+      await db.routineSteps.clear();
+      await db.routineVariants.clear();
+      await db.routineSessions.clear();
+      await db.routines.bulkAdd(normalized.routines as unknown as Routine[]);
+      if (normalized.routineSteps.length) await db.routineSteps.bulkAdd(normalized.routineSteps as never[]);
+      if (normalized.routineVariants.length) await db.routineVariants.bulkAdd(normalized.routineVariants as never[]);
+      if (normalized.routineSessions.length) await db.routineSessions.bulkAdd(normalized.routineSessions as never[]);
+    },
+  );
+  return normalized.routineSessions.length;
 }
 
 /**
@@ -79,18 +198,25 @@ export async function importBackup(data: Loose): Promise<void> {
     ? bodyMeasurements
     : legacyWeights.map((w) => weightEntryToBodyMeasurement(w) as unknown as Loose);
 
+  // Routine tables: v1 files (no `routines`, no `routineId`) become the
+  // evening routine. A file with no routine data at all still gets the
+  // evening routine so the app stays in a valid state.
+  const routineData = normalizeRoutinePayload(data) ?? normalizeRoutinePayload({
+    routineSteps: [], routineVariants: [],
+  })!;
+
   await db.transaction('rw', [
     db.nightLogs, db.supplementDefs, db.clothingItems, db.beddingItems,
     db.middayCopingItems, db.wakeUpCauses, db.bedtimeReasons, db.alarmSchedules,
     db.sleepRules, db.appSettings,
-    db.routineSteps, db.routineVariants, db.routineSessions,
+    db.routines, db.routineSteps, db.routineVariants, db.routineSessions,
     db.weightEntries, db.bodyMeasurements, db.orthostaticReadings, db.importBatches,
   ], async () => {
     await Promise.all([
       db.nightLogs.clear(), db.supplementDefs.clear(), db.clothingItems.clear(), db.beddingItems.clear(),
       db.middayCopingItems.clear(), db.wakeUpCauses.clear(), db.bedtimeReasons.clear(), db.alarmSchedules.clear(),
       db.sleepRules.clear(), db.appSettings.clear(),
-      db.routineSteps.clear(), db.routineVariants.clear(), db.routineSessions.clear(),
+      db.routines.clear(), db.routineSteps.clear(), db.routineVariants.clear(), db.routineSessions.clear(),
       db.weightEntries.clear(), db.bodyMeasurements.clear(), db.orthostaticReadings.clear(), db.importBatches.clear(),
     ]);
 
@@ -107,25 +233,13 @@ export async function importBackup(data: Loose): Promise<void> {
     await add(db.alarmSchedules, pick('alarmSchedules'));
     await add(db.sleepRules, pick('sleepRules'));
     await add(db.appSettings, appSettings);
-    await add(db.routineSteps, pick('routineSteps'));
-    await add(db.routineVariants, pick('routineVariants'));
-    await add(db.routineSessions, asArray(data.routineSessions));
+    await add(db.routines, routineData.routines);
+    await add(db.routineSteps, routineData.routineSteps);
+    await add(db.routineVariants, routineData.routineVariants);
+    await add(db.routineSessions, routineData.routineSessions);
     await add(db.weightEntries, asArray(data.weightEntries));
     await add(db.bodyMeasurements, translated);
     await add(db.orthostaticReadings, pick('orthostaticReadings'));
     await add(db.importBatches, asArray(data.importBatches));
-
-    // Keep the app in a valid state: there must always be a routine variant.
-    if (pick('routineVariants').length === 0) {
-      await db.routineVariants.add({
-        id: crypto.randomUUID(),
-        name: 'Full',
-        description: '',
-        stepIds: [],
-        isDefault: true,
-        sortOrder: 1,
-        createdAt: Date.now(),
-      });
-    }
   });
 }

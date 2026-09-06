@@ -28,6 +28,7 @@ function makeStepLog(partial: Partial<RoutineStepLog>): RoutineStepLog {
 function makeSession(partial: Partial<RoutineSession>): RoutineSession {
   return {
     id: partial.id ?? crypto.randomUUID(),
+    routineId: partial.routineId ?? 'evening',
     date: partial.date ?? '2026-04-01',
     variantId: partial.variantId ?? null,
     variantName: partial.variantName ?? 'Full',

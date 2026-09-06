@@ -435,7 +435,8 @@ export type WeighInPeriod = 'morning' | 'evening';
  * @deprecated Read-only after Dexie v12. Every row was copied into
  * `bodyMeasurements` with `kind: 'weight'` (ids preserved). The table is
  * kept for one release so a failed migration or downgrade cannot lose
- * data; it is dropped in v13. New code reads `BodyMeasurement`.
+ * data; a later version drops it (v13 was taken by the routines
+ * generalization). New code reads `BodyMeasurement`.
  */
 export interface WeightEntry {
   id: string;
@@ -573,12 +574,54 @@ export interface AppSettings {
   acInstalled: boolean;
 }
 
-// === Evening Routine Tracker ===
+// === Routine Tracker ===
+//
+// Generalized in Dexie v13 from a single evening routine to any number of
+// routines (specs/routines). Every step, variant and session carries a
+// `routineId`; the original evening routine keeps the well-known id
+// `EVENING_ROUTINE_ID` (`services/routineSeeds.ts`) so old routes, the
+// Tonight card and the legacy WIP key keep working.
+
+/**
+ * How a routine's "start by" time is derived on the start card.
+ *   bedtime — deadline is tonight's target bedtime (from the alarm
+ *             schedule / tonight's log). The original evening routine.
+ *   time    — a fixed wall-clock deadline, optionally limited to certain
+ *             days of the week (empty = every day). Sunday-morning SOPs.
+ *   none    — no deadline; the routine is a plain stopwatch checklist.
+ */
+export type RoutineSchedule =
+  | { anchor: 'bedtime' }
+  | { anchor: 'time'; deadlineHHMM: string; daysOfWeek: number[] }
+  | { anchor: 'none' };
+
+export type RoutineScheduleAnchor = RoutineSchedule['anchor'];
+
+export interface Routine {
+  id: string;
+  name: string;
+  description: string;
+  schedule: RoutineSchedule;
+  /** Inactive routines are hidden from the Routine home but keep history. */
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: number;
+}
 
 export interface RoutineStep {
   id: string;
+  /** Owning routine. Backfilled to `EVENING_ROUTINE_ID` in v13. */
+  routineId: string;
   name: string;
-  description: string; // optional long text
+  description: string; // optional long text, shown on the active step
+  /**
+   * Names of vault secrets (see `Secret`) this step needs, e.g. an iPad
+   * password. The tracker renders a reveal button per name; a name with
+   * no stored secret shows "not set" and links to the vault. Names rather
+   * than ids so seeded / imported routines can reference a secret the
+   * user has not stored yet.
+   */
+  secretNames: string[];
   sortOrder: number;
   isActive: boolean; // inactive steps never appear in sessions
   createdAt: number;
@@ -586,10 +629,11 @@ export interface RoutineStep {
 
 export interface RoutineVariant {
   id: string;
+  routineId: string;
   name: string; // e.g. "Full", "Quick", "Weeknight"
   description: string;
   stepIds: string[]; // ordered list (can override default sortOrder for this variant)
-  isDefault: boolean; // exactly one should be default
+  isDefault: boolean; // exactly one per routine should be default
   sortOrder: number;
   createdAt: number;
 }
@@ -617,7 +661,8 @@ export interface RoutineStepLog {
 
 export interface RoutineSession {
   id: string;
-  date: string; // ISO "YYYY-MM-DD" — the evening date the session belongs to
+  routineId: string;
+  date: string; // ISO "YYYY-MM-DD" — the calendar date the session was started on
   variantId: string | null; // null = no variant / ad-hoc
   variantName: string; // snapshot
   startedAt: number;
@@ -627,4 +672,56 @@ export interface RoutineSession {
   steps: RoutineStepLog[];
   sessionNotes: string; // "what went well / poorly"
   createdAt: number;
+}
+
+// === Vault (encrypted secrets for routine steps) ===
+
+/**
+ * One AES-GCM-encrypted value under a random data-encryption key (DEK).
+ * `name` is the primary key and what routine steps reference. The
+ * plaintext never touches IndexedDB; see `services/vault.ts`.
+ */
+export interface Secret {
+  name: string;
+  /** base64 AES-GCM nonce (12 bytes). */
+  iv: string;
+  /** base64 ciphertext + tag. */
+  ciphertext: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** An AES-GCM-wrapped copy of the DEK. */
+export interface WrappedKey {
+  iv: string; // base64
+  ciphertext: string; // base64
+}
+
+/**
+ * The DEK wrapped under a key derived from a WebAuthn PRF output, so a
+ * platform authenticator (fingerprint / face) can unlock the vault. The
+ * PRF secret never leaves the authenticator; `prfSalt` is the input we
+ * evaluate it on.
+ */
+export interface PrfWrappedKey extends WrappedKey {
+  credentialId: string; // base64url
+  prfSalt: string; // base64
+}
+
+/**
+ * Envelope-encryption config, single row (id 'default'). The DEK is
+ * wrapped once under a PBKDF2 key from the PIN (always present) and
+ * optionally under a biometric PRF key. Either unwrap yields the same
+ * DEK, so enrolling a fingerprint later never re-encrypts secrets.
+ */
+export interface VaultConfig {
+  id: 'default';
+  kdfSalt: string; // base64, PBKDF2 salt
+  kdfIterations: number;
+  pinWrappedKey: WrappedKey;
+  prfWrappedKey: PrfWrappedKey | null;
+  /** Minutes the unlocked DEK stays in memory before auto-lock. */
+  autoLockMinutes: number;
+  createdAt: number;
+  updatedAt: number;
 }

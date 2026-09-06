@@ -3,8 +3,9 @@ import type {
   NightLog, SupplementDef, ClothingItem, BeddingItem,
   WakeUpCause, BedtimeReason, AlarmSchedule, SleepRule, AppSettings,
   WeightEntry, MiddayCopingItem, MiddayStruggle,
-  RoutineStep, RoutineVariant, RoutineSession,
+  RoutineStep, RoutineVariant, RoutineSession, Routine,
   BodyMeasurement, OrthostaticReading, VitalSample, ImportBatch,
+  Secret, VaultConfig,
 } from './types';
 import { parseConditionString } from './services/rules';
 import {
@@ -12,6 +13,13 @@ import {
   backfillNightLogV12,
   weightEntryToBodyMeasurement,
 } from './services/schemaBackfill';
+import {
+  EVENING_ROUTINE_ID,
+  SOUND_BOOTH_ROUTINE_NAME,
+  buildDefaultVariant,
+  buildEveningRoutine,
+  buildSoundBoothRoutine,
+} from './services/routineSeeds';
 
 export class NightStackDB extends Dexie {
   nightLogs!: Table<NightLog>;
@@ -25,6 +33,7 @@ export class NightStackDB extends Dexie {
   appSettings!: Table<AppSettings>;
   weightEntries!: Table<WeightEntry>;
   middayCopingItems!: Table<MiddayCopingItem>;
+  routines!: Table<Routine>;
   routineSteps!: Table<RoutineStep>;
   routineVariants!: Table<RoutineVariant>;
   routineSessions!: Table<RoutineSession>;
@@ -32,6 +41,8 @@ export class NightStackDB extends Dexie {
   orthostaticReadings!: Table<OrthostaticReading>;
   vitalSamples!: Table<VitalSample>;
   importBatches!: Table<ImportBatch>;
+  secrets!: Table<Secret>;
+  vaultConfig!: Table<VaultConfig>;
 
   constructor() {
     super('nightstack');
@@ -239,7 +250,68 @@ export class NightStackDB extends Dexie {
         await rulesTable.bulkAdd(newRules);
       }
     });
+    this.version(13).stores({
+      routines: 'id, sortOrder',
+      routineSteps: 'id, sortOrder, routineId',
+      routineVariants: 'id, sortOrder, routineId',
+      routineSessions: 'id, date, startedAt, routineId, [routineId+date]',
+      secrets: 'name',
+      vaultConfig: 'id',
+    }).upgrade(async (tx) => {
+      // Routines generalization (specs/routines): every step, variant and
+      // session now belongs to a routine. Existing rows are the evening
+      // routine, which gets the well-known id so old routes and the
+      // legacy WIP key keep working. The sound booth SOP is seeded once,
+      // deduped by name (v5 pattern), and steps gain `secretNames`.
+      await upgradeRoutinesV13(tx);
+    });
   }
+}
+
+/**
+ * v13 body, exported so the upgrade test can assert it and so
+ * `seedDatabase` shares the sound booth seeding. `tx` is either a Dexie
+ * upgrade transaction or the live db (same `table()` API).
+ */
+export async function upgradeRoutinesV13(tx: { table: (name: string) => Table }): Promise<void> {
+  const now = Date.now();
+  const routines = tx.table('routines');
+  if ((await routines.get(EVENING_ROUTINE_ID)) == null) {
+    await routines.add(buildEveningRoutine(now));
+  }
+  await tx.table('routineSteps').toCollection().modify((s: Record<string, unknown>) => {
+    if (s.routineId === undefined) s.routineId = EVENING_ROUTINE_ID;
+    if (!Array.isArray(s.secretNames)) s.secretNames = [];
+  });
+  await tx.table('routineVariants').toCollection().modify((v: Record<string, unknown>) => {
+    if (v.routineId === undefined) v.routineId = EVENING_ROUTINE_ID;
+  });
+  await tx.table('routineSessions').toCollection().modify((s: Record<string, unknown>) => {
+    if (s.routineId === undefined) s.routineId = EVENING_ROUTINE_ID;
+  });
+  // The evening routine must always have a variant (v6 invariant).
+  const eveningVariants = await tx.table('routineVariants')
+    .where('routineId').equals(EVENING_ROUTINE_ID).count();
+  if (eveningVariants === 0) {
+    await tx.table('routineVariants').add(buildDefaultVariant(EVENING_ROUTINE_ID, now));
+  }
+  await seedSoundBoothRoutine(tx, now);
+}
+
+/** Seed the sound booth SOP unless a routine with that name already exists. */
+export async function seedSoundBoothRoutine(
+  tx: { table: (name: string) => Table },
+  now: number = Date.now(),
+): Promise<boolean> {
+  const existing = (await tx.table('routines').toArray()) as Routine[];
+  if (existing.some((r) => r.name === SOUND_BOOTH_ROUTINE_NAME)) return false;
+  const bundle = buildSoundBoothRoutine(now);
+  const maxSort = existing.reduce((m, r) => Math.max(m, r.sortOrder), 0);
+  bundle.routine.sortOrder = maxSort + 1;
+  await tx.table('routines').add(bundle.routine);
+  await tx.table('routineSteps').bulkAdd(bundle.steps);
+  await tx.table('routineVariants').bulkAdd(bundle.variants);
+  return true;
 }
 
 /** Sleep rules that pair with the home-experiments capture (Q16). */
@@ -269,15 +341,7 @@ function seedHomeExperimentRules(createdAt: number): SleepRule[] {
 }
 
 function buildDefaultRoutineVariant(): RoutineVariant {
-  return {
-    id: crypto.randomUUID(),
-    name: 'Full',
-    description: '',
-    stepIds: [],
-    isDefault: true,
-    sortOrder: 1,
-    createdAt: Date.now(),
-  };
+  return buildDefaultVariant(EVENING_ROUTINE_ID);
 }
 
 export function blankMiddayStruggle(): MiddayStruggle {
@@ -470,10 +534,15 @@ export async function seedDatabase(): Promise<void> {
   ];
   await db.sleepRules.bulkAdd(rules);
 
-  // Evening routine: seed a default variant so sessions always have an anchor.
-  // Steps are left empty — the user defines their own in settings.
-  const routineVariantCount = await db.routineVariants.count();
+  // Routines: the evening routine with an empty default variant (the user
+  // defines steps in settings) plus the seeded sound booth SOP.
+  if ((await db.routines.get(EVENING_ROUTINE_ID)) == null) {
+    await db.routines.add(buildEveningRoutine(now));
+  }
+  const routineVariantCount = await db.routineVariants
+    .where('routineId').equals(EVENING_ROUTINE_ID).count();
   if (routineVariantCount === 0) {
     await db.routineVariants.add(buildDefaultRoutineVariant());
   }
+  await seedSoundBoothRoutine(db, now);
 }

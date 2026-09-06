@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
-import { buildFullExport, importBackup } from '../../services/backup';
+import { buildFullExport, buildRoutinesExport, importBackup, importRoutines, normalizeRoutinePayload } from '../../services/backup';
 
 function todayISO(): string {
   const d = new Date();
@@ -50,6 +50,7 @@ export default function DataManagementPage() {
   const bedtimeReasonCount = useLiveQuery(() => db.bedtimeReasons.count());
   const sleepRuleCount = useLiveQuery(() => db.sleepRules.count());
   const alarmScheduleCount = useLiveQuery(() => db.alarmSchedules.count());
+  const routineCount = useLiveQuery(() => db.routines.count());
   const routineStepCount = useLiveQuery(() => db.routineSteps.count());
   const routineVariantCount = useLiveQuery(() => db.routineVariants.count());
   const routineSessionCount = useLiveQuery(() => db.routineSessions.count());
@@ -168,15 +169,7 @@ export default function DataManagementPage() {
 
   const handleExportRoutines = async () => {
     try {
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        version: 1,
-        kind: 'nightstack-routines' as const,
-        includesSessions: false,
-        routineSteps: await db.routineSteps.toArray(),
-        routineVariants: await db.routineVariants.toArray(),
-      };
-      triggerJsonDownload(payload, `nightstack-routines-${todayISO()}.json`);
+      triggerJsonDownload(await buildRoutinesExport(false), `nightstack-routines-${todayISO()}.json`);
       setStatus('Routine export complete.');
       setTimeout(() => setStatus(''), 3000);
     } catch {
@@ -186,16 +179,7 @@ export default function DataManagementPage() {
 
   const handleExportRoutinesWithHistory = async () => {
     try {
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        version: 1,
-        kind: 'nightstack-routines' as const,
-        includesSessions: true,
-        routineSteps: await db.routineSteps.toArray(),
-        routineVariants: await db.routineVariants.toArray(),
-        routineSessions: await db.routineSessions.toArray(),
-      };
-      triggerJsonDownload(payload, `nightstack-routines-with-history-${todayISO()}.json`);
+      triggerJsonDownload(await buildRoutinesExport(true), `nightstack-routines-with-history-${todayISO()}.json`);
       setStatus('Routine export (with history) complete.');
       setTimeout(() => setStatus(''), 3000);
     } catch {
@@ -215,54 +199,28 @@ export default function DataManagementPage() {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // Accept either a routine-only export or the routine sections of a full export.
-      const steps = data.routineSteps ?? data.config?.routineSteps;
-      const variants = data.routineVariants ?? data.config?.routineVariants;
-      const sessions = data.routineSessions;
-
-      if (!Array.isArray(steps) || !Array.isArray(variants)) {
+      // Accept a v1 (single routine) or v2 (multi-routine) routine-only
+      // export, or the routine sections of a full export. Files without a
+      // `routines` array are treated as the evening routine.
+      const normalized = normalizeRoutinePayload(data);
+      if (!normalized) {
         setStatus('Import failed: file is missing routineSteps or routineVariants.');
         resetInput();
         return;
       }
 
-      const hasSessions = Array.isArray(sessions) && sessions.length > 0;
-      const confirmMsg = hasSessions
-        ? `This will replace your routine steps, variants, and ${sessions.length} session(s). Other data (night logs, weights, etc.) will not be touched. Continue?`
-        : 'This will replace your routine steps and variants. Existing routine session history will be cleared. Other data (night logs, weights, etc.) will not be touched. Continue?';
+      const sessionCount = normalized.routineSessions.length;
+      const routineCount = normalized.routines.length;
+      const confirmMsg = sessionCount > 0
+        ? `This will replace all ${routineCount} routine(s), their steps and variants, and ${sessionCount} session(s). Other data (night logs, weights, etc.) will not be touched. Continue?`
+        : `This will replace all routines with the ${routineCount} in this file. Existing routine session history will be cleared. Other data (night logs, weights, etc.) will not be touched. Continue?`;
 
       if (!window.confirm(confirmMsg)) {
         resetInput();
         return;
       }
 
-      await db.transaction(
-        'rw',
-        [db.routineSteps, db.routineVariants, db.routineSessions],
-        async () => {
-          await db.routineSteps.clear();
-          await db.routineVariants.clear();
-          await db.routineSessions.clear();
-
-          if (steps.length) await db.routineSteps.bulkAdd(steps);
-          if (variants.length) await db.routineVariants.bulkAdd(variants);
-          if (hasSessions) await db.routineSessions.bulkAdd(sessions);
-
-          // Keep the app in a valid state: there must always be at least one variant,
-          // and exactly one default.
-          if (!variants.length) {
-            await db.routineVariants.add({
-              id: crypto.randomUUID(),
-              name: 'Full',
-              description: '',
-              stepIds: [],
-              isDefault: true,
-              sortOrder: 1,
-              createdAt: Date.now(),
-            });
-          }
-        },
-      );
+      await importRoutines(data);
 
       setStatus('Routine import complete.');
       setTimeout(() => setStatus(''), 3000);
@@ -316,6 +274,10 @@ export default function DataManagementPage() {
         <div className="summary-row">
           <span className="summary-label">Alarm Schedules</span>
           <span className="summary-value">{alarmScheduleCount ?? 0}</span>
+        </div>
+        <div className="summary-row">
+          <span className="summary-label">Routines</span>
+          <span className="summary-value">{routineCount ?? 0}</span>
         </div>
         <div className="summary-row">
           <span className="summary-label">Routine Steps</span>
@@ -403,8 +365,8 @@ export default function DataManagementPage() {
         </label>
 
         <p className="text-secondary text-sm mt-16">
-          Import/export just your evening routine — steps and variants, optionally with session history.
-          Importing replaces only routine tables; night logs, weights, and other settings are untouched.
+          Import/export just your routines — every routine with its steps and variants, optionally with session history.
+          Importing replaces only routine tables; night logs, weights, vault passwords and other settings are untouched.
         </p>
       </div>
 

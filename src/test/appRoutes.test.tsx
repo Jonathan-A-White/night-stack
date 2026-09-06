@@ -13,7 +13,9 @@ import { createBlankNightLog, createBlankWakeUpEvent } from '../utils';
  */
 
 const ROUTES = [
-  '/', '/routine', '/tonight', '/tonight/log', '/tonight/routine',
+  '/', '/routine', '/routine/evening/track', '/routine/does-not-exist/track',
+  '/settings/routines', '/settings/routines/evening', '/settings/vault',
+  '/tonight', '/tonight/log', '/tonight/routine',
   '/morning', '/calendar',
   '/insights', '/insights/correlations', '/insights/thermal-fit', '/insights/best-nights',
   '/insights/metric/score', '/insights/metric/weightDelta', '/insights/metric/orthoAm', '/insights/backfill',
