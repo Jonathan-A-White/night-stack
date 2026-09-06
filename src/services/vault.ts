@@ -85,9 +85,13 @@ function randomBytes(n: number): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-/** Copy into a fresh ArrayBuffer so WebCrypto never sees a shared/offset view. */
-function toBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.slice().buffer as ArrayBuffer;
+/**
+ * Copy into a fresh, realm-local Uint8Array. WebCrypto's BufferSource
+ * check is realm-sensitive for ArrayBuffers on Node 20 (jsdom tests), and
+ * a typed-array view is accepted everywhere.
+ */
+function toBuffer(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(bytes);
 }
 
 // --- key derivation ---
@@ -117,7 +121,7 @@ export async function deriveKeyFromPrfOutput(prfOutput: Uint8Array): Promise<Cry
     {
       name: 'HKDF',
       hash: 'SHA-256',
-      salt: new Uint8Array(32).buffer,
+      salt: new Uint8Array(32),
       info: new TextEncoder().encode('nightstack-vault-prf-v1'),
     },
     material,
