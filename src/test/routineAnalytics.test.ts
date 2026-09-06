@@ -6,6 +6,7 @@ import {
   computeRecommendedStart,
   computeBufferedTotalMs,
   computeSessionStats,
+  computeTodaySessionPausedMs,
   computeTodaySessionStartedAt,
   formatStopwatch,
   formatTotal,
@@ -36,6 +37,7 @@ function makeSession(partial: Partial<RoutineSession>): RoutineSession {
     endedAt: partial.endedAt ?? null,
     completedAt: partial.completedAt ?? null,
     totalDurationMs: partial.totalDurationMs ?? null,
+    pausedMs: partial.pausedMs ?? null,
     steps: partial.steps ?? [],
     sessionNotes: partial.sessionNotes ?? '',
     createdAt: partial.createdAt ?? 0,
@@ -303,5 +305,26 @@ describe('formatTotal', () => {
 
   it('formats ms as H:MM:SS when >= 1h', () => {
     expect(formatTotal(3_725_000)).toBe('1:02:05');
+  });
+});
+
+describe('computeTodaySessionPausedMs', () => {
+  it('returns 0 when no session exists for the date', () => {
+    const sessions = [makeSession({ date: '2026-04-09', pausedMs: 60_000 })];
+    expect(computeTodaySessionPausedMs(sessions, '2026-04-10')).toBe(0);
+  });
+
+  it('treats a session saved before pausing existed as never paused', () => {
+    const sessions = [makeSession({ date: '2026-04-10' })];
+    expect(computeTodaySessionPausedMs(sessions, '2026-04-10')).toBe(0);
+  });
+
+  it("sums today's sub-sessions and ignores other days", () => {
+    const sessions = [
+      makeSession({ date: '2026-04-10', pausedMs: 60_000 }),
+      makeSession({ date: '2026-04-10', pausedMs: 30_000 }),
+      makeSession({ date: '2026-04-09', pausedMs: 90_000 }),
+    ];
+    expect(computeTodaySessionPausedMs(sessions, '2026-04-10')).toBe(90_000);
   });
 });

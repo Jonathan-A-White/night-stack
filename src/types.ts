@@ -657,6 +657,12 @@ export interface RoutineStepLog {
    * sessions saved before this field existed.
    */
   lastDurationMs?: number | null;
+  /**
+   * Ms this step spent paused. Already excluded from `durationMs`, so it is
+   * purely a record of how much of the step's wall-clock span was an
+   * interruption. Optional for backwards compat.
+   */
+  pausedMs?: number | null;
 }
 
 export interface RoutineSession {
@@ -668,7 +674,15 @@ export interface RoutineSession {
   startedAt: number;
   endedAt: number | null;  // null if still running
   completedAt: number | null; // null if abandoned
-  totalDurationMs: number | null; // wall-clock: endedAt - startedAt; null if not finished
+  totalDurationMs: number | null; // wall-clock: endedAt - startedAt - pausedMs; null if not finished
+  /**
+   * Ms the session spent paused, already subtracted from `totalDurationMs`.
+   * Kept so anything recomputing a total from `endedAt - startedAt` (e.g.
+   * the tracker's all-time-best comparison, which deliberately ignores the
+   * stored total for older sessions) can subtract it too. Optional for
+   * backwards compat — absent means the session predates pausing.
+   */
+  pausedMs?: number | null;
   steps: RoutineStepLog[];
   sessionNotes: string; // "what went well / poorly"
   createdAt: number;
