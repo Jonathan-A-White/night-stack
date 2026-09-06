@@ -143,8 +143,10 @@ interface RevealProps {
  * (decrypt on tap, auto-hide after a minute).
  */
 export function SecretReveal({ name }: RevealProps) {
-  const config = useLiveQuery(() => db.vaultConfig.get('default'), []);
-  const secret = useLiveQuery(() => db.secrets.get(name), [name]);
+  // `undefined` while loading, `null` when the row does not exist (Dexie's
+  // `get` returns undefined for both, so the `?? null` matters).
+  const config = useLiveQuery(async () => (await db.vaultConfig.get('default')) ?? null, []);
+  const secret = useLiveQuery(async () => (await db.secrets.get(name)) ?? null, [name]);
   const unlocked = useVaultUnlocked();
   const [showUnlock, setShowUnlock] = useState(false);
   const [value, setValue] = useState<string | null>(null);

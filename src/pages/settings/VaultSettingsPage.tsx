@@ -28,7 +28,10 @@ export { VaultSettingsPage };
  * filled in.
  */
 export default function VaultSettingsPage() {
-  const config = useLiveQuery(() => db.vaultConfig.get('default'), []);
+  // `undefined` while loading, `null` when no vault has been created yet.
+  // Dexie's `get` returns undefined for a missing row, which would read
+  // as "still loading" forever without the `?? null`.
+  const config = useLiveQuery(async () => (await db.vaultConfig.get('default')) ?? null, []);
   const secrets = useLiveQuery(() => db.secrets.orderBy('name').toArray(), []);
   const steps = useLiveQuery(() => db.routineSteps.toArray(), []);
   const unlocked = useVaultUnlocked();
