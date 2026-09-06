@@ -17,7 +17,7 @@ import { describeDeadline, describeSchedule, resolveDeadline } from '../../servi
 import { editorPathFor, trackerPathFor } from '../../services/routinePaths';
 import { getTodayDate } from '../../utils';
 import type { Routine } from '../../types';
-import { loadWip } from './routineWipStorage';
+import { loadWip, sessionElapsedMs } from './routineWipStorage';
 
 interface Props {
   routine: Routine;
@@ -200,6 +200,16 @@ export function RoutineStartCard({ routine, targetBedtimeHHMM, showEditLink = fa
       ? todaySession.startedAt
       : null;
 
+  // Running time to show for an in-progress routine, with paused time taken
+  // out — and frozen while the tracker is paused, so the card agrees with
+  // the tracker's own timer instead of racing ahead of it.
+  const inProgressPaused = wip != null && wip.pausedAt != null;
+  const inProgressElapsedMs: number | null = wip != null
+    ? sessionElapsedMs(wip, now)
+    : isIncomplete && todaySession
+      ? Math.max(0, now - todaySession.startedAt - (todaySession.pausedMs ?? 0))
+      : null;
+
   const isOverdue = startAtMs != null && startAtMs <= now;
   const deadlineIsToday =
     deadline != null &&
@@ -219,10 +229,16 @@ export function RoutineStartCard({ routine, targetBedtimeHHMM, showEditLink = fa
 
       {inProgressStartedAt != null && (
         <>
-          <div className="routine-start-card-countdown">
-            {msToClock(now - inProgressStartedAt)}
+          <div
+            className={`routine-start-card-countdown${
+              inProgressPaused ? ' paused' : ''
+            }`}
+          >
+            {msToClock(inProgressElapsedMs ?? 0)}
           </div>
-          <div className="routine-timer-label">routine in progress</div>
+          <div className="routine-timer-label">
+            {inProgressPaused ? 'routine paused' : 'routine in progress'}
+          </div>
           <p className="text-secondary text-sm mt-16">
             Started at {formatClockHHMM(inProgressStartedAt)}
             {deadline && <> &bull; finish by {describeDeadline(deadline, new Date(now))}</>}
@@ -231,7 +247,7 @@ export function RoutineStartCard({ routine, targetBedtimeHHMM, showEditLink = fa
             className="btn btn-primary btn-full mt-16"
             onClick={goToTracker}
           >
-            Continue routine
+            {inProgressPaused ? 'Resume routine' : 'Continue routine'}
           </button>
         </>
       )}
@@ -242,7 +258,12 @@ export function RoutineStartCard({ routine, targetBedtimeHHMM, showEditLink = fa
             {msToClock(
               todaySession.totalDurationMs ??
                 (todaySession.endedAt != null
-                  ? todaySession.endedAt - todaySession.startedAt
+                  ? Math.max(
+                      0,
+                      todaySession.endedAt -
+                        todaySession.startedAt -
+                        (todaySession.pausedMs ?? 0),
+                    )
                   : 0),
             )}
           </div>

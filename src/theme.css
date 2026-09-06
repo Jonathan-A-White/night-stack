@@ -1150,6 +1150,8 @@ textarea.form-input {
   letter-spacing: 1px;
 }
 .routine-timer-display.negative { color: var(--color-danger); }
+/* Paused: the clock is stopped, so drain the accent colour out of it. */
+.routine-timer-display.paused { color: var(--color-text-secondary); }
 .routine-timer-label {
   text-align: center;
   color: var(--color-text-secondary);
@@ -1177,6 +1179,9 @@ textarea.form-input {
 }
 .routine-start-card-countdown.overdue {
   color: var(--color-danger);
+}
+.routine-start-card-countdown.paused {
+  color: var(--color-text-secondary);
 }
 .routine-until-bed {
   text-align: center;
