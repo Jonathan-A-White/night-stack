@@ -4,3 +4,4 @@
 - [PWA best practices](pwa-best-practices.md)
 - [Routine import guide](routine-import-guide.md)
 - [Sleep data extraction guide](sleep-data-extraction-guide.md)
+- [Best-practices audit](best-practices-audit.md): every line of the PWA checklist and the rules placed 2026-10-09, pass / fail / n/a with evidence, and the failures ranked into stories. Check it with `bash docs/check-best-practices-audit.sh`.
