@@ -7,7 +7,7 @@
 #    proposes are written in bold, not backticks, so they are not checked;
 # 3. each collision table matches `git log ... --name-only` and `wc -l` right now;
 # 4. at least three proposed refactors, each with a size and a typed API block;
-# 5. the docs index links the map; the branch changes only docs/.
+# 5. the docs index links the map; the map's range changes only docs/ (not counting mw's version bump).
 set -u
 DOC=docs/module-map.md
 fail=0
@@ -63,7 +63,19 @@ tsfences=$(awk '/^### R[0-9]+/{r=1} /^## /&&!/^### /{r=0} r&&/^```ts$/{c++} END{
 # Index link and docs-only change.
 grep -q 'module-map.md' docs/README.md 2>/dev/null || bad "docs/README.md does not link module-map.md"
 base=${BASE:-$(git merge-base HEAD main 2>/dev/null || echo HEAD)}
-outside=$(git diff --name-only "$base" | grep -v '^docs/' || true)
+# mw's own version-bump commit ("Version X.Y.Z (...)", package.json and
+# package-lock.json only) lands after the docs commit; it is not the map's change.
+outside=$(git diff --name-only HEAD | grep -v '^docs/' || true)
+for c in $(git rev-list --no-merges "$base"..HEAD); do
+  files=$(git diff-tree --no-commit-id --name-only -r "$c")
+  if git log -1 --format=%s "$c" | grep -qE '^Version [0-9]+\.[0-9]+\.[0-9]+' \
+     && [ -z "$(printf '%s\n' "$files" | grep -vxE 'package(-lock)?\.json')" ]; then
+    continue
+  fi
+  outside="$outside
+$(printf '%s\n' "$files" | grep -v '^docs/' || true)"
+done
+outside=$(printf '%s\n' "$outside" | grep -v '^$' | sort -u | tr '\n' ' ' || true)
 [ -z "$outside" ] || bad "changes outside docs/: $outside"
 
 [ $fail -eq 0 ] && echo "OK: module map checks pass" || { echo "module map checks FAILED"; exit 1; }
