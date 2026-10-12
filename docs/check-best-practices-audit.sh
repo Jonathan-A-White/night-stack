@@ -8,7 +8,7 @@
 # 3. every row has a status (pass, fail, n/a) and evidence; every fail row has a fix and a size;
 # 4. every file:line cited in a row exists in this checkout (the file, and the line within it);
 # 5. at most 10 ranked fix stories, each with an acceptance check in backticks;
-# 6. the docs index links the audit; the branch changes only docs/.
+# 6. the docs index links the audit; the branch changes only docs/ (not counting mw's version bump).
 set -u
 DOC=docs/best-practices-audit.md
 CHECKLIST=${CHECKLIST:-$HOME/millwright-vault/seats/builder/pwa-best-practices/checklist.md}
@@ -86,7 +86,19 @@ echo "ranked stories: $nr"
 # Index link and docs-only change.
 grep -q 'best-practices-audit.md' docs/README.md 2>/dev/null || bad "docs/README.md does not link best-practices-audit.md"
 base=${BASE:-$(git merge-base HEAD main 2>/dev/null || echo HEAD)}
-outside=$(git diff --name-only "$base" | grep -v '^docs/' || true)
+# mw's own version-bump commit ("Version X.Y.Z (...)", package.json and
+# package-lock.json only) lands after the docs commit; it is not the audit's change.
+outside=$(git diff --name-only HEAD | grep -v '^docs/' || true)
+for c in $(git rev-list --no-merges "$base"..HEAD); do
+  files=$(git diff-tree --no-commit-id --name-only -r "$c")
+  if git log -1 --format=%s "$c" | grep -qE '^Version [0-9]+\.[0-9]+\.[0-9]+' \
+     && [ -z "$(printf '%s\n' "$files" | grep -vxE 'package(-lock)?\.json')" ]; then
+    continue
+  fi
+  outside="$outside
+$(printf '%s\n' "$files" | grep -v '^docs/' || true)"
+done
+outside=$(printf '%s\n' "$outside" | grep -v '^$' | sort -u | tr '\n' ' ' || true)
 [ -z "$outside" ] || bad "changes outside docs/: $outside"
 
 [ $fail -eq 0 ] && echo "OK: best-practices audit checks pass" || { echo "best-practices audit checks FAILED"; exit 1; }
