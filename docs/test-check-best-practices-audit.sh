@@ -43,4 +43,18 @@ expect "a non-bump package.json change fails" fail
 git reset -q --hard HEAD~1
 echo "// y" >> src/main.tsx
 expect "an uncommitted src change fails" fail
+
+# The row check: one C-row per line of the vault's checklist, each naming its line.
+# Needs the vault's current checklist; says so and skips when it is not on this host.
+cd "$root" || exit 1
+checklist=${CHECKLIST:-$HOME/millwright-vault/seats/builder/pwa-best-practices/checklist.md}
+if [ -f "$checklist" ]; then
+  out=$(CHECKLIST=$checklist bash docs/check-best-practices-audit.sh 2>&1)
+  if printf '%s\n' "$out" | grep -qE '^FAIL: (row C[0-9]+ does not name|[0-9]+ checklist rows)'; then
+    echo "FAIL: the audit's C-rows do not match the vault checklist"
+    printf '%s\n' "$out" | grep -E '^FAIL: (row C|[0-9]+ checklist rows)' | head -4; fail=1
+  else echo "ok: the audit's C-rows match the vault checklist"; fi
+else
+  echo "note: $checklist not found; skipped the row check"
+fi
 exit $fail
