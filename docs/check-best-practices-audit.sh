@@ -4,7 +4,7 @@
 #
 # 1. the doc exists and has its sections;
 # 2. one C-row per line of the vault's PWA checklist (counted from the vault file when it
-#    is there, else the 28 it had on 2026-10-09), plus R-rows for the rules added that day;
+#    is there, else the 32 it had on 2026-10-12), plus R-rows for the rules added that day;
 # 3. every row has a status (pass, fail, n/a) and evidence; every fail row has a fix and a size;
 # 4. every file:line cited in a row exists in this checkout (the file, and the line within it);
 # 5. at most 10 ranked fix stories, each with an acceptance check in backticks;
@@ -12,7 +12,7 @@
 set -u
 DOC=docs/best-practices-audit.md
 CHECKLIST=${CHECKLIST:-$HOME/millwright-vault/seats/builder/pwa-best-practices/checklist.md}
-EXPECTED_C=28
+EXPECTED_C=32
 fail=0
 bad() { echo "FAIL: $*"; fail=1; }
 
