@@ -1,0 +1,16 @@
+{
+  "grind": 1,
+  "app": "night-stack",
+  "kind": "form-talk",
+  "versions": ["1"],
+  "model": "sonnet",
+  "effort": "low",
+  "instructions": "grinds/form-talk.md",
+  "answerSchema": "grinds/form-talk.answer.schema.json",
+  "attachments": {
+    "min": 0,
+    "max": 0,
+    "mime": [],
+    "maxBytes": 0
+  }
+}

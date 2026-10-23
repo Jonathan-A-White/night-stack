@@ -1,0 +1,22 @@
+{
+  "description": "He answers the tutor's question about his last meal: the time lands in the Last meal time field as 24-hour time.",
+  "schemaVersion": "1",
+  "request": {
+    "question": "I ate at half past seven.",
+    "form": {
+      "name": "Evening log (1 of 2)",
+      "command": "saveEveningLog",
+      "fields": [
+        { "name": "lastMealTime", "label": "Last meal time", "hint": "When he last ate: 24-hour time, like 22:30", "required": true, "kind": "text", "value": "" },
+        { "name": "foodDescription", "label": "Food description", "hint": "What he ate", "required": false, "kind": "text", "value": "" }
+      ]
+    },
+    "page": { "n": 1, "of": 2 },
+    "history": [{ "role": "tutor", "text": "When did you last eat?" }]
+  },
+  "expect": {
+    "form_values.0.field": { "equals": "lastMealTime" },
+    "form_values.0.value": { "equals": "19:30" },
+    "form_ask": { "equals": "foodDescription" }
+  }
+}

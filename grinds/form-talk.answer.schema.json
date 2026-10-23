@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Night Stack Form Talk Answer 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer"],
+  "properties": {
+    "answer": {
+      "description": "What the tutor says: one short question in plain words, or one sentence when every required field holds something.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400
+    },
+    "form_values": {
+      "description": "The values he gave in his last answer, one entry for each field they fill. `value` is the whole new value of the field.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["field", "value"],
+        "properties": {
+          "field": { "description": "A name from form.fields.", "type": "string", "minLength": 1, "maxLength": 40 },
+          "value": { "type": "string", "minLength": 1, "maxLength": 1200 }
+        }
+      }
+    },
+    "form_ask": {
+      "description": "The name of the field the question is about. Left out when nothing is left to ask on this page.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    }
+  }
+}

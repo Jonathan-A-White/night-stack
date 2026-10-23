@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Night Stack Form Talk Input 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "form", "history"],
+  "properties": {
+    "question": { "description": "What he said, or 'Help me fill this in.' at the start, or 'That page is done. Carry on with the next one.' when the door moves to the next page.", "type": "string", "minLength": 1, "maxLength": 4000 },
+    "form": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "fields"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 60 },
+        "command": { "description": "The command the form's Send runs; present when the form has a Send button.", "type": "string", "maxLength": 60 },
+        "fields": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "label", "required", "kind", "value"],
+            "properties": {
+              "name": { "type": "string", "maxLength": 40 },
+              "label": { "type": "string", "maxLength": 80 },
+              "hint": { "type": "string", "maxLength": 120 },
+              "required": { "type": "boolean" },
+              "kind": { "enum": ["text", "link", "choice", "pictures"] },
+              "value": { "type": "string", "maxLength": 600 },
+              "options": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "page": {
+      "description": "Which page of the form this is: the form is asked a page of at most 8 fields at a time.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n", "of"],
+      "properties": { "n": { "type": "integer", "minimum": 1 }, "of": { "type": "integer", "minimum": 1 } }
+    },
+    "history": {
+      "description": "The last turns of the talk, oldest first.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "text"],
+        "properties": { "role": { "enum": ["tutor", "him"] }, "text": { "type": "string", "maxLength": 1500 } }
+      }
+    }
+  }
+}

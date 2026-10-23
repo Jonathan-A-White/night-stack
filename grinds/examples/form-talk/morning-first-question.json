@@ -1,0 +1,23 @@
+{
+  "description": "He taps Let the tutor do it on the Morning log's manual sleep data: the tutor asks one question about a required field.",
+  "schemaVersion": "1",
+  "request": {
+    "question": "Help me fill this in.",
+    "form": {
+      "name": "Morning sleep data (1 of 3)",
+      "command": "saveMorningSleepData",
+      "fields": [
+        { "name": "sleepTime", "label": "Sleep time", "hint": "When he fell asleep: 24-hour time, like 22:30", "required": true, "kind": "text", "value": "" },
+        { "name": "wakeTime", "label": "Wake time", "hint": "When he woke: 24-hour time, like 22:30", "required": true, "kind": "text", "value": "" },
+        { "name": "sleepScore", "label": "Sleep score (0-100)", "hint": "The watch score, 0 to 100", "required": true, "kind": "text", "value": "" }
+      ]
+    },
+    "page": { "n": 1, "of": 3 },
+    "history": []
+  },
+  "expect": {
+    "answer": { "matches": "\\?$" },
+    "form_ask": { "one_of": ["sleepTime", "wakeTime", "sleepScore"] },
+    "form_values": { "present": false }
+  }
+}
