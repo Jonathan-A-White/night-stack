@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
@@ -28,6 +28,18 @@ import {
 import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
 import { buildEveningTagsForSave, rankSodiumSourceChips } from '../../services/nightTags';
 import { NightTagsStep } from './steps/NightTagsStep';
+import type { FormValue } from 'voice-kit/forms';
+import { FormDoor } from '../../tutor/FormDoor';
+import {
+  applyEveningFill,
+  eveningCommand,
+  eveningFillFrom,
+  eveningValuesOf,
+  flagsWith,
+  type EveningFill,
+  type EveningInputs,
+} from '../../tutor/formCommands';
+import { AC_FIELDS, EVENING_PAGES, withoutFields } from '../../tutor/formSpecs';
 import type {
   StackDeviation,
   EveningFlag,
@@ -262,6 +274,45 @@ export function EveningLog() {
    */
   const [earlyBedtimeWarning, setEarlyBedtimeWarning] = useState(false);
 
+  // 'Let the tutor do it' (src/tutor): the door fills this page's own fields as he answers, and its Send runs this page's own Save.
+  const eveningInputs: EveningInputs = {
+    overrideTime, lastMealTime, lastMealTimeTouched, foodDescription, flags, hasAlcohol, alcohol, liquidIntake,
+    hadStruggle, struggleTime, struggleIntensity, struggleNotes, roomTempF, roomHumidity, acCurveProfile, acSetpointF, fanSpeed,
+  };
+  const saveRef = useRef<(options: { fill?: EveningFill }) => Promise<boolean>>(async () => false);
+  const [eveningDoorCommand] = useState(() => eveningCommand((fill) => saveRef.current({ fill })));
+  const acInstalled = settings?.acInstalled ?? false;
+  const eveningDoorPages = useMemo(() => (acInstalled ? EVENING_PAGES : withoutFields(EVENING_PAGES, AC_FIELDS.evening)), [acInstalled]);
+  function fillEvening(fills: FormValue[]) {
+    const fill = eveningFillFrom(Object.fromEntries(fills.map((f) => [f.field, f.value])));
+    if (fill.overrideTime !== undefined) setOverrideTime(fill.overrideTime);
+    if (fill.lastMealTime !== undefined) {
+      setLastMealTime(fill.lastMealTime);
+      setLastMealTimeTouched(true);
+    }
+    if (fill.foodDescription !== undefined) setFoodDescription(fill.foodDescription);
+    const on = fill.flags;
+    if (on !== undefined) setFlags((prev) => flagsWith(prev, on));
+    const drink = fill.alcohol;
+    if (drink) {
+      setHasAlcohol(true);
+      setAlcohol((prev) => ({ ...prev, ...drink }));
+    }
+    if (fill.liquidIntake !== undefined) setLiquidIntake(fill.liquidIntake);
+    const struggle = fill.struggle;
+    if (struggle) {
+      setHadStruggle(true);
+      if (struggle.time !== undefined) setStruggleTime(struggle.time);
+      if (struggle.intensity !== undefined) setStruggleIntensity(struggle.intensity);
+      if (struggle.notes !== undefined) setStruggleNotes(struggle.notes);
+    }
+    if (fill.roomTempF !== undefined) setRoomTempF(fill.roomTempF);
+    if (fill.roomHumidity !== undefined) setRoomHumidity(fill.roomHumidity);
+    if (fill.acCurveProfile !== undefined) setAcCurveProfile(fill.acCurveProfile);
+    if (fill.acSetpointF !== undefined) setAcSetpointF(fill.acSetpointF);
+    if (fill.fanSpeed !== undefined) setFanSpeed(fill.fanSpeed);
+  }
+
   // PM weight + neck are always asked (home-experiments Q4); each is
   // skippable. `weighInPeriod` now only picks the trend series.
   const showWeightStep = true;
@@ -481,8 +532,13 @@ export function EveningLog() {
     setDeviations((prev) => prev.filter((d) => d.id !== id));
   }
 
-  async function handleSave(options: { bypassEarlyBedtime?: boolean } = {}) {
-    if (isSaving) return; // guard against double-tap
+  /** Resolves true when the log was saved; false when it was not (a save in flight, or the early-bedtime warning is up). `fill` is what the
+   * tutor door's Send gives: values put over the page's own, so the log is the one the same values typed by hand would save. */
+  async function handleSave(options: { bypassEarlyBedtime?: boolean; fill?: EveningFill } = {}): Promise<boolean> {
+    if (isSaving) return false; // guard against double-tap
+    const v = options.fill ? applyEveningFill(eveningInputs, options.fill) : eveningInputs;
+    const saveAlarm = v.overrideTime || defaultAlarm;
+    const saveSchedule = options.fill ? calculateSchedule(saveAlarm) : schedule;
 
     // bugfixes T5: if the user is finalizing the log before the eating
     // cutoff on the same day, they almost certainly haven't gone to bed
@@ -495,18 +551,18 @@ export function EveningLog() {
       !options.bypassEarlyBedtime &&
       isSaveBeforeEatingCutoff(
         timestampToHHMM(Date.now()),
-        schedule.eatingCutoff,
+        saveSchedule.eatingCutoff,
         !saveTimeIsBedtime,
       )
     ) {
       setEarlyBedtimeWarning(true);
-      return;
+      return false;
     }
 
     setIsSaving(true);
     try {
       const date = logDate;
-      const isOverridden = overrideTime !== '' && overrideTime !== defaultAlarm;
+      const isOverridden = v.overrideTime !== '' && v.overrideTime !== defaultAlarm;
 
       // When editing an existing log, preserve its identity and any
       // morning-side data (sleepData, roomTimeline, etc.) that the
@@ -515,20 +571,20 @@ export function EveningLog() {
         ? { ...existingLog }
         : createBlankNightLog(date, {
             expectedAlarmTime: defaultAlarm,
-            actualAlarmTime: activeAlarm,
+            actualAlarmTime: saveAlarm,
             isOverridden,
-            targetBedtime: schedule.targetBedtime,
-            eatingCutoff: schedule.eatingCutoff,
-            supplementTime: schedule.supplementTime,
+            targetBedtime: saveSchedule.targetBedtime,
+            eatingCutoff: saveSchedule.eatingCutoff,
+            supplementTime: saveSchedule.supplementTime,
           });
 
       nightLog.alarm = {
         expectedAlarmTime: defaultAlarm,
-        actualAlarmTime: activeAlarm,
+        actualAlarmTime: saveAlarm,
         isOverridden,
-        targetBedtime: schedule.targetBedtime,
-        eatingCutoff: schedule.eatingCutoff,
-        supplementTime: schedule.supplementTime,
+        targetBedtime: saveSchedule.targetBedtime,
+        eatingCutoff: saveSchedule.eatingCutoff,
+        supplementTime: saveSchedule.supplementTime,
       };
       nightLog.updatedAt = Date.now();
       // A row the 4am episode flow auto-created is now a real evening log.
@@ -573,9 +629,9 @@ export function EveningLog() {
       // feature is useless without a time, so a sensible default beats a
       // null that drops the night from similarity search.
       const resolvedLastMealTime = resolveLastMealTimeForSave({
-        currentValue: lastMealTime,
-        eatingCutoff: schedule.eatingCutoff,
-        userInteracted: lastMealTimeTouched,
+        currentValue: v.lastMealTime,
+        eatingCutoff: saveSchedule.eatingCutoff,
+        userInteracted: v.lastMealTimeTouched,
       });
       const tags = buildEveningTagsForSave({
         existing: existingLog ? existingLog.eveningIntake : null,
@@ -587,10 +643,10 @@ export function EveningLog() {
       });
       nightLog.eveningIntake = {
         lastMealTime: resolvedLastMealTime,
-        foodDescription,
-        flags,
-        alcohol: hasAlcohol ? alcohol : null,
-        liquidIntake,
+        foodDescription: v.foodDescription,
+        flags: v.flags,
+        alcohol: v.hasAlcohol ? v.alcohol : null,
+        liquidIntake: v.liquidIntake,
         ...tags.eveningIntake,
       };
       nightLog.electrolyteDose = tags.electrolyteDose;
@@ -601,21 +657,21 @@ export function EveningLog() {
       // zero contribution, per the distance-function spec).
       const acEnabled = settings?.acInstalled ?? false;
       nightLog.environment = {
-        roomTempF: roomTempF ? parseFloat(roomTempF) : null,
-        roomHumidity: roomHumidity ? parseFloat(roomHumidity) : null,
+        roomTempF: v.roomTempF ? parseFloat(v.roomTempF) : null,
+        roomHumidity: v.roomHumidity ? parseFloat(v.roomHumidity) : null,
         externalWeather: weather,
-        acCurveProfile: acEnabled ? acCurveProfile : 'off',
-        acSetpointF: acEnabled && acSetpointF ? parseFloat(acSetpointF) : null,
-        fanSpeed,
+        acCurveProfile: acEnabled ? v.acCurveProfile : 'off',
+        acSetpointF: acEnabled && v.acSetpointF ? parseFloat(v.acSetpointF) : null,
+        fanSpeed: v.fanSpeed,
       };
       nightLog.clothing = selectedClothing;
       nightLog.bedding = selectedBedding;
       nightLog.middayStruggle = {
-        hadStruggle,
-        copingItemIds: hadStruggle ? selectedCoping : [],
-        struggleTime: hadStruggle ? struggleTime : '',
-        intensity: hadStruggle ? (struggleIntensity || null) : null,
-        notes: hadStruggle ? struggleNotes : '',
+        hadStruggle: v.hadStruggle,
+        copingItemIds: v.hadStruggle ? selectedCoping : [],
+        struggleTime: v.hadStruggle ? v.struggleTime : '',
+        intensity: v.hadStruggle ? (v.struggleIntensity || null) : null,
+        notes: v.hadStruggle ? v.struggleNotes : '',
       };
       nightLog.eveningNotes = eveningNotes;
 
@@ -670,10 +726,14 @@ export function EveningLog() {
       // (e.g. a mis-filed backfill), so routing by id keeps each entry
       // independently addressable.
       navigate(`/tonight/review/${nightLog.id}`);
+      return true;
     } finally {
       setIsSaving(false);
     }
   }
+  useEffect(() => {
+    saveRef.current = (options) => handleSave(options);
+  });
 
   const overnightLow = weather ? getOvernightLow(weather) : null;
   const isMealAfterCutoff =
@@ -707,6 +767,8 @@ export function EveningLog() {
           Logging evening for {logDate} (last night).
         </div>
       ) : null}
+
+      <FormDoor pages={eveningDoorPages} values={eveningValuesOf(eveningInputs)} command={eveningDoorCommand} onFill={fillEvening} sendLabel="Send" />
 
       {/* Step progress bar */}
       <div className="step-progress">

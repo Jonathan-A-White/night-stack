@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
@@ -29,6 +29,10 @@ import {
 import { latestMeasurement, upsertMeasurement } from '../../services/bodyMeasurements';
 import { buildMorningTagsForSave } from '../../services/nightTags';
 import { WakeTagsStep } from './steps/WakeTagsStep';
+import type { FormValue } from 'voice-kit/forms';
+import { FormDoor } from '../../tutor/FormDoor';
+import { DEFAULT_MANUAL_FIELDS, manualFieldsWith, morningCommand, sleepDataFromManualFields, type ManualFields } from '../../tutor/formCommands';
+import { MORNING_PAGES } from '../../tutor/formSpecs';
 import type {
   SleepData,
   SleepRating,
@@ -151,27 +155,7 @@ export function MorningLog() {
   const sleepFileRef = useRef<HTMLInputElement>(null);
 
   // Manual entry fields
-  const [manualFields, setManualFields] = useState({
-    sleepTime: '',
-    wakeTime: '',
-    totalSleepDuration: '',
-    actualSleepDuration: '',
-    sleepScore: '',
-    sleepScoreDelta: '',
-    deepSleep: '',
-    remSleep: '',
-    lightSleep: '',
-    awakeDuration: '',
-    avgHeartRate: '',
-    minHeartRate: '',
-    avgRespiratoryRate: '',
-    bloodOxygenAvg: '',
-    skinTempRange: '',
-    sleepLatencyRating: 'Good' as SleepRating,
-    restfulnessRating: 'Good' as SleepRating,
-    deepSleepRating: 'Good' as SleepRating,
-    remSleepRating: 'Good' as SleepRating,
-  });
+  const [manualFields, setManualFields] = useState<ManualFields>(DEFAULT_MANUAL_FIELDS);
 
   // Step 2: Govee room data
   const [roomTimeline, setRoomTimeline] = useState<RoomReading[] | null>(null);
@@ -418,32 +402,20 @@ export function MorningLog() {
     e.target.value = '';
   }
 
-  function handleManualSave() {
-    const data: SleepData = {
-      sleepTime: manualFields.sleepTime || '22:00',
-      wakeTime: manualFields.wakeTime || '06:00',
-      totalSleepDuration: Number(manualFields.totalSleepDuration) || 0,
-      actualSleepDuration: Number(manualFields.actualSleepDuration) || 0,
-      sleepScore: Number(manualFields.sleepScore) || 0,
-      sleepScoreDelta: Number(manualFields.sleepScoreDelta) || 0,
-      deepSleep: Number(manualFields.deepSleep) || 0,
-      remSleep: Number(manualFields.remSleep) || 0,
-      lightSleep: Number(manualFields.lightSleep) || 0,
-      awakeDuration: Number(manualFields.awakeDuration) || 0,
-      avgHeartRate: Number(manualFields.avgHeartRate) || 0,
-      minHeartRate: manualFields.minHeartRate === '' ? null : Number(manualFields.minHeartRate),
-      avgRespiratoryRate: Number(manualFields.avgRespiratoryRate) || 0,
-      bloodOxygenAvg: Number(manualFields.bloodOxygenAvg) || 0,
-      skinTempRange: manualFields.skinTempRange,
-      sleepLatencyRating: manualFields.sleepLatencyRating,
-      restfulnessRating: manualFields.restfulnessRating,
-      deepSleepRating: manualFields.deepSleepRating,
-      remSleepRating: manualFields.remSleepRating,
-      importedAt: Date.now(),
-    };
-    setSleepData(data);
+  // The manual entry's Save, and the tutor door's Send (formCommands.ts), keep the sleep data the same way.
+  const keepManualSleepData = useCallback((fields: ManualFields) => {
+    setSleepData(sleepDataFromManualFields(fields));
     setShowManualEntry(false);
     setImportError(null);
+  }, []);
+  const manualDoorCommand = useMemo(() => morningCommand(keepManualSleepData), [keepManualSleepData]);
+
+  function handleManualSave() {
+    keepManualSleepData(manualFields);
+  }
+
+  function fillManualFields(fills: FormValue[]) {
+    setManualFields((prev) => manualFieldsWith(prev, Object.fromEntries(fills.map((f) => [f.field, f.value]))));
   }
 
   function updateManualField(key: string, value: string) {
@@ -1087,6 +1059,7 @@ export function MorningLog() {
 
             {showManualEntry && (
               <div>
+                <FormDoor pages={MORNING_PAGES} values={manualFields} command={manualDoorCommand} onFill={fillManualFields} />
                 <div className="form-group">
                   <label className="form-label">Sleep time</label>
                   <input type="time" className="form-input" value={manualFields.sleepTime} onChange={(e) => updateManualField('sleepTime', e.target.value)} />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../db';
@@ -26,6 +26,10 @@ import {
 import type { ExternalWeather, MiddayCopingItem, AcCurveProfile } from '../../types';
 import { EVENING_ROUTINE_ID } from '../../services/routineSeeds';
 import { RoutineStartCard } from './RoutineStartCard';
+import type { FormValue } from 'voice-kit/forms';
+import { FormDoor } from '../../tutor/FormDoor';
+import { tonightCommand, tonightFillFrom, tonightValuesOf, type TonightFill, type TonightInputs } from '../../tutor/formCommands';
+import { AC_FIELDS, TONIGHT_PAGES, withoutFields } from '../../tutor/formSpecs';
 
 const RECOMMENDATION_CATEGORY_LABEL: Record<Recommendation['items'][number]['category'], string> = {
   clothing: 'Clothing',
@@ -131,6 +135,29 @@ export function TonightPlan() {
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
   }, []);
+
+  // 'Let the tutor do it' (src/tutor): the door sets these dials as typing them does; nothing is saved.
+  const tonightInputs: TonightInputs = { overrideTime, plannedRoomTemp, plannedAcCurve, plannedAcSetpoint, hoursSinceLastMeal, plannedRoomHumidity, hadAlcohol };
+  function applyDials(fill: TonightFill) {
+    if (fill.overrideTime !== undefined) setOverrideTime(fill.overrideTime);
+    if (fill.plannedRoomTemp !== undefined) {
+      setPlannedRoomTemp(fill.plannedRoomTemp);
+      setHasPrefilledRoomTemp(true);
+    }
+    if (fill.plannedAcCurve !== undefined) setPlannedAcCurve(fill.plannedAcCurve);
+    if (fill.plannedAcSetpoint !== undefined) setPlannedAcSetpoint(fill.plannedAcSetpoint);
+    if (fill.hoursSinceLastMeal !== undefined) setHoursSinceLastMeal(fill.hoursSinceLastMeal);
+    if (fill.plannedRoomHumidity !== undefined) setPlannedRoomHumidity(fill.plannedRoomHumidity);
+    if (fill.hadAlcohol !== undefined) setHadAlcohol(fill.hadAlcohol);
+  }
+  const applyDialsRef = useRef(applyDials);
+  useEffect(() => {
+    applyDialsRef.current = applyDials;
+  });
+  const [tonightDoorCommand] = useState(() => tonightCommand((fill) => applyDialsRef.current(fill)));
+  const acInstalled = settings?.acInstalled ?? false;
+  const tonightDoorPages = useMemo(() => (acInstalled ? TONIGHT_PAGES : withoutFields(TONIGHT_PAGES, AC_FIELDS.tonight)), [acInstalled]);
+  const fillTonight = (fills: FormValue[]) => applyDials(tonightFillFrom(Object.fromEntries(fills.map((f) => [f.field, f.value]))));
 
   const defaultAlarm = alarmSchedule?.hasAlarm
     ? alarmSchedule.alarmTime
@@ -283,6 +310,8 @@ export function TonightPlan() {
           ⚡ Episode now
         </button>
       )}
+
+      <FormDoor pages={tonightDoorPages} values={tonightValuesOf(tonightInputs)} command={tonightDoorCommand} onFill={fillTonight} />
 
       {/* Alarm card */}
       <div className="card">
