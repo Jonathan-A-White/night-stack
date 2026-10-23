@@ -8,7 +8,7 @@ modules at once, and keep refactoring toward that.
 How to read it:
 
 - Backticks mean a path that exists today. A path written in **bold** is a file or folder this map proposes.
-- `bash docs/check-module-map.sh` checks every backticked path and the collision tables against git.
+- `bash docs/check-module-map.sh` checks that every backticked path exists and that the map's sections and tables are in shape.
 - Sizes: **fits one story** means one Builder session with the gate green at the end; **needs N stories** names the split.
 - The app has no event bus. Modules talk through Dexie live queries (`useLiveQuery` in 174 places under
   `src/pages/` and `src/components/`) and through `localStorage` keys. Both are noted where they hurt.
@@ -48,9 +48,8 @@ reads a key that a page writes; see Rule breaks).
 ## Collisions
 
 Counts come from `git log <window> --name-only --format= -- src | sort | uniq -c | sort -rn | head -15`; lines are
-`wc -l` at the base commit. The literal window `--since=30.days` is **empty** at this commit: the last commit is
-2026-09-06 and today is 2026-10-09, so nothing falls inside 30 days. Two windows are given instead, both checked
-by `docs/check-module-map.sh`. Test files and the stylesheet are in the command's output because the command
+`wc -l` at the base commit. **The tables below are as of commit 9327234 (2026-09-06) and are not kept current.** The literal window `--since=30.days` is **empty** at this commit: the last commit is
+2026-09-06 and today is 2026-10-09, so nothing falls inside 30 days. Two windows are given instead. Test files and the stylesheet are in the command's output because the command
 lists everything under `src/`.
 
 The 30 days ending at the last commit (2026-08-07 to 2026-09-07, 22 commits):
