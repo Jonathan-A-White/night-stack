@@ -1,5 +1,6 @@
 # NightStack docs
 
+- [README of the repo root](../README.md): how to run the app, and the tutor door (Let the tutor do it): which forms have it and which do not.
 - [Module map](module-map.md): each module's one responsibility and API, the files most stories collide on, ranked refactors that would let stories run in parallel, rule breaks, and library candidates. Check it with `bash docs/check-module-map.sh`.
 - [PWA best practices](pwa-best-practices.md)
 - [Routine import guide](routine-import-guide.md)
