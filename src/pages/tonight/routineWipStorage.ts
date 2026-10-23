@@ -20,6 +20,13 @@ export interface WipStep {
    * `RoutineTracker.tsx` for how this is consumed.
    */
   lastDurationMs: number | null;
+  /**
+   * Total ms this step spent paused, already settled (i.e. excluding a
+   * pause that is still in flight — see `inFlightPauseMs`). Subtracted
+   * from the step's wall-clock elapsed so an interruption never lands in
+   * `durationMs`, which is what the per-step targets are built from.
+   */
+  pausedMs: number;
 }
 
 export interface WipSession {
@@ -31,6 +38,19 @@ export interface WipSession {
   currentStepIndex: number;
   currentStepStartedAt: number | null;
   steps: WipStep[];
+  /**
+   * Total ms this session spent paused, already settled. Seeded from any
+   * sub-sessions already saved today (their pauses happened inside the same
+   * inherited `startedAt` window) and grown on every resume. Subtracted
+   * from the session's wall-clock total on save.
+   */
+  pausedMs: number;
+  /**
+   * Epoch ms when the current pause began, or null when the routine is
+   * running. Survives a reload — a routine paused when the app was killed
+   * comes back paused, and the pause keeps accumulating in the meantime.
+   */
+  pausedAt: number | null;
 }
 
 /**
@@ -51,13 +71,148 @@ export function wipKeyFor(routineId: string): string {
  */
 const RECENT_WIP_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Fill in fields added after a WIP may have been written, so a routine that
+ * was in progress across an app update keeps running instead of producing
+ * NaN timers. Pause tracking (`pausedMs` / `pausedAt`) is the current
+ * example: a session started before it existed resumes as never-paused.
+ */
+function normalizeWip(parsed: Partial<WipSession>, routineId: string): WipSession {
+  const steps = (parsed.steps ?? []).map((s) =>
+    typeof s.pausedMs === 'number' ? s : { ...s, pausedMs: 0 },
+  );
+  return {
+    ...(parsed as WipSession),
+    routineId: parsed.routineId ?? routineId,
+    steps,
+    pausedMs: typeof parsed.pausedMs === 'number' ? parsed.pausedMs : 0,
+    pausedAt: typeof parsed.pausedAt === 'number' ? parsed.pausedAt : null,
+  };
+}
+
 function parseWip(raw: string | null, routineId: string): WipSession | null {
   if (!raw) return null;
   const parsed = JSON.parse(raw) as Partial<WipSession>;
   if (!parsed || typeof parsed !== 'object') return null;
   if (!Array.isArray(parsed.steps)) return null;
   if (typeof parsed.startedAt !== 'number') return null;
-  return { ...(parsed as WipSession), routineId: parsed.routineId ?? routineId };
+  return normalizeWip(parsed, routineId);
+}
+
+/**
+ * Ms elapsed in a pause that has not been settled into the accumulators
+ * yet — i.e. the pause currently in flight. 0 while the routine is running.
+ */
+export function inFlightPauseMs(wip: WipSession, now: number): number {
+  if (wip.pausedAt == null) return 0;
+  return Math.max(0, now - wip.pausedAt);
+}
+
+/** True while the routine's clocks are stopped. */
+export function isPaused(wip: WipSession): boolean {
+  return wip.pausedAt != null;
+}
+
+/** Total paused ms including any pause still in flight. */
+export function totalPausedMs(wip: WipSession, now: number): number {
+  return wip.pausedMs + inFlightPauseMs(wip, now);
+}
+
+/**
+ * Stop the clocks. No-op if already paused, or if the session has reached
+ * the completion screen (nothing is running to pause).
+ */
+export function pauseWip(wip: WipSession, now: number): WipSession {
+  if (wip.pausedAt != null) return wip;
+  if (wip.currentStepIndex >= wip.steps.length) return wip;
+  return { ...wip, pausedAt: now };
+}
+
+/**
+ * Settle an in-flight pause: fold its duration into the session total and
+ * into the step that was active when it started, then start the clocks
+ * again. No-op (same reference) when the routine is already running, so
+ * every mutating handler can call it unconditionally.
+ */
+export function resumeWip(wip: WipSession, now: number): WipSession {
+  if (wip.pausedAt == null) return wip;
+  const delta = inFlightPauseMs(wip, now);
+  const steps = wip.steps.slice();
+  const idx = wip.currentStepIndex;
+  if (idx < steps.length) {
+    steps[idx] = { ...steps[idx], pausedMs: steps[idx].pausedMs + delta };
+  }
+  return { ...wip, steps, pausedMs: wip.pausedMs + delta, pausedAt: null };
+}
+
+/**
+ * Ms the given step has been running, excluding paused time. Freezes while
+ * the session is paused (the in-flight pause grows at the same rate as the
+ * wall clock). Returns 0 for a step that never started.
+ */
+export function stepElapsedMs(wip: WipSession, index: number, now: number): number {
+  const step = wip.steps[index];
+  if (!step) return 0;
+  const isCurrent = index === wip.currentStepIndex;
+  const startedAt = step.startedAt ?? (isCurrent ? wip.currentStepStartedAt : null);
+  if (startedAt == null) return 0;
+  const paused = step.pausedMs + (isCurrent ? inFlightPauseMs(wip, now) : 0);
+  return Math.max(0, now - startedAt - paused);
+}
+
+/** Wall-clock ms since the session started, minus all paused time. */
+export function sessionElapsedMs(wip: WipSession, now: number): number {
+  return Math.max(0, now - wip.startedAt - totalPausedMs(wip, now));
+}
+
+/** Number of steps still pending (the active step included). */
+export function countPendingSteps(wip: WipSession): number {
+  return wip.steps.reduce((n, s) => (s.status === 'pending' ? n + 1 : n), 0);
+}
+
+/**
+ * End the routine where it stands: mark every still-pending step with
+ * `status` and jump to the completion screen, so the work already done can
+ * be saved as a real session instead of discarded.
+ *
+ * Only the active step gets an `endedAt` stamp — it was genuinely running
+ * until now. Steps that never started keep `endedAt: null` so the session's
+ * effective end (see `computeLatestStepEndedAt`) stays anchored to the last
+ * thing actually tracked, rather than stretching the saved total to cover
+ * however long the user was away before finishing up on their own.
+ *
+ * Any in-flight pause is settled first, so a routine finished while paused
+ * doesn't leave the pause dangling.
+ */
+export function finishRemaining(
+  wip: WipSession,
+  status: 'skipped' | 'punted',
+  now: number,
+): WipSession {
+  const settled = resumeWip(wip, now);
+  const steps = settled.steps.map((s, i) => {
+    if (s.status !== 'pending') return s;
+    // Preserve a previously-recorded time the same way an in-session skip
+    // does, so it can still be restored later.
+    const stashed = s.durationMs != null ? s.durationMs : s.lastDurationMs;
+    if (i === settled.currentStepIndex) {
+      return {
+        ...s,
+        status,
+        startedAt: s.startedAt ?? settled.currentStepStartedAt ?? now,
+        endedAt: now,
+        durationMs: null,
+        lastDurationMs: stashed,
+      };
+    }
+    return { ...s, status, durationMs: null, lastDurationMs: stashed };
+  });
+  return {
+    ...settled,
+    steps,
+    currentStepIndex: steps.length,
+    currentStepStartedAt: null,
+  };
 }
 
 function isExpired(wip: WipSession, now: Date): boolean {
@@ -218,6 +373,7 @@ export function reconcileWipWithVariant(
       pbAtStartMs: pbs.get(s.id) ?? null,
       notes: '',
       lastDurationMs: null,
+      pausedMs: 0,
     });
   }
 
@@ -233,6 +389,10 @@ export function reconcileWipWithVariant(
   //    step regardless of insertions/removals.
   let nextCurrentStepIndex = wip.currentStepIndex;
   let nextCurrentStepStartedAt = wip.currentStepStartedAt;
+  // Set when a different step's timer is started below, so a session that
+  // is paused right now can re-anchor its pause to the new step (see the
+  // return value) instead of charging it time from before it existed.
+  let startedNewCurrentStep = false;
 
   if (currentStepId != null) {
     const foundIdx = nextSteps.findIndex((s) => s.stepId === currentStepId);
@@ -251,7 +411,9 @@ export function reconcileWipWithVariant(
         nextSteps[nextPending] = {
           ...nextSteps[nextPending],
           startedAt: now,
+          pausedMs: 0,
         };
+        startedNewCurrentStep = true;
       }
     }
   } else if (wasOnCompletion && added.length > 0) {
@@ -264,7 +426,9 @@ export function reconcileWipWithVariant(
       nextSteps[nextPending] = {
         ...nextSteps[nextPending],
         startedAt: now,
+        pausedMs: 0,
       };
+      startedNewCurrentStep = true;
     }
   } else if (wasOnCompletion) {
     // Still on completion, but length may have shrunk (a trailing step
@@ -280,11 +444,21 @@ export function reconcileWipWithVariant(
     return wip;
   }
 
+  // A pause that was in flight when the active step changed belongs to the
+  // step that just went away, which is no longer here to carry it: bank it
+  // on the session and restart the pause against the new step, so the
+  // session total stays right and the new step's clock reads 0 on resume.
+  const carriedPauseMs = wip.pausedAt != null && startedNewCurrentStep
+    ? Math.max(0, now - wip.pausedAt)
+    : 0;
+
   return {
     ...wip,
     steps: nextSteps,
     currentStepIndex: nextCurrentStepIndex,
     currentStepStartedAt: nextCurrentStepStartedAt,
+    pausedMs: wip.pausedMs + carriedPauseMs,
+    pausedAt: wip.pausedAt != null && startedNewCurrentStep ? now : wip.pausedAt,
   };
 }
 

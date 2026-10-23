@@ -5,6 +5,7 @@ import { db } from '../../db';
 import {
   computeLatestStepEndedAt,
   computeStepTargets,
+  computeTodaySessionPausedMs,
   computeTodaySessionStartedAt,
   formatStopwatch,
   formatTotal,
@@ -26,11 +27,18 @@ import { deadlineCountdownLabel, resolveDeadline } from '../../services/routineS
 import { ROUTINE_HOME_PATH, editorPathFor } from '../../services/routinePaths';
 import { SecretReveal } from '../../components/SecretReveal';
 import {
+  countPendingSteps,
+  finishRemaining,
+  isPaused as wipIsPaused,
   loadWip,
   mergeReorderedActiveStepIds,
+  pauseWip,
   reconcileWipWithVariant,
+  resumeWip,
   saveWip,
+  stepElapsedMs,
   stepIdsEqual,
+  totalPausedMs,
   type WipSession,
   type WipStep,
   type WipStepStatus,
@@ -84,6 +92,7 @@ interface TodayStepSnapshot {
   pbAtStartMs: number | null;
   notes: string;
   lastDurationMs: number | null;
+  pausedMs: number;
   // Tracks which saved session this snapshot came from so the start-screen
   // long-press menu can edit the right session in place when toggling a
   // step's skip status after a sub-session has been saved.
@@ -118,6 +127,7 @@ function computeTodayStepStatuses(
         pbAtStartMs: log.pbAtStartMs,
         notes: log.notes,
         lastDurationMs: log.lastDurationMs ?? null,
+        pausedMs: log.pausedMs ?? 0,
         sourceSessionId: session.id,
       });
     }
@@ -143,6 +153,7 @@ function buildWipSteps(
         pbAtStartMs: prior.pbAtStartMs ?? pbs.get(s.id) ?? null,
         notes: prior.notes,
         lastDurationMs: prior.lastDurationMs,
+        pausedMs: prior.pausedMs,
       };
     }
     return {
@@ -155,6 +166,7 @@ function buildWipSteps(
       pbAtStartMs: pbs.get(s.id) ?? null,
       notes: '',
       lastDurationMs: null,
+      pausedMs: 0,
     };
   });
 }
@@ -227,6 +239,9 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
 
   // Long-press menu target step index.
   const [longPressStepIndex, setLongPressStepIndex] = useState<number | null>(null);
+
+  // "Finish here" confirmation sheet (asks how to mark the remaining steps).
+  const [showFinishMenu, setShowFinishMenu] = useState(false);
 
   // Long-press menu target on the start screen — identified by step ID
   // because the start screen reads its rows from the saved-sessions snapshot
@@ -350,6 +365,14 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     [sessions],
   );
 
+  // Pause time already banked by tonight's saved sessions. Inherited
+  // alongside `todaySessionStartedAt` so a later sub-session doesn't put
+  // those earlier pauses back into the merged total.
+  const todaySessionPausedMs = useMemo(
+    () => computeTodaySessionPausedMs(sessions ?? [], getTodayDate()),
+    [sessions],
+  );
+
   // Count of steps in the currently-selected variant that were already done
   // (completed / skipped / punted) in a saved session from tonight.
   const todayAlreadyDoneCount = useMemo(() => {
@@ -389,7 +412,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     let best: number | null = null;
     for (const s of sessions) {
       if (s.completedAt == null || s.endedAt == null) continue;
-      const total = Math.max(0, s.endedAt - s.startedAt);
+      const total = Math.max(0, s.endedAt - s.startedAt - (s.pausedMs ?? 0));
       if (best == null || total < best) best = total;
     }
     return best;
@@ -469,6 +492,8 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       currentStepIndex: firstPendingIndex === -1 ? steps.length : firstPendingIndex,
       currentStepStartedAt: firstPendingIndex === -1 ? null : now,
       steps,
+      pausedMs: todaySessionPausedMs,
+      pausedAt: null,
     };
     if (firstPendingIndex !== -1) {
       newWip.steps[firstPendingIndex] = {
@@ -637,10 +662,13 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     const idx = wip.currentStepIndex;
     if (idx >= wip.steps.length) return;
     const now = Date.now();
-    const step = wip.steps[idx];
-    const startedAt = step.startedAt ?? wip.currentStepStartedAt ?? now;
-    const duration = Math.max(0, now - startedAt);
-    let next = updateStep(wip, idx, {
+    // Settle any in-flight pause first so its time lands on this step's
+    // `pausedMs` rather than in the recorded duration.
+    const settled = resumeWip(wip, now);
+    const step = settled.steps[idx];
+    const startedAt = step.startedAt ?? settled.currentStepStartedAt ?? now;
+    const duration = Math.max(0, now - startedAt - step.pausedMs);
+    let next = updateStep(settled, idx, {
       status: 'completed',
       endedAt: now,
       durationMs: duration,
@@ -649,14 +677,40 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     setWip(next);
   };
 
+  /** Stop the clocks. The wall-clock deadline countdown keeps running. */
+  const handlePause = () => {
+    if (!wip) return;
+    setWip(pauseWip(wip, Date.now()));
+  };
+
+  /** Restart the clocks, banking the pause on the session and active step. */
+  const handleResume = () => {
+    if (!wip) return;
+    setWip(resumeWip(wip, Date.now()));
+  };
+
+  /**
+   * End the routine here and go to the completion screen with the remaining
+   * steps marked, so a session that was finished away from the app is saved
+   * rather than discarded. See `finishRemaining` for what gets stamped.
+   */
+  const handleFinishHere = (status: 'skipped' | 'punted') => {
+    if (!wip) return;
+    setWip(finishRemaining(wip, status, Date.now()));
+    setShowFinishMenu(false);
+    setLongPressStepIndex(null);
+  };
+
   const applyStatusToStep = (
     index: number,
     status: 'skipped' | 'punted',
   ) => {
     if (!wip) return;
     const now = Date.now();
-    const step = wip.steps[index];
-    const isCurrent = index === wip.currentStepIndex;
+    // Acting on a step resumes a paused routine — bank the pause first.
+    const settled = resumeWip(wip, now);
+    const step = settled.steps[index];
+    const isCurrent = index === settled.currentStepIndex;
 
     // If the step had a recorded completion time, stash it so a later
     // unskip can restore it. Skipping a previously-completed step would
@@ -667,7 +721,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
 
     let patch: Partial<WipStep>;
     if (isCurrent) {
-      const startedAt = step.startedAt ?? wip.currentStepStartedAt ?? now;
+      const startedAt = step.startedAt ?? settled.currentStepStartedAt ?? now;
       patch = {
         status,
         startedAt,
@@ -684,7 +738,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       };
     }
 
-    let next = updateStep(wip, index, patch);
+    let next = updateStep(settled, index, patch);
     if (isCurrent) {
       next = advanceAfter(next, index);
     }
@@ -735,6 +789,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
           endedAt: null,
           durationMs: null,
           lastDurationMs: null,
+          pausedMs: 0,
         });
     setWip(next);
     setLongPressStepIndex(null);
@@ -754,13 +809,17 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
   const handleLongPressRestart = () => {
     if (longPressStepIndex == null || !wip) return;
     const now = Date.now();
+    // Restarting resumes a paused routine — bank the pause first.
+    const settled = resumeWip(wip, now);
     // Clear any prior status/timer state on the long-pressed step so it
-    // becomes eligible as a "pending" candidate below.
-    let next = updateStep(wip, longPressStepIndex, {
+    // becomes eligible as a "pending" candidate below. `pausedMs` goes with
+    // it: the fresh attempt starts with a clean clock.
+    let next = updateStep(settled, longPressStepIndex, {
       status: 'pending',
       startedAt: null,
       endedAt: null,
       durationMs: null,
+      pausedMs: 0,
     });
     // Start the closest open step from the top of the list.
     const firstPendingIndex = next.steps.findIndex(
@@ -770,7 +829,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       setLongPressStepIndex(null);
       return;
     }
-    next = updateStep(next, firstPendingIndex, { startedAt: now });
+    next = updateStep(next, firstPendingIndex, { startedAt: now, pausedMs: 0 });
     setWip({
       ...next,
       currentStepIndex: firstPendingIndex,
@@ -925,7 +984,10 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
   const handleSave = async () => {
     if (!wip) return;
     const now = Date.now();
-    const stepLogs: RoutineStepLog[] = wip.steps.map((s) => ({
+    // Fold any pause still in flight into the accumulators before they're
+    // written, so saving from a paused routine records the full pause.
+    const settled = resumeWip(wip, now);
+    const stepLogs: RoutineStepLog[] = settled.steps.map((s) => ({
       stepId: s.stepId,
       stepName: s.stepName,
       status: (s.status === 'pending' ? 'skipped' : s.status) as RoutineStepStatus,
@@ -935,15 +997,21 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       pbAtStartMs: s.pbAtStartMs,
       notes: s.notes,
       lastDurationMs: s.lastDurationMs,
+      pausedMs: s.pausedMs,
     }));
     // Wall-clock session total: from the immutable session start to the
-    // latest step endedAt. This "bumps" forward when additional items are
-    // run in later sub-sessions the same evening while the start stays
-    // anchored. Falls back to `now` only if no step has an endedAt at all
-    // (e.g. every step skipped from the start screen).
+    // latest step endedAt, minus time the routine spent paused. This
+    // "bumps" forward when additional items are run in later sub-sessions
+    // the same evening while the start stays anchored. Falls back to `now`
+    // only if no step has an endedAt at all (e.g. every step skipped from
+    // the start screen).
     const latestStepEndedAt = computeLatestStepEndedAt(stepLogs);
     const effectiveEndedAt = latestStepEndedAt ?? now;
-    const totalDurationMs = Math.max(0, effectiveEndedAt - wip.startedAt);
+    const sessionPausedMs = settled.pausedMs;
+    const totalDurationMs = Math.max(
+      0,
+      effectiveEndedAt - settled.startedAt - sessionPausedMs,
+    );
 
     const today = getTodayDate();
     // Any already-saved sessions for today were merged into this WIP at
@@ -954,15 +1022,16 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       .map((s) => s.id);
 
     const session: RoutineSession = {
-      id: wip.id,
+      id: settled.id,
       routineId,
       date: today,
-      variantId: wip.variantId,
-      variantName: wip.variantName,
-      startedAt: wip.startedAt,
+      variantId: settled.variantId,
+      variantName: settled.variantName,
+      startedAt: settled.startedAt,
       endedAt: effectiveEndedAt,
       completedAt: now,
       totalDurationMs,
+      pausedMs: sessionPausedMs,
       steps: stepLogs,
       sessionNotes,
       createdAt: now,
@@ -1013,10 +1082,11 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     // endedAt across any step (completed or otherwise). This naturally
     // bumps forward when the user runs additional items in a later
     // sub-session the same evening, while the start anchor stays fixed.
+    const pausedMs = totalPausedMs(wip, Date.now());
     const latestStepEndedAt = computeLatestStepEndedAt(wip.steps);
     const totalMs =
       latestStepEndedAt != null
-        ? Math.max(0, latestStepEndedAt - wip.startedAt)
+        ? Math.max(0, latestStepEndedAt - wip.startedAt - pausedMs)
         : 0;
     const bestDelta =
       bestCompletedTotalMs != null ? totalMs - bestCompletedTotalMs : null;
@@ -1055,6 +1125,11 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
           )}
           {bestDelta == null && (
             <div className="routine-timer-label">First completed session!</div>
+          )}
+          {pausedMs > 0 && (
+            <p className="text-secondary text-sm mt-16" style={{ textAlign: 'center' }}>
+              Excludes {msToMMSS(pausedMs)} paused.
+            </p>
           )}
         </div>
 
@@ -1143,11 +1218,13 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     const idx = wip.currentStepIndex;
     const currentStep = wip.steps[idx];
     const pb = currentStep.pbAtStartMs;
-    const startedAt = currentStep.startedAt ?? wip.currentStepStartedAt ?? Date.now();
-    const elapsed = Date.now() - startedAt;
+    // Excludes paused time, and freezes entirely while paused.
+    const elapsed = stepElapsedMs(wip, idx, Date.now());
+    const paused = wipIsPaused(wip);
+    const pendingCount = countPendingSteps(wip);
     // Counting down from PB if available; otherwise counting up.
     const timerMs = pb != null ? pb - elapsed : elapsed;
-    const isNegative = timerMs < 0;
+    const isNegative = timerMs < 0 && !paused;
 
     // Small "time until deadline" countdown rendered above the main step
     // timer. Ticks with the same 200ms interval that drives the main timer
@@ -1190,11 +1267,19 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
               </div>
             </div>
           )}
-          <div className={`routine-timer-display${isNegative ? ' negative' : ''}`}>
+          <div
+            className={`routine-timer-display${isNegative ? ' negative' : ''}${
+              paused ? ' paused' : ''
+            }`}
+          >
             {formatStopwatch(timerMs)}
           </div>
           <div className="routine-timer-label">
-            {pb != null ? 'remaining vs. target' : 'elapsed (no target yet)'}
+            {paused
+              ? 'paused'
+              : pb != null
+                ? 'remaining vs. target'
+                : 'elapsed (no target yet)'}
           </div>
           {description && (
             <div className="routine-step-description">{description}</div>
@@ -1209,12 +1294,39 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
             onChange={(e) => handleNotesChange(e.target.value)}
             rows={2}
           />
-          <button
-            className="btn btn-primary btn-full mt-16"
-            onClick={handleDone}
-          >
-            Done
-          </button>
+          {paused ? (
+            <button
+              className="btn btn-primary btn-full mt-16"
+              onClick={handleResume}
+            >
+              Resume
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary btn-full mt-16"
+              onClick={handleDone}
+            >
+              Done
+            </button>
+          )}
+          <div className="flex gap-8 mt-16">
+            {!paused && (
+              <button
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={handlePause}
+              >
+                Pause
+              </button>
+            )}
+            <button
+              className="btn btn-secondary"
+              style={{ flex: 1 }}
+              onClick={() => setShowFinishMenu(true)}
+            >
+              Finish here
+            </button>
+          </div>
           <p className="text-secondary text-sm mt-16" style={{ textAlign: 'center' }}>
             Long-press any step for options
           </p>
@@ -1290,6 +1402,41 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
             );
           })}
         </div>
+
+        {showFinishMenu && (
+          <div
+            className="routine-longpress-menu"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowFinishMenu(false);
+            }}
+          >
+            <div className="card">
+              <div className="card-title">Finish here</div>
+              <p className="text-secondary text-sm">
+                Save what you&rsquo;ve done and mark the {pendingCount} remaining
+                step{pendingCount === 1 ? '' : 's'} as:
+              </p>
+              <button
+                className="btn btn-secondary btn-full mt-16"
+                onClick={() => handleFinishHere('skipped')}
+              >
+                Skipped
+              </button>
+              <button
+                className="btn btn-secondary btn-full mt-16"
+                onClick={() => handleFinishHere('punted')}
+              >
+                {isEvening ? 'Punted to morning' : 'Punted (do later)'}
+              </button>
+              <button
+                className="btn btn-danger btn-full mt-16"
+                onClick={() => setShowFinishMenu(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {longPressStepIndex != null && (
           <div

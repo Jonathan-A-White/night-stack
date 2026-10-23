@@ -62,6 +62,25 @@ export function computeTodaySessionStartedAt(
 }
 
 /**
+ * Total paused ms already banked by today's saved sessions. A later
+ * sub-session inherits the day's `startedAt` (see above), so it must also
+ * inherit the pauses that happened inside that same window — otherwise
+ * re-saving tonight as one merged record would silently put the earlier
+ * pauses back into the total.
+ */
+export function computeTodaySessionPausedMs(
+  sessions: RoutineSession[],
+  todayDate: string,
+): number {
+  let total = 0;
+  for (const s of sessions) {
+    if (s.date !== todayDate) continue;
+    total += s.pausedMs ?? 0;
+  }
+  return total;
+}
+
+/**
  * Returns the latest `endedAt` across the given steps. Used to compute the
  * session's effective end time — this naturally "bumps" forward as
  * additional steps are completed in later sub-sessions the same evening.

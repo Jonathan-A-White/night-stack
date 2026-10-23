@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  countPendingSteps,
+  finishRemaining,
+  inFlightPauseMs,
+  isPaused,
   loadWip,
   mergeReorderedActiveStepIds,
+  pauseWip,
   reconcileWipWithVariant,
+  resumeWip,
   saveWip,
+  sessionElapsedMs,
+  stepElapsedMs,
   stepIdsEqual,
+  totalPausedMs,
   WIP_KEY,
   wipKeyFor,
   type WipSession,
@@ -55,6 +64,7 @@ function makeWipStep(
     pbAtStartMs: null,
     notes: '',
     lastDurationMs: null,
+    pausedMs: 0,
     ...extra,
   };
 }
@@ -69,6 +79,8 @@ function makeWip(partial: Partial<WipSession> & { steps: WipStep[] }): WipSessio
     currentStepIndex: partial.currentStepIndex ?? 0,
     currentStepStartedAt: partial.currentStepStartedAt ?? null,
     steps: partial.steps,
+    pausedMs: partial.pausedMs ?? 0,
+    pausedAt: partial.pausedAt ?? null,
   };
 }
 
@@ -565,5 +577,301 @@ describe('stepIdsEqual', () => {
 
   it('returns false when length differs', () => {
     expect(stepIdsEqual(['a', 'b'], ['a', 'b', 'c'])).toBe(false);
+  });
+});
+
+describe('pause / resume', () => {
+  /** Step a done, step b running since 5000, step c untouched. */
+  function makeRunning(extra: Partial<WipSession> = {}): WipSession {
+    return makeWip({
+      startedAt: 1000,
+      currentStepIndex: 1,
+      currentStepStartedAt: 5000,
+      steps: [
+        makeWipStep('a', 'A', 'completed', {
+          startedAt: 1000,
+          endedAt: 5000,
+          durationMs: 4000,
+        }),
+        makeWipStep('b', 'B', 'pending', { startedAt: 5000 }),
+        makeWipStep('c', 'C'),
+      ],
+      ...extra,
+    });
+  }
+
+  it('stamps pausedAt and reports paused', () => {
+    const paused = pauseWip(makeRunning(), 7000);
+    expect(paused.pausedAt).toBe(7000);
+    expect(isPaused(paused)).toBe(true);
+  });
+
+  it('pausing an already-paused session is a no-op', () => {
+    const paused = pauseWip(makeRunning(), 7000);
+    expect(pauseWip(paused, 9000)).toBe(paused);
+  });
+
+  it('does not pause a session sitting on the completion screen', () => {
+    const done = makeRunning({ currentStepIndex: 3, currentStepStartedAt: null });
+    expect(pauseWip(done, 7000)).toBe(done);
+  });
+
+  it('banks the pause onto the session and the active step on resume', () => {
+    const resumed = resumeWip(pauseWip(makeRunning(), 7000), 9000);
+    expect(resumed.pausedAt).toBeNull();
+    expect(resumed.pausedMs).toBe(2000);
+    expect(resumed.steps[1].pausedMs).toBe(2000);
+    // Steps that weren't running are untouched.
+    expect(resumed.steps[0].pausedMs).toBe(0);
+    expect(resumed.steps[2].pausedMs).toBe(0);
+  });
+
+  it('accumulates across several pauses', () => {
+    let wip = resumeWip(pauseWip(makeRunning(), 7000), 9000);
+    wip = resumeWip(pauseWip(wip, 10_000), 10_500);
+    expect(wip.pausedMs).toBe(2500);
+    expect(wip.steps[1].pausedMs).toBe(2500);
+  });
+
+  it('resuming a running session returns the same reference', () => {
+    const running = makeRunning();
+    expect(resumeWip(running, 9000)).toBe(running);
+  });
+
+  it('reports in-flight pause time only while paused', () => {
+    const running = makeRunning();
+    expect(inFlightPauseMs(running, 9000)).toBe(0);
+    const paused = pauseWip(running, 7000);
+    expect(inFlightPauseMs(paused, 9000)).toBe(2000);
+    expect(totalPausedMs(paused, 9000)).toBe(2000);
+  });
+
+  it('freezes the active step timer while paused', () => {
+    const paused = pauseWip(makeRunning(), 7000);
+    // Whatever "now" is, the step reads as it did at the moment of pausing.
+    expect(stepElapsedMs(paused, 1, 7000)).toBe(2000);
+    expect(stepElapsedMs(paused, 1, 9000)).toBe(2000);
+    expect(stepElapsedMs(paused, 1, 60_000)).toBe(2000);
+  });
+
+  it('subtracts banked pause from the active step timer', () => {
+    const resumed = resumeWip(pauseWip(makeRunning(), 7000), 9000);
+    // 9000 → 12000 is 3s of real running on top of the 2s already elapsed.
+    expect(stepElapsedMs(resumed, 1, 12_000)).toBe(5000);
+  });
+
+  it('ignores an in-flight pause for steps that are not active', () => {
+    const paused = pauseWip(makeRunning(), 7000);
+    expect(stepElapsedMs(paused, 0, 9000)).toBe(8000); // 9000 - 1000
+    expect(stepElapsedMs(paused, 2, 9000)).toBe(0);    // never started
+  });
+
+  it('subtracts pause from the session elapsed, and freezes it while paused', () => {
+    const resumed = resumeWip(pauseWip(makeRunning(), 7000), 9000);
+    expect(sessionElapsedMs(resumed, 9000)).toBe(6000); // 8000 wall - 2000 paused
+    const repaused = pauseWip(resumed, 10_000);
+    expect(sessionElapsedMs(repaused, 10_000)).toBe(7000);
+    expect(sessionElapsedMs(repaused, 30_000)).toBe(7000);
+  });
+
+  it('defaults pause fields when loading a WIP saved before pausing existed', () => {
+    const startedAt = Date.now() - 60_000;
+    // Hand-rolled legacy payload: no pausedMs/pausedAt anywhere.
+    localStorage.setItem(
+      wipKeyFor('evening'),
+      JSON.stringify({
+        id: 'wip-legacy',
+        routineId: 'evening',
+        variantId: 'var-1',
+        variantName: 'Full',
+        startedAt,
+        currentStepIndex: 0,
+        currentStepStartedAt: startedAt,
+        steps: [
+          {
+            stepId: 'a',
+            stepName: 'A',
+            status: 'pending',
+            startedAt,
+            endedAt: null,
+            durationMs: null,
+            pbAtStartMs: null,
+            notes: '',
+            lastDurationMs: null,
+          },
+        ],
+      }),
+    );
+    const loaded = loadWip('evening');
+    expect(loaded).not.toBeNull();
+    expect(loaded!.pausedMs).toBe(0);
+    expect(loaded!.pausedAt).toBeNull();
+    expect(loaded!.steps[0].pausedMs).toBe(0);
+  });
+
+  it('round-trips pause state through storage', () => {
+    const paused = pauseWip(makeRunning({ startedAt: Date.now() - 60_000 }), 7000);
+    saveWip('evening', paused);
+    const loaded = loadWip('evening');
+    expect(loaded!.pausedAt).toBe(7000);
+    expect(isPaused(loaded!)).toBe(true);
+  });
+});
+
+describe('finishRemaining', () => {
+  function makeMidRoutine(): WipSession {
+    return makeWip({
+      startedAt: 1000,
+      currentStepIndex: 1,
+      currentStepStartedAt: 5000,
+      steps: [
+        makeWipStep('a', 'A', 'completed', {
+          startedAt: 1000,
+          endedAt: 5000,
+          durationMs: 4000,
+        }),
+        makeWipStep('b', 'B', 'pending', { startedAt: 5000 }),
+        makeWipStep('c', 'C'),
+        makeWipStep('d', 'D', 'skipped', { endedAt: 4000 }),
+      ],
+    });
+  }
+
+  it('counts the steps still pending', () => {
+    expect(countPendingSteps(makeMidRoutine())).toBe(2);
+  });
+
+  it('marks every pending step and jumps to the completion screen', () => {
+    const finished = finishRemaining(makeMidRoutine(), 'skipped', 9000);
+    expect(finished.steps.map((s) => s.status)).toEqual([
+      'completed',
+      'skipped',
+      'skipped',
+      'skipped',
+    ]);
+    expect(finished.currentStepIndex).toBe(finished.steps.length);
+    expect(finished.currentStepStartedAt).toBeNull();
+  });
+
+  it('stamps endedAt on the active step only', () => {
+    const finished = finishRemaining(makeMidRoutine(), 'skipped', 9000);
+    // The step that was actually running ended now...
+    expect(finished.steps[1].endedAt).toBe(9000);
+    expect(finished.steps[1].startedAt).toBe(5000);
+    // ...but one that never started stays unstamped, so the saved session's
+    // effective end doesn't stretch to cover time nothing was tracked in.
+    expect(finished.steps[2].endedAt).toBeNull();
+    expect(finished.steps[2].startedAt).toBeNull();
+  });
+
+  it('leaves already-handled steps alone', () => {
+    const before = makeMidRoutine();
+    const finished = finishRemaining(before, 'punted', 9000);
+    expect(finished.steps[0]).toEqual(before.steps[0]);
+    expect(finished.steps[3]).toEqual(before.steps[3]);
+  });
+
+  it('supports punting the remainder', () => {
+    const finished = finishRemaining(makeMidRoutine(), 'punted', 9000);
+    expect(finished.steps[1].status).toBe('punted');
+    expect(finished.steps[2].status).toBe('punted');
+  });
+
+  it('records no duration for the steps it marks', () => {
+    const finished = finishRemaining(makeMidRoutine(), 'skipped', 9000);
+    expect(finished.steps[1].durationMs).toBeNull();
+    expect(finished.steps[2].durationMs).toBeNull();
+  });
+
+  it('settles an in-flight pause before finishing', () => {
+    const paused = pauseWip(makeMidRoutine(), 7000);
+    const finished = finishRemaining(paused, 'skipped', 9000);
+    expect(finished.pausedAt).toBeNull();
+    expect(finished.pausedMs).toBe(2000);
+    expect(finished.steps[1].pausedMs).toBe(2000);
+  });
+
+  it('stashes a recorded time so it can still be restored', () => {
+    const wip = makeWip({
+      currentStepIndex: 0,
+      currentStepStartedAt: 5000,
+      steps: [
+        makeWipStep('a', 'A', 'pending', { startedAt: 5000, durationMs: 3000 }),
+      ],
+    });
+    const finished = finishRemaining(wip, 'skipped', 9000);
+    expect(finished.steps[0].durationMs).toBeNull();
+    expect(finished.steps[0].lastDurationMs).toBe(3000);
+  });
+});
+
+describe('reconcileWipWithVariant + pause', () => {
+  it('re-anchors an in-flight pause when the active step is deleted', () => {
+    const stepA = makeStep({ id: 'a', name: 'A' });
+    // The paused step b is deleted from the variant mid-pause.
+    const stepC = makeStep({ id: 'c', name: 'C' });
+    const variant = makeVariant({ stepIds: ['a', 'c'] });
+    const wip = makeWip({
+      currentStepIndex: 1,
+      currentStepStartedAt: 500,
+      pausedAt: 1_000,
+      steps: [
+        makeWipStep('a', 'A', 'completed', {
+          startedAt: 0,
+          endedAt: 100,
+          durationMs: 100,
+        }),
+        makeWipStep('b', 'B', 'pending', { startedAt: 500 }),
+        makeWipStep('c', 'C'),
+      ],
+    });
+    const result = reconcileWipWithVariant(
+      wip,
+      variant,
+      [stepA, stepC],
+      new Map(),
+      3_000,
+    );
+    // c is now the active step, started at `now` and still paused — but the
+    // pause is measured from `now`, not from when b was paused, so c's timer
+    // reads 0 and the 2s already spent paused is banked on the session.
+    expect(result.steps.map((s) => s.stepId)).toEqual(['a', 'c']);
+    expect(result.currentStepIndex).toBe(1);
+    expect(result.pausedMs).toBe(2_000);
+    expect(result.pausedAt).toBe(3_000);
+    expect(result.steps[1].pausedMs).toBe(0);
+    expect(stepElapsedMs(result, 1, 3_000)).toBe(0);
+    expect(stepElapsedMs(result, 1, 60_000)).toBe(0);
+    // Resuming later charges c only the time it was actually paused for.
+    const resumed = resumeWip(result, 5_000);
+    expect(resumed.steps[1].pausedMs).toBe(2_000);
+    expect(stepElapsedMs(resumed, 1, 6_000)).toBe(1_000);
+  });
+
+  it('leaves pause state alone when the active step survives', () => {
+    const stepA = makeStep({ id: 'a', name: 'A' });
+    const stepB = makeStep({ id: 'b', name: 'B' });
+    const stepC = makeStep({ id: 'c', name: 'C' });
+    const variant = makeVariant({ stepIds: ['a', 'b', 'c'] });
+    const wip = makeWip({
+      currentStepIndex: 0,
+      currentStepStartedAt: 500,
+      pausedAt: 1_000,
+      pausedMs: 250,
+      steps: [
+        makeWipStep('a', 'A', 'pending', { startedAt: 500 }),
+        makeWipStep('b', 'B'),
+      ],
+    });
+    const result = reconcileWipWithVariant(
+      wip,
+      variant,
+      [stepA, stepB, stepC],
+      new Map(),
+      3_000,
+    );
+    expect(result.steps).toHaveLength(3);
+    expect(result.pausedAt).toBe(1_000);
+    expect(result.pausedMs).toBe(250);
   });
 });
