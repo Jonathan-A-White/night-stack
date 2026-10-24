@@ -21,7 +21,7 @@
     "react-is": "^19.2.4",
     "react-router-dom": "^7.14.0",
     "recharts": "^3.8.1",
-    "voice-kit": "github:Jonathan-A-White/voice-kit#932f97d83eecba278498558bfc202ba346fa906f"
+    "voice-kit": "github:Jonathan-A-White/voice-kit#d87188227886ec15e7c34f674992f4a63ea69215"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -45,6 +45,6 @@
   },
   "allowScripts": {
     "github:Jonathan-A-White/bsv-kit#fec787f3f9462fa9787e094d3bd236b5362e1511": true,
-    "github:Jonathan-A-White/voice-kit#932f97d83eecba278498558bfc202ba346fa906f": true
+    "github:Jonathan-A-White/voice-kit#d87188227886ec15e7c34f674992f4a63ea69215": true
   }
 }

@@ -1,5 +1,5 @@
 {
-  "description": "He answers the tutor's question about his last meal: the time lands in the Last meal time field as 24-hour time.",
+  "description": "He answers the tutor's question about his last meal: the time lands in the Last meal time field as 24-hour time, and with every required field held the tutor says so and asks nothing more.",
   "schemaVersion": "1",
   "request": {
     "question": "I ate at half past seven.",
@@ -17,6 +17,6 @@
   "expect": {
     "form_values.0.field": { "equals": "lastMealTime" },
     "form_values.0.value": { "equals": "19:30" },
-    "form_ask": { "equals": "foodDescription" }
+    "form_ask": { "present": false }
   }
 }
