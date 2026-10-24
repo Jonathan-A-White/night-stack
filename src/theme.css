@@ -15,6 +15,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --tab-height: 64px;
+  /* Android three-button navigation reports the bottom inset as 0 under
+     viewport-fit=cover, so floor it at the system bar's 48px. */
+  --bottom-inset: max(env(safe-area-inset-bottom, 0), 48px);
+  --tabs-total: calc(var(--tab-height) + var(--bottom-inset));
   --switcher-height: 44px;
 }
 
@@ -86,7 +90,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 16px;
-  padding-bottom: calc(var(--tab-height) + 16px);
+  padding-bottom: calc(var(--tabs-total) + 16px);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -369,12 +373,12 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  height: var(--tab-height);
+  height: var(--tabs-total);
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   display: flex;
   z-index: 100;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: var(--bottom-inset);
 }
 
 .tab-button {
@@ -714,7 +718,7 @@ textarea.form-input {
   display: flex;
   gap: 12px;
   padding: 16px 0;
-  margin-bottom: calc(var(--tab-height) + 8px);
+  margin-bottom: calc(var(--tabs-total) + 8px);
 }
 
 .step-nav .btn {
