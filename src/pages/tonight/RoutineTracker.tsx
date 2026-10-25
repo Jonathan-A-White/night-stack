@@ -235,6 +235,15 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
   // ambiguous if the same step appears in multiple variants.
   const [longPressStartStepId, setLongPressStartStepId] = useState<string | null>(null);
 
+  // The step being looked at in a running routine, by step id. UI-only: it
+  // never reaches the WIP, so looking at a step does not move the routine on
+  // or change what is saved. `null` shows the current step.
+  const [peekStepId, setPeekStepId] = useState<string | null>(null);
+
+  // Set when a long-press fired, so the click that follows the release does
+  // not also count as a tap that opens the step.
+  const longPressFired = useRef(false);
+
   // Session-level notes (only used on completion screen).
   const [sessionNotes, setSessionNotes] = useState('');
 
@@ -883,7 +892,9 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
 
   const startLongPress = (index: number) => {
     cancelLongPressTimer();
+    longPressFired.current = false;
     longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
       setLongPressStepIndex(index);
       longPressTimer.current = null;
     }, LONGPRESS_MS);
@@ -895,6 +906,15 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
       setLongPressStartStepId(stepId);
       longPressTimer.current = null;
     }, LONGPRESS_MS);
+  };
+
+  /** Tap on a row of a running routine: look at that step (or, on the current step's own row, go back to it). */
+  const handleStepTap = (stepId: string, isCurrent: boolean) => {
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
+    }
+    setPeekStepId(isCurrent || stepId === peekStepId ? null : stepId);
   };
 
   const handleNotesChange = (value: string) => {
@@ -1160,6 +1180,16 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
     const description = stepDef?.description.trim() ?? '';
     const secretNames = stepDef?.secretNames ?? [];
 
+    // A step being looked at instead of the current one. Resolved by id each
+    // render so a reorder or a deleted step cannot leave a stale index.
+    const peekIdx =
+      peekStepId != null && peekStepId !== currentStep.stepId
+        ? wip.steps.findIndex((s) => s.stepId === peekStepId)
+        : -1;
+    const peekStep = peekIdx !== -1 ? wip.steps[peekIdx] : null;
+    const peekDef = peekStep ? allSteps.find((s) => s.id === peekStep.stepId) ?? null : null;
+    const peekDescription = peekDef?.description.trim() ?? '';
+
     return (
       <div>
         <div className="page-header">
@@ -1172,10 +1202,36 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
             &times; Close
           </button>
           <h1>
-            Step {idx + 1} of {wip.steps.length} &mdash; {currentStep.stepName}
+            {peekStep
+              ? `Step ${peekIdx + 1} of ${wip.steps.length} \u2014 ${peekStep.stepName}`
+              : `Step ${idx + 1} of ${wip.steps.length} \u2014 ${currentStep.stepName}`}
           </h1>
         </div>
 
+        {peekStep && (
+          <div className="card">
+            <div className="routine-timer-label">
+              Just looking &mdash; the routine is still on step {idx + 1}.
+            </div>
+            {peekDescription && (
+              <div className="routine-step-description">{peekDescription}</div>
+            )}
+            {peekDef?.grid && (
+              <StepGridView grid={peekDef.grid} label={peekStep.stepName} />
+            )}
+            {(peekDef?.secretNames ?? []).map((name) => (
+              <SecretReveal key={name} name={name} />
+            ))}
+            <button
+              className="btn btn-primary btn-full mt-16"
+              onClick={() => setPeekStepId(null)}
+            >
+              Back to current step ({idx + 1}. {currentStep.stepName})
+            </button>
+          </div>
+        )}
+
+        {!peekStep && (
         <div className="card">
           {msUntilBed != null && (
             <div className="routine-until-bed">
@@ -1220,9 +1276,10 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
             Done
           </button>
           <p className="text-secondary text-sm mt-16" style={{ textAlign: 'center' }}>
-            Long-press any step for options
+            Tap a step to look at it, long-press for options
           </p>
         </div>
+        )}
 
         <div className="card">
           <div className="card-title">Steps</div>
@@ -1242,9 +1299,10 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
             return (
               <div
                 key={`${s.stepId}-${i}`}
-                className={rowClass}
+                className={peekStep?.stepId === s.stepId ? `${rowClass} peeking` : rowClass}
                 data-step-index={i}
                 data-drag-context="session"
+                onClick={() => handleStepTap(s.stepId, i === idx)}
                 onMouseDown={() => startLongPress(i)}
                 onMouseUp={cancelLongPressTimer}
                 onMouseLeave={cancelLongPressTimer}
@@ -1283,6 +1341,7 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
                   aria-label="Drag to reorder"
                   role="button"
                   onPointerDown={(e) => handleDragStart('session', i, e)}
+                  onClick={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
                 >

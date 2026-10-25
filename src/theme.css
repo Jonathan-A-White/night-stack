@@ -1107,6 +1107,12 @@ textarea.form-input {
   opacity: 0.6;
   border-style: dashed;
 }
+.routine-step-row.peeking {
+  opacity: 1;
+  text-decoration: none;
+  border-color: var(--color-accent);
+  border-style: dotted;
+}
 .routine-step-name { flex: 1; min-width: 0; font-weight: 600; }
 .routine-step-time {
   font-variant-numeric: tabular-nums;
