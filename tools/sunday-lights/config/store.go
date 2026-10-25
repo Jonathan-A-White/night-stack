@@ -55,11 +55,16 @@ func Path() (string, error) {
 // errors.Is(err, fs.ErrNotExist) and the Config returned is empty. Maps are
 // never nil.
 func Load() (Config, error) {
-	c := Config{Picks: map[string]int{}, LevelOverrides: map[string]string{}}
 	p, err := Path()
 	if err != nil {
-		return c, err
+		return Config{Picks: map[string]int{}, LevelOverrides: map[string]string{}}, err
 	}
+	return LoadFrom(p)
+}
+
+// LoadFrom is Load for the config file at path p.
+func LoadFrom(p string) (Config, error) {
+	c := Config{Picks: map[string]int{}, LevelOverrides: map[string]string{}}
 	b, err := os.ReadFile(p)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -92,6 +97,11 @@ func (c Config) Save() error {
 	if err != nil {
 		return err
 	}
+	return c.SaveTo(p)
+}
+
+// SaveTo is Save for the config file at path p.
+func (c Config) SaveTo(p string) error {
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("config: creating %s: %w", dir, err)
