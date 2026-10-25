@@ -118,9 +118,35 @@ Represents a single thing to do as part of a routine (e.g., "Brush teeth",
 | `name`        | string            | yes      | Short label shown in the tracker, e.g., `"Brush teeth"`. Keep under ~40 chars. |
 | `description` | string            | yes      | Instructions shown under the timer while the step runs. Newlines are preserved, so a list of slider values can be one line each. Use `""` if none. |
 | `secretNames` | string[]          | yes      | Names of vault passwords this step needs (e.g. `["Cased iPad password"]`). The tracker shows a "Show …" button per name. Never put the password itself in the file — the user stores it in Settings → Password Vault. `[]` if none. |
+| `grid`        | object            | no       | Instructions laid out like the device's own screen (see "Step grid" below). Omit it for a plain text step; a step without it loads and runs as before. |
 | `sortOrder`   | integer           | yes      | 1-based. Controls the default order of steps in the settings list. |
 | `isActive`    | boolean           | yes      | `true` for normal steps. `false` hides the step from every session until re-enabled. |
 | `createdAt`   | number (epoch ms) | yes      | `Date.now()` at authoring time. |
+
+#### Step grid
+
+Use a grid when the step sets many things on a device whose screen is a grid
+of tiles (e.g. the Lutron app's Devices tab, 5 columns). The tracker draws
+it as rows and columns under the `description`, which can still carry text.
+
+```json
+"grid": {
+  "columns": 5,
+  "cells": [
+    { "name": "Left Front Track Row 1", "level": "35%" },
+    { "name": "Left Second Row Track", "level": "35%" },
+    { "name": "", "level": "" },
+    { "name": "Cross Chandelier", "level": "100%" }
+  ]
+}
+```
+
+| Field     | Type     | Notes |
+|-----------|----------|-------|
+| `columns` | integer  | 1 to 12 cells per row. Missing or invalid → 5. |
+| `cells`   | object[] | In reading order, `columns` to a row (the last row may be short). Each has a `name` and a `level`, both free text (`"35%"`, `"Off"`). An empty name and level is a skipped tile that keeps the layout. At least one cell, or the grid is dropped. |
+
+Never put a password in a cell; use `secretNames`.
 
 ### `RoutineVariant`
 
@@ -150,7 +176,7 @@ would pollute stats and personal bests.
 ## Invariants the importer expects
 
 The importer repairs some of these (missing `routineId` → evening routine,
-missing `secretNames` → `[]`, a routine with no variant gets an empty
+missing `secretNames` → `[]`, an invalid `grid` removed, a routine with no variant gets an empty
 default one, a routine with no default gets its first variant promoted) but
 violating the rest will break the UI or skew stats:
 

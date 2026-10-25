@@ -2,6 +2,7 @@ import { db } from '../db';
 import type { Routine, WeightEntry } from '../types';
 import { backfillAppSettingsV12, backfillNightLogV12, weightEntryToBodyMeasurement } from './schemaBackfill';
 import { EVENING_ROUTINE_ID, buildDefaultVariant, buildEveningRoutine } from './routineSeeds';
+import { normalizeStepGrid } from './stepGrid';
 
 /**
  * JSON backup export/import, extracted from DataManagementPage so the
@@ -96,6 +97,10 @@ export function normalizeRoutinePayload(data: Loose): NormalizedRoutines | null 
   const routineSteps = (stepsRaw as Loose[]).map((s) => {
     const stamped = stamp(s);
     if (!Array.isArray(stamped.secretNames)) stamped.secretNames = [];
+    // A step's grid is optional: keep a valid one, drop anything else.
+    const grid = normalizeStepGrid(stamped.grid);
+    if (grid) stamped.grid = grid;
+    else delete stamped.grid;
     return stamped;
   });
   const routineVariants = (variantsRaw as Loose[]).map(stamp);
