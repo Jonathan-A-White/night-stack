@@ -1,0 +1,110 @@
+[
+  {
+    "name": "Left front track row 1",
+    "level": "35%"
+  },
+  {
+    "name": "Left second row track",
+    "level": "35%"
+  },
+  {
+    "name": "4th row track left",
+    "level": "35%"
+  },
+  {
+    "name": "3rd row track left",
+    "level": "35%"
+  },
+  {
+    "name": "Left wall spots",
+    "level": "Off"
+  },
+  {
+    "name": "Right wall spots",
+    "level": "Off"
+  },
+  {
+    "name": "Recess right side",
+    "level": "15%"
+  },
+  {
+    "name": "Recess left side",
+    "level": "15%"
+  },
+  {
+    "name": "Recess back",
+    "level": "15%"
+  },
+  {
+    "name": "Back row hanging lights",
+    "level": "35%"
+  },
+  {
+    "name": "Right front hanging lights",
+    "level": "35%"
+  },
+  {
+    "name": "Left front hanging lights",
+    "level": "35%"
+  },
+  {
+    "name": "Left back hanging lights",
+    "level": "35%"
+  },
+  {
+    "name": "Center recess",
+    "level": "35%"
+  },
+  {
+    "name": "Alter track recess",
+    "level": "100%"
+  },
+  {
+    "name": "Chandelier",
+    "level": "35%"
+  },
+  {
+    "name": "Rear alter recess",
+    "level": "Off"
+  },
+  {
+    "name": "Stage rear right",
+    "level": "On"
+  },
+  {
+    "name": "Stage center spot",
+    "level": "On"
+  },
+  {
+    "name": "Left stage lights",
+    "level": "On"
+  },
+  {
+    "name": "Unknown 4",
+    "level": "Off"
+  },
+  {
+    "name": "Unknown 5",
+    "level": "Off"
+  },
+  {
+    "name": "Cross chandelier",
+    "level": "100%"
+  },
+  {
+    "name": "Right track row 1",
+    "level": "35%"
+  },
+  {
+    "name": "Right 2nd row track",
+    "level": "35%"
+  },
+  {
+    "name": "4th row track right",
+    "level": "35%"
+  },
+  {
+    "name": "3rd row track right",
+    "level": "35%"
+  }
+]
