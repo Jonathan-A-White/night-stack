@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <GUID>00000000-0000-0000-0000-000000000000</GUID>
+  <ProductType>RadioRA 2</ProductType>
+  <Areas>
+    <Area Name="Main Building" IntegrationID="1" OccupancySettings="">
+      <Areas>
+        <Area Name="Equipment Room" IntegrationID="2" OccupancySettings="">
+          <DeviceGroups>
+            <DeviceGroup Name="Keypads" />
+          </DeviceGroups>
+          <Outputs>
+            <Output Name="Left Front Track Row 1" IntegrationID="11" OutputType="INC" Wattage="0" />
+            <Output Name="Left Wall Spots" IntegrationID="12" OutputType="INC" Wattage="0" />
+            <Output Name="Cross Chandelier" IntegrationID="13" OutputType="INC" Wattage="0" />
+            <Output Name="Unknown 4" IntegrationID="14" OutputType="INC" Wattage="0" />
+            <Output Name="Stage Fan" IntegrationID="15" OutputType="NON_DIM" Wattage="0" />
+          </Outputs>
+        </Area>
+        <Area Name="Lobby" IntegrationID="3" OccupancySettings="">
+          <Outputs>
+            <Output Name="Lobby Pendants" IntegrationID="21" OutputType="INC" Wattage="0" />
+          </Outputs>
+        </Area>
+      </Areas>
+    </Area>
+  </Areas>
+</Project>
