@@ -1,0 +1,65 @@
+name: Sunday lights
+
+# Builds the Sunday lights program for the booth PC and publishes the three
+# files on one release, sunday-lights-latest, replacing what was there.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/sunday-lights/**"
+      - ".github/workflows/sunday-lights.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sunday-lights-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/sunday-lights/go.mod
+          cache: false
+
+      - name: Test
+        working-directory: tools/sunday-lights
+        run: make test
+
+      - name: Build
+        working-directory: tools/sunday-lights
+        run: make build
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: tools/sunday-lights
+        run: |
+          set -euo pipefail
+          tag=sunday-lights-latest
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          The Sunday lights program for the booth PC. Download the one file for your computer:
+
+          - **sunday-lights-mac-apple-silicon**: a Mac with an Apple chip (M1, M2, M3 or later). Apple menu > About This Mac says "Chip: Apple M...".
+          - **sunday-lights-mac-intel**: a Mac with an Intel chip. About This Mac says "Processor: Intel ...".
+          - **sunday-lights-windows.exe**: a Windows PC.
+
+          Steps are in the README: https://github.com/${{ github.repository }}/blob/main/tools/sunday-lights/README.md
+          NOTES
+          # Move the tag to this commit.
+          git tag -f "$tag" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$tag"
+          files=(dist/sunday-lights-mac-apple-silicon dist/sunday-lights-mac-intel dist/sunday-lights-windows.exe)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+            gh release edit "$tag" --title "Sunday lights" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$tag" "${files[@]}" --title "Sunday lights" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          fi
