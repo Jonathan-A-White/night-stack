@@ -1,0 +1,107 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brookfield Church · Sunday lights</title>
+<style>
+  body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; margin: 0; padding: 16px; max-width: 720px; margin-left: auto; margin-right: auto; background: #fff; color: #111; }
+  h1 { font-size: 1.3rem; margin: 0 0 12px; }
+  h2 { font-size: 1.1rem; margin: 24px 0 8px; }
+  button { display: block; width: 100%; min-height: 64px; font-size: 1.5rem; font-weight: 600; border: 0; border-radius: 12px; background: #0b5cad; color: #fff; }
+  button:disabled { background: #7a8794; }
+  .field { margin: 12px 0; }
+  .field label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .field input { width: 100%; box-sizing: border-box; font-size: 1.1rem; padding: 10px; }
+  .field button { min-height: 48px; font-size: 1.1rem; }
+  #status, .message { min-height: 1.4em; margin: 12px 0; font-size: 1.1rem; }
+  .error { color: #a40000; }
+  ul.results, ul.plain { list-style: none; padding: 0; margin: 0; }
+  ul.results li { padding: 8px 0; border-bottom: 1px solid #ddd; }
+  .mark { display: inline-block; width: 1.6em; font-weight: 700; }
+  .ok .mark { color: #1a7f37; }
+  .bad .mark { color: #a40000; }
+  .why { display: block; margin-left: 1.6em; color: #a40000; font-size: 0.95rem; }
+  nav { margin-top: 28px; font-size: 1.1rem; }
+  nav a { margin-right: 16px; }
+</style>
+</head>
+<body>
+<h1>Brookfield Church · Sunday lights</h1>
+{{end}}
+
+{{define "foot"}}</body>
+</html>
+{{end}}
+
+{{define "nav"}}<nav><a href="/">Home</a> <a href="/lights">Lights</a> <a href="/setup">Setup</a></nav>{{end}}
+
+{{define "results"}}{{if .}}<h2>Last run</h2>
+<p>Finished at <span id="finished">{{.FinishedAt}}</span>: {{.Good}} of {{.Total}} lights read back right.</p>
+<ul class="results" id="results">{{range .Rows}}
+<li class="{{if .OK}}ok{{else}}bad{{end}}"><span class="mark">{{if .OK}}✓{{else}}✗{{end}}</span>{{.Name}}: wanted {{.Wanted}}, read {{.Read}}{{if .Reason}}<span class="why">{{.Reason}}</span>{{end}}</li>{{end}}
+</ul>{{else}}<ul class="results" id="results"></ul>{{end}}{{end}}
+
+{{define "index"}}{{template "head"}}<form id="run" method="post" action="/run"><button type="submit" id="go">Set Sunday lights</button></form>
+<p id="status" role="status" class="{{if .Error}}error{{end}}">{{.Status}}</p>
+<div id="last">{{template "results" .Run}}</div>
+{{template "nav"}}
+<script>
+(function () {
+  var form = document.getElementById('run');
+  var btn = document.getElementById('go');
+  var status = document.getElementById('status');
+  var last = document.getElementById('last');
+  function text(tag, cls, s) { var e = document.createElement(tag); if (cls) e.className = cls; e.textContent = s; return e; }
+  function show(rr) {
+    last.textContent = '';
+    last.appendChild(text('h2', '', 'Last run'));
+    var good = rr.results.filter(function (r) { return r.ok; }).length;
+    last.appendChild(text('p', '', 'Finished at ' + rr.finishedAt + ': ' + good + ' of ' + rr.results.length + ' lights read back right.'));
+    var ul = text('ul', 'results', ''); ul.id = 'results';
+    rr.results.forEach(function (r) {
+      var li = text('li', r.ok ? 'ok' : 'bad', '');
+      li.appendChild(text('span', 'mark', r.ok ? '\u2713' : '\u2717'));
+      li.appendChild(document.createTextNode(r.name + ': wanted ' + r.wanted + '%, read ' + (r.read === null ? 'nothing' : r.read + '%')));
+      if (r.reason) li.appendChild(text('span', 'why', r.reason));
+      ul.appendChild(li);
+    });
+    last.appendChild(ul);
+  }
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    btn.disabled = true;
+    status.className = '';
+    status.textContent = 'Setting the lights\u2026';
+    fetch('/run', { method: 'POST', headers: { Accept: 'application/json' }, cache: 'no-store' })
+      .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, j: j }; }); })
+      .then(function (x) {
+        if (x.j.error) { status.className = 'error'; status.textContent = x.j.error; }
+        else { status.textContent = ''; }
+        if (x.j.results) show(x.j);
+      })
+      .catch(function () { status.className = 'error'; status.textContent = 'Could not reach the Sunday lights program. Is its window still open?'; })
+      .then(function () { btn.disabled = false; });
+  });
+})();
+</script>
+{{template "foot"}}{{end}}
+
+{{define "lights"}}{{template "head"}}<h2>{{.Matched}} of {{.Total}} lights matched</h2>
+{{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+<ul class="plain">{{range .Rows}}
+<li>{{if .OK}}✓{{else}}✗{{end}} {{.Name}} ({{.Level}}){{if .OK}} → {{.Output}} [{{.ID}}]{{else}}: no output of that name{{if .Suggestions}}; nearest: {{.Suggestions}}{{end}}{{end}}</li>{{end}}
+</ul>
+{{template "nav"}}
+{{template "foot"}}{{end}}
+
+{{define "setup"}}{{template "head"}}<h2>Setup</h2>
+{{if .Message}}<p class="message {{if .Error}}error{{end}}">{{.Message}}</p>{{end}}
+<form method="post" action="/setup" autocomplete="off">
+<div class="field"><label for="address">Repeater address</label><input id="address" name="address" value="{{.Address}}"></div>
+<div class="field"><label for="login">Login</label><input id="login" name="login" value="{{.Login}}"></div>
+<div class="field"><label for="password">Password (leave empty to keep the one saved)</label><input id="password" name="password" type="password" autocomplete="new-password"></div>
+<div class="field"><button type="submit">Save</button></div>
+</form>
+{{template "nav"}}
+{{template "foot"}}{{end}}
