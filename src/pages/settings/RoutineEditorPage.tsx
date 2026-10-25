@@ -11,7 +11,9 @@ import { blankSchedule, describeSchedule } from '../../services/routineSchedule'
 import { ROUTINES_SETTINGS_PATH, VAULT_SETTINGS_PATH, trackerPathFor } from '../../services/routinePaths';
 import { EVENING_ROUTINE_ID } from '../../services/routineSeeds';
 import { DAY_NAMES } from '../../utils';
-import type { RoutineSchedule, RoutineScheduleAnchor, RoutineStep, RoutineVariant } from '../../types';
+import type { RoutineSchedule, RoutineScheduleAnchor, RoutineStep, RoutineVariant, StepGridCell } from '../../types';
+import { StepGridView } from '../../components/StepGridView';
+import { DEFAULT_GRID_COLUMNS, MAX_GRID_COLUMNS } from '../../services/stepGrid';
 
 export { RoutineEditorPage };
 
@@ -25,7 +27,17 @@ interface StepEditForm {
   name: string;
   description: string;
   secretNames: string[];
+  gridColumns: number;
+  gridCells: StepGridCell[];
 }
+
+const emptyStepEdit: StepEditForm = {
+  name: '',
+  description: '',
+  secretNames: [],
+  gridColumns: DEFAULT_GRID_COLUMNS,
+  gridCells: [],
+};
 
 /**
  * Settings → Routines → one routine: name, description and schedule at
@@ -69,7 +81,7 @@ function RoutineEditorFor({ routineId }: { routineId: string }) {
   const [showAddStep, setShowAddStep] = useState(false);
   const [stepForm, setStepForm] = useState<NameDescForm>(emptyForm);
   const [editingStepId, setEditingStepId] = useState<string | null>(null);
-  const [editStep, setEditStep] = useState<StepEditForm>({ name: '', description: '', secretNames: [] });
+  const [editStep, setEditStep] = useState<StepEditForm>(emptyStepEdit);
   const [newSecretName, setNewSecretName] = useState('');
 
   // Variant state
@@ -163,18 +175,48 @@ function RoutineEditorFor({ routineId }: { routineId: string }) {
 
   const startEditStep = (step: RoutineStep) => {
     setEditingStepId(step.id);
-    setEditStep({ name: step.name, description: step.description, secretNames: [...step.secretNames] });
+    setEditStep({
+      name: step.name,
+      description: step.description,
+      secretNames: [...step.secretNames],
+      gridColumns: step.grid?.columns ?? DEFAULT_GRID_COLUMNS,
+      gridCells: step.grid ? step.grid.cells.map((c) => ({ ...c })) : [],
+    });
     setNewSecretName('');
   };
 
   const saveStepEdit = async () => {
     if (!editingStepId || !editStep.name.trim()) return;
+    // Trailing blank tiles carry nothing; blanks between tiles stay so the
+    // layout keeps its gaps. No cells left means no grid (Dexie deletes an
+    // undefined key).
+    const cells = editStep.gridCells.map((c) => ({ name: c.name.trim(), level: c.level.trim() }));
+    while (cells.length > 0 && !cells[cells.length - 1].name && !cells[cells.length - 1].level) cells.pop();
     await db.routineSteps.update(editingStepId, {
       name: editStep.name.trim(),
       description: editStep.description.trim(),
       secretNames: editStep.secretNames,
+      grid: cells.length > 0 ? { columns: editStep.gridColumns, cells } : undefined,
     });
     setEditingStepId(null);
+  };
+
+  const setGridCell = (index: number, patch: Partial<StepGridCell>) =>
+    setEditStep({
+      ...editStep,
+      gridCells: editStep.gridCells.map((c, i) => (i === index ? { ...c, ...patch } : c)),
+    });
+
+  const addGridCell = () =>
+    setEditStep({ ...editStep, gridCells: [...editStep.gridCells, { name: '', level: '' }] });
+
+  const removeGridCell = (index: number) =>
+    setEditStep({ ...editStep, gridCells: editStep.gridCells.filter((_, i) => i !== index) });
+
+  const setGridColumns = (raw: string) => {
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n) || n < 1) return;
+    setEditStep({ ...editStep, gridColumns: Math.min(MAX_GRID_COLUMNS, n) });
   };
 
   const addSecretToStep = (name: string) => {
@@ -442,6 +484,54 @@ function RoutineEditorFor({ routineId }: { routineId: string }) {
                   />
                 </div>
                 <div className="form-group">
+                  <label className="form-label">Grid (optional, laid out like the device's screen)</label>
+                  <div className="text-secondary text-sm mb-8">
+                    One cell per tile in reading order: its name and the level to set. Leave a cell blank to skip a tile. Never put a password in a cell.
+                  </div>
+                  <div className="flex gap-8 mb-8" style={{ alignItems: 'center' }}>
+                    <label htmlFor={`grid-columns-${step.id}`}>Columns</label>
+                    <input
+                      id={`grid-columns-${step.id}`}
+                      className="form-input"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={MAX_GRID_COLUMNS}
+                      style={{ width: 72 }}
+                      value={editStep.gridColumns}
+                      onChange={(e) => setGridColumns(e.target.value)}
+                    />
+                  </div>
+                  {editStep.gridCells.map((cell, i) => (
+                    <div key={i} className="flex gap-8 mb-8" style={{ alignItems: 'center' }}>
+                      <input
+                        className="form-input"
+                        style={{ flex: 2 }}
+                        value={cell.name}
+                        onChange={(e) => setGridCell(i, { name: e.target.value })}
+                        placeholder="Name"
+                        aria-label={`Cell ${i + 1} name`}
+                      />
+                      <input
+                        className="form-input"
+                        style={{ flex: 1 }}
+                        value={cell.level}
+                        onChange={(e) => setGridCell(i, { level: e.target.value })}
+                        placeholder="Level"
+                        aria-label={`Cell ${i + 1} level`}
+                      />
+                      <button className="routine-reorder-btn" onClick={() => removeGridCell(i)} aria-label={`Remove cell ${i + 1}`}>&times;</button>
+                    </div>
+                  ))}
+                  <button className="btn btn-secondary btn-sm" onClick={addGridCell}>Add cell</button>
+                  {editStep.gridCells.length > 0 && (
+                    <StepGridView
+                      grid={{ columns: editStep.gridColumns, cells: editStep.gridCells }}
+                      label="Grid preview"
+                    />
+                  )}
+                </div>
+                <div className="form-group">
                   <label className="form-label">Passwords this step needs</label>
                   {editStep.secretNames.length === 0 && (
                     <div className="text-secondary text-sm mb-8">None.</div>
@@ -490,6 +580,9 @@ function RoutineEditorFor({ routineId }: { routineId: string }) {
                 {step.name}
                 {step.secretNames.length > 0 && (
                   <span className="text-secondary text-sm" title={step.secretNames.join(', ')}> 🔑</span>
+                )}
+                {step.grid && (
+                  <span className="text-secondary text-sm" title={`Grid: ${step.grid.cells.length} cells in ${step.grid.columns} columns`}> ▦</span>
                 )}
               </span>
               <span className="routine-step-time" style={{ fontSize: 13, minWidth: 0, flexShrink: 0 }}>PB {formatTotal(pbMs)}</span>
