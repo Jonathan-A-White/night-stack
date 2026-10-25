@@ -25,6 +25,7 @@ import { EVENING_ROUTINE_ID } from '../../services/routineSeeds';
 import { deadlineCountdownLabel, resolveDeadline } from '../../services/routineSchedule';
 import { ROUTINE_HOME_PATH, editorPathFor } from '../../services/routinePaths';
 import { SecretReveal } from '../../components/SecretReveal';
+import { StepGridView } from '../../components/StepGridView';
 import {
   loadWip,
   mergeReorderedActiveStepIds,
@@ -1198,6 +1199,9 @@ function RoutineTrackerFor({ routineId }: { routineId: string }) {
           </div>
           {description && (
             <div className="routine-step-description">{description}</div>
+          )}
+          {stepDef?.grid && (
+            <StepGridView grid={stepDef.grid} label={currentStep.stepName} />
           )}
           {secretNames.map((name) => (
             <SecretReveal key={name} name={name} />

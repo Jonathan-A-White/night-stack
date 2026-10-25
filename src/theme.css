@@ -1244,6 +1244,43 @@ textarea.form-input {
   text-align: left;
 }
 
+/* A step's grid: rows and columns laid out like the device's own screen. */
+.step-grid {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.step-grid-row {
+  display: grid;
+  gap: 6px;
+}
+.step-grid-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 52px;
+  padding: 6px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+.step-grid-cell.empty {
+  background: transparent;
+  border-style: dashed;
+}
+.step-grid-name {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--color-text-secondary);
+}
+.step-grid-level {
+  font-size: 15px;
+  font-weight: 600;
+}
+
 /* === Vault / secret reveal === */
 .secret-reveal {
   margin-top: 12px;

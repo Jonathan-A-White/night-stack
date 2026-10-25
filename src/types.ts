@@ -608,6 +608,21 @@ export interface Routine {
   createdAt: number;
 }
 
+/** One tile of a step's grid: what it is and the level to set it to. */
+export interface StepGridCell {
+  name: string; // empty name + level = a skipped tile, keeps the layout
+  level: string; // free text, e.g. "35%", "Off"
+}
+
+/**
+ * A step's instructions laid out like the device's own screen. Cells run
+ * in reading order, `columns` to a row. Never holds a password.
+ */
+export interface StepGrid {
+  columns: number;
+  cells: StepGridCell[];
+}
+
 export interface RoutineStep {
   id: string;
   /** Owning routine. Backfilled to `EVENING_ROUTINE_ID` in v13. */
@@ -625,6 +640,11 @@ export interface RoutineStep {
   sortOrder: number;
   isActive: boolean; // inactive steps never appear in sessions
   createdAt: number;
+  /**
+   * Optional grid shown with the instructions while the step runs. A step
+   * stored before this field existed has none and runs as before.
+   */
+  grid?: StepGrid;
 }
 
 export interface RoutineVariant {
