@@ -9,6 +9,20 @@
 > about what it does not recognize**. The fixtures follow the real
 > shape (stage codes, binning file names, per-session vitals CSVs).
 
+<!-- toc -->
+
+- [What the real export looks like (verified)](#what-the-real-export-looks-like-verified)
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [First-real-export checklist (Jonathan)](#first-real-export-checklist-jonathan)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## What the real export looks like (verified)
 
 - Layout: ~30 top-level `com.samsung.<health|shealth>.<type>.<ts>.csv`

@@ -6,6 +6,21 @@ already depends on. The analysis (`analysis/recommender-tuning-2026-04-17.md`
 
 **Priority:** P0. Every other workstream is gated on this.
 
+<!-- toc -->
+
+- [Baseline from the analysis](#baseline-from-the-analysis)
+- [Tasks](#tasks)
+  - [T1. Audit that `thermalComfort` UI is visible and prominent](#t1-audit-that-thermalcomfort-ui-is-visible-and-prominent)
+  - [T2. Verify per-wake thermal flags actually render inside each wake card](#t2-verify-per-wake-thermal-flags-actually-render-inside-each-wake-card)
+  - [T3. Make `lastMealTime` visibly required](#t3-make-lastmealtime-visibly-required)
+  - [T4. Gate AC inputs on an `acInstalled` setting](#t4-gate-ac-inputs-on-an-acinstalled-setting)
+  - [T5. Audit that `loggedBedtime` is being set on new logs](#t5-audit-that-loggedbedtime-is-being-set-on-new-logs)
+  - [T6. Prompt for wake cause when blank](#t6-prompt-for-wake-cause-when-blank)
+- [Tests to add](#tests-to-add)
+- [Known unknowns / gaps to resolve before coding](#known-unknowns--gaps-to-resolve-before-coding)
+
+<!-- /toc -->
+
 ## Baseline from the analysis
 
 | Field | Coverage | Root cause (suspected) |

@@ -4,6 +4,18 @@
 `episode-capture`, `body-measurements`, `night-tags`.
 **Blocks:** `insights-and-rules`, `clinician-export`.
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 Twice-daily orthostatic vitals in the **Experiments** app:

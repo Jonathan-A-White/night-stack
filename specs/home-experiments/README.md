@@ -22,6 +22,20 @@ easy to tell them apart, not assume one:
 | T2 | Autonomic / volume — low-normal BP, sleeping HR 36–45, twitchy BP regulation | Orthostatic flags, pulse rise without a drop, position-independent |
 | T3 | Fluid shift / airway — retained fluid moves into the neck when supine, airway narrows, O2 dips | **Position** (supine vs side), **neck circumference delta** vs weight delta, SpO2 dips before the episode |
 
+<!-- toc -->
+
+- [What this pack is for](#what-this-pack-is-for)
+- [Decisions that reshaped the brief](#decisions-that-reshaped-the-brief)
+- [Workstreams](#workstreams)
+- [Dependency graph and execution order](#dependency-graph-and-execution-order)
+- [Pack acceptance (orchestrator verifies before closing the issue)](#pack-acceptance-orchestrator-verifies-before-closing-the-issue)
+- [Constraints (apply to every workstream)](#constraints-apply-to-every-workstream)
+- [Not in scope](#not-in-scope)
+- [Status (2026-09-03)](#status-2026-09-03)
+- [Follow-up packs](#follow-up-packs)
+
+<!-- /toc -->
+
 ## What this pack is for
 
 An agent team implementing, in dependency order, the workstreams

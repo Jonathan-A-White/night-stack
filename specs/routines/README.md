@@ -17,6 +17,15 @@ HumanLayer. `questions.md` records the gaps found while building; each
 carries the default that was applied so the branch is a working app
 while answers come in.
 
+<!-- toc -->
+
+- [What was built (branch `claude/routines-generalization-password-p4khz2`)](#what-was-built-branch-clauderoutines-generalization-password-p4khz2)
+- [Tests](#tests)
+- [Extraction notes (for the future standalone app)](#extraction-notes-for-the-future-standalone-app)
+- [Not in scope here](#not-in-scope-here)
+
+<!-- /toc -->
+
 ## What was built (branch `claude/routines-generalization-password-p4khz2`)
 
 | Area | Change |

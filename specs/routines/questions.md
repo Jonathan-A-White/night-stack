@@ -9,6 +9,28 @@ Status legend: `ANSWERED` · `DEFERRED (default applies)` · `PENDING`
 
 ---
 
+<!-- toc -->
+
+- [Q1. Sound booth: is 9:45 the deadline, or an earlier "ready for practice" time?](#q1-sound-booth-is-945-the-deadline-or-an-earlier-ready-for-practice-time)
+- [Q2. Which days, and what about special services?](#q2-which-days-and-what-about-special-services)
+- [Q3. One vault for the whole app, or per routine?](#q3-one-vault-for-the-whole-app-or-per-routine)
+- [Q4. Fingerprint: which browser is the PWA installed from, and is a PIN fallback acceptable?](#q4-fingerprint-which-browser-is-the-pwa-installed-from-and-is-a-pin-fallback-acceptable)
+- [Q5. Should the vault be included in backups?](#q5-should-the-vault-be-included-in-backups)
+- [Q6. Copy-to-clipboard on reveal?](#q6-copy-to-clipboard-on-reveal)
+- [Q7. Sound booth wording: keep the SOP's labels verbatim?](#q7-sound-booth-wording-keep-the-sops-labels-verbatim)
+- [Q8. Sound booth variants: singer count?](#q8-sound-booth-variants-singer-count)
+- [Q9. Notifications for a Sunday 7:30 AM start — is "only while the app is open" acceptable?](#q9-notifications-for-a-sunday-730-am-start--is-only-while-the-app-is-open-acceptable)
+- [Q10. Same routine twice in one day?](#q10-same-routine-twice-in-one-day)
+- [Q11. What should the Routine app's "Tracker" tab open?](#q11-what-should-the-routine-apps-tracker-tab-open)
+- [Q12. Standalone app: when, and what happens to the bedtime anchor?](#q12-standalone-app-when-and-what-happens-to-the-bedtime-anchor)
+- [Q13. Deleting a routine deletes its history?](#q13-deleting-a-routine-deletes-its-history)
+- [Q14. Richer step instructions: markdown, or sub-steps that can be checked off?](#q14-richer-step-instructions-markdown-or-sub-steps-that-can-be-checked-off)
+- [Q15. Grace after a missed deadline: 3 hours, then next occurrence?](#q15-grace-after-a-missed-deadline-3-hours-then-next-occurrence)
+- [Q16. Routine import: replace all, or merge?](#q16-routine-import-replace-all-or-merge)
+- [Q17. Where should a shared password live when the routine is shared with someone else?](#q17-where-should-a-shared-password-live-when-the-routine-is-shared-with-someone-else)
+
+<!-- /toc -->
+
 ## Q1. Sound booth: is 9:45 the deadline, or an earlier "ready for practice" time?
 
 **Affects:** `routineSeeds.ts`

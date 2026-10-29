@@ -8,6 +8,18 @@ Decisions: Q11 (`sodiumLevel` replaces the flag), Q12 (positions),
 Q13 (`electrolyteDose` field). Research: §2 (provenance chip), §3
 (reader list), §15 item 6 (`anyFlag` semantics).
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. **Evening log — `NightTagsStep`** (new step component, inserted

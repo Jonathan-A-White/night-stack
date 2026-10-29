@@ -3,6 +3,27 @@
 Read after `questions.md`. Every workstream file references sections
 here by number. Line numbers are against `main` at `7cb3689`.
 
+<!-- toc -->
+
+- [1. Dexie version and migration pattern](#1-dexie-version-and-migration-pattern)
+- [2. Provenance pattern (template for `sodiumLevelSource`)](#2-provenance-pattern-template-for-sodiumlevelsource)
+- [3. `high_salt` readers (Q11: flag removed)](#3-high_salt-readers-q11-flag-removed)
+- [4. `weightEntries` readers (Q5: migrate into `bodyMeasurements`)](#4-weightentries-readers-q5-migrate-into-bodymeasurements)
+- [5. `WakeUpEvent` lifecycle](#5-wakeupevent-lifecycle)
+- [6. Night-log creation and date keying](#6-night-log-creation-and-date-keying)
+- [7. Crash-safe draft pattern](#7-crash-safe-draft-pattern)
+- [8. Navigation and app shell](#8-navigation-and-app-shell)
+- [9. Notifications](#9-notifications)
+- [10. Export / import](#10-export--import)
+- [11. Insights](#11-insights)
+- [12. Rules engine](#12-rules-engine)
+- [13. Importers and Samsung export layout](#13-importers-and-samsung-export-layout)
+- [14. Test conventions](#14-test-conventions)
+- [15. Surprises and risks](#15-surprises-and-risks)
+- [Recommended file map](#recommended-file-map)
+
+<!-- /toc -->
+
 ## 1. Dexie version and migration pattern
 
 - `src/db.ts:177` — current head is **version 11**. Each version calls

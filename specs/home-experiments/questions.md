@@ -13,6 +13,33 @@ a single workstream.
 
 ---
 
+<!-- toc -->
+
+- [Q1. Where do orthostatic vitals live in the UI?](#q1-where-do-orthostatic-vitals-live-in-the-ui)
+- [Q2. Coach the orthostatic protocol, or just accept six numbers?](#q2-coach-the-orthostatic-protocol-or-just-accept-six-numbers)
+- [Q3. Is the Galaxy Watch BP a first-class source, and track calibration age?](#q3-is-the-galaxy-watch-bp-a-first-class-source-and-track-calibration-age)
+- [Q4. Weight: keep the single weigh-in setting, or make AM and PM first-class?](#q4-weight-keep-the-single-weigh-in-setting-or-make-am-and-pm-first-class)
+- [Q5. Neck circumference: generalized `BodyMeasurement` table, or a column on `WeightEntry`?](#q5-neck-circumference-generalized-bodymeasurement-table-or-a-column-on-weightentry)
+- [Q6. Can a 4am episode create a `NightLog` if the evening log was never finalized?](#q6-can-a-4am-episode-create-a-nightlog-if-the-evening-log-was-never-finalized)
+- [Q7. Episode capture: absolute minimum taps before a valid record is saved?](#q7-episode-capture-absolute-minimum-taps-before-a-valid-record-is-saved)
+- [Q8. How does Grace enter the blinded allocation?](#q8-how-does-grace-enter-the-blinded-allocation)
+- [Q9. Allocation: coin flip per night, or pre-randomized balanced sequence?](#q9-allocation-coin-flip-per-night-or-pre-randomized-balanced-sequence)
+- [Q10. Blinded experiment: what is the outcome variable?](#q10-blinded-experiment-what-is-the-outcome-variable)
+- [Q11. Salt tagging: replace boolean `high_salt`, or add a graded `sodiumLevel` alongside it?](#q11-salt-tagging-replace-boolean-high_salt-or-add-a-graded-sodiumlevel-alongside-it)
+- [Q12. Position: started + at-wake only, or also majority position? Do episodes carry their own?](#q12-position-started--at-wake-only-or-also-majority-position-do-episodes-carry-their-own)
+- [Q13. Electrolyte drink: `SupplementDef` with dose deviations, or a dedicated field?](#q13-electrolyte-drink-supplementdef-with-dose-deviations-or-a-dedicated-field)
+- [Q14. Clinician export: CSV only, or also printable? Which nights?](#q14-clinician-export-csv-only-or-also-printable-which-nights)
+- [Q15. Correlations: which new measures are X, which are Y?](#q15-correlations-which-new-measures-are-x-which-are-y)
+- [Q16. Rules: which new `ConditionClause` kinds, and what recommendation text?](#q16-rules-which-new-conditionclause-kinds-and-what-recommendation-text)
+- [Q17. Samsung import: keep the screenshot-JSON path, or add a bulk importer?](#q17-samsung-import-keep-the-screenshot-json-path-or-add-a-bulk-importer)
+- [Q18. Test bar per workstream](#q18-test-bar-per-workstream)
+- [Q19. Notifications for AM/PM vitals and bedtime weigh-in?](#q19-notifications-for-ampm-vitals-and-bedtime-weigh-in)
+- [Q20. What must be on the phone tonight, and what should *not* be built before Friday?](#q20-what-must-be-on-the-phone-tonight-and-what-should-not-be-built-before-friday)
+- [Questions added during research](#questions-added-during-research)
+- [Q21. Samsung bulk import: which export files exist, and is there a sample?](#q21-samsung-bulk-import-which-export-files-exist-and-is-there-a-sample)
+
+<!-- /toc -->
+
 ## Q1. Where do orthostatic vitals live in the UI?
 
 **Affects:** `vitals.md` · `insights-and-rules.md` (dashboard card)

@@ -6,6 +6,16 @@ church network with one big button, "Set Sunday lights", that the iPad opens;
 after a tap it shows each light as the repeater reports it. Standard library
 only, Go 1.22 or later.
 
+<!-- toc -->
+
+- [Sunday morning](#sunday-morning)
+- [Running it from source](#running-it-from-source)
+- [Building](#building)
+- [Packages](#packages)
+- [Tests](#tests)
+
+<!-- /toc -->
+
 ## Sunday morning
 
 For the person at the booth PC who has not seen this before. You need the PC on

@@ -6,6 +6,19 @@ existing logged fields — no new data entry required.
 
 **Priority:** P1. Blocks `distance-function.md`.
 
+<!-- toc -->
+
+- [Baseline from the analysis](#baseline-from-the-analysis)
+- [Tasks](#tasks)
+  - [T1. Add `hoursSinceLastMeal` derivation](#t1-add-hourssincelastmeal-derivation)
+  - [T2. Add `coolingRate1to4F` derivation](#t2-add-coolingrate1to4f-derivation)
+  - [T3. Surface `roomHumidity` in the inputs](#t3-surface-roomhumidity-in-the-inputs)
+  - [T4. Drop the three zero-signal food flags from `logToInputs`](#t4-drop-the-three-zero-signal-food-flags-from-logtoinputs)
+- [Tests to add](#tests-to-add)
+- [Known unknowns / gaps to resolve before coding](#known-unknowns--gaps-to-resolve-before-coding)
+
+<!-- /toc -->
+
 ## Baseline from the analysis
 
 Ranked by separation power (AUC on too_hot vs too_cold, n=5 vs n=3):

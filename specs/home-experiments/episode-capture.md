@@ -10,6 +10,18 @@ Q12 (episode carries its own position). Research: §5 (WakeUpEvent
 lifecycle and the overwrite hazard), §6 (date keying, non-unique
 `date`), §7 (draft pattern).
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. **`/experiments/episode`** — a full-screen, force-dark page. The

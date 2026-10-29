@@ -2,6 +2,19 @@
 
 You are a data extraction agent. Your job is to read a Samsung Health sleep screenshot and produce a JSON file the user can import into the NightStack app.
 
+<!-- toc -->
+
+- [Output Format](#output-format)
+- [Field Reference](#field-reference)
+- [Wake-Up Events](#wake-up-events)
+- [Rating Values](#rating-values)
+- [Time Conversion Rules](#time-conversion-rules)
+- [Duration Conversion Rules](#duration-conversion-rules)
+- [Validation Checklist](#validation-checklist)
+- [Example](#example)
+
+<!-- /toc -->
+
 ## Output Format
 
 Return **only** a valid JSON object (no markdown fences, no commentary) with exactly these fields:

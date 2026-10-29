@@ -7,6 +7,18 @@ Q1 decision: three apps within the app — **Routine**, **Tracking**,
 Settings shared. See `research.md` §8 for the route inventory and the
 "do not move existing routes" recommendation this spec adopts.
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. `src/apps.ts` — a registry: `AppId = 'routine' | 'tracking' |

@@ -9,6 +9,18 @@ primary), Q5 (weight migrated into `bodyMeasurements`), Q19 (bedtime
 weigh-in reminder). Research: §4 (reader list and adapter strategy),
 §10 (import never restored weights), §15 (step components).
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. **Retarget every `weightEntries` reader** to `bodyMeasurements`

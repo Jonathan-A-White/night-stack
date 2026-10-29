@@ -4,6 +4,24 @@ n=11 nights (2026-04-06 → 2026-04-16). Analysis in `/home/user/analyze.mjs` ag
 
 ---
 
+<!-- toc -->
+
+- [a) Proxy label coverage + failure-mode separation](#a-proxy-label-coverage--failure-mode-separation)
+  - [Proxy rule (from `wakeUpEvents[].cause` + `wasSweating/feltCold/racingHeart`)](#proxy-rule-from-wakeupeventscause--wassweatingfeltcoldracingheart)
+  - [Coverage](#coverage)
+  - [Failure-mode separation — wake time](#failure-mode-separation--wake-time)
+  - [Separation by room temp / weather](#separation-by-room-temp--weather)
+  - [Noise in the labeled set to flag](#noise-in-the-labeled-set-to-flag)
+- [b) Ranked list of features to add or re-weight](#b-ranked-list-of-features-to-add-or-re-weight)
+  - [Features the recommender currently uses](#features-the-recommender-currently-uses)
+  - [Features to add (in priority order)](#features-to-add-in-priority-order)
+  - [Features that don't earn their keep yet](#features-that-dont-earn-their-keep-yet)
+  - [Forecast-low → starting-room estimator](#forecast-low--starting-room-estimator)
+- [c) Specific edits to `src/services/recommender.ts`](#c-specific-edits-to-srcservicesrecommenderts)
+- [d) Logging-gap punch list for the UI](#d-logging-gap-punch-list-for-the-ui)
+
+<!-- /toc -->
+
 ## a) Proxy label coverage + failure-mode separation
 
 ### Proxy rule (from `wakeUpEvents[].cause` + `wasSweating/feltCold/racingHeart`)

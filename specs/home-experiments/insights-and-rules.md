@@ -9,6 +9,18 @@ and their text), Q10 note (`adrenergicNight` derived boolean).
 Research: §11 (Correlations/MetricDetail/Dashboard shapes), §12 (rules
 engine touch points), §15 item 5 (placeholder cases).
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. **`src/services/nightMetrics.ts`** — one shared, pure registry:

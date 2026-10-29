@@ -13,6 +13,24 @@ How to read it:
 - The app has no event bus. Modules talk through Dexie live queries (`useLiveQuery` in 174 places under
   `src/pages/` and `src/components/`) and through `localStorage` keys. Both are noted where they hurt.
 
+<!-- toc -->
+
+- [Modules](#modules)
+- [Collisions](#collisions)
+- [Proposed refactors](#proposed-refactors)
+  - [R1. Split the Morning and Evening wizards into step modules](#r1-split-the-morning-and-evening-wizards-into-step-modules)
+  - [R2. Put Dexie behind repositories](#r2-put-dexie-behind-repositories)
+  - [R3. Split the routine tracker into an engine and views](#r3-split-the-routine-tracker-into-an-engine-and-views)
+  - [R4. Split `src/theme.css` per feature](#r4-split-srcthemecss-per-feature)
+  - [R5. A route registry in place of the router in `src/App.tsx`](#r5-a-route-registry-in-place-of-the-router-in-srcapptsx)
+  - [R6. Split the schema files: `src/types.ts` by domain and `src/db.ts` versions into migration files](#r6-split-the-schema-files-srctypests-by-domain-and-srcdbts-versions-into-migration-files)
+  - [R7. One draft store for every saved-in-progress form](#r7-one-draft-store-for-every-saved-in-progress-form)
+  - [R8. Split `src/utils.ts` by concern](#r8-split-srcutilsts-by-concern)
+- [Rule breaks](#rule-breaks)
+- [Library candidates](#library-candidates)
+
+<!-- /toc -->
+
 ## Modules
 
 Dependency direction today, top imports down: `src/main.tsx` imports `src/App.tsx`; the page folders import

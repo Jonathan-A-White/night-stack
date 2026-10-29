@@ -4,6 +4,18 @@ Derived from `analysis/recommender-tuning-2026-04-17.md` (n=11 nights,
 2026-04-06 → 2026-04-16). Read the analysis first — these specs assume
 its findings and don't restate the numbers.
 
+<!-- toc -->
+
+- [What this spec pack is for](#what-this-spec-pack-is-for)
+- [Workstreams](#workstreams)
+- [Suggested execution order](#suggested-execution-order)
+- [Acceptance for the pack as a whole](#acceptance-for-the-pack-as-a-whole)
+- [Cross-cutting open questions](#cross-cutting-open-questions)
+- [Not in scope](#not-in-scope)
+- [Files touched](#files-touched)
+
+<!-- /toc -->
+
 ## What this spec pack is for
 
 An agent team implementing a second pass on the comfort-tuning

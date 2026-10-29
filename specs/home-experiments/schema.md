@@ -8,6 +8,28 @@ these types and the v12 migration exist. Reader retargeting (the
 here beyond what is needed to keep `tsc` and the existing tests green
 — see "Scope" below for the exact line.
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+  - [Shared enums](#shared-enums)
+  - [`EveningIntake`](#eveningintake)
+  - [`NightLog` additions](#nightlog-additions)
+  - [`WakeUpEvent` additions (episode fields)](#wakeupevent-additions-episode-fields)
+  - [`BodyMeasurement` (new table, replaces `weightEntries`)](#bodymeasurement-new-table-replaces-weightentries)
+  - [`OrthostaticReading` (new table)](#orthostaticreading-new-table)
+  - [`VitalSample` and `ImportBatch` (new tables, filled by `samsung-bulk-import`)](#vitalsample-and-importbatch-new-tables-filled-by-samsung-bulk-import)
+  - [`AppSettings` additions](#appsettings-additions)
+  - [`ConditionClause` additions](#conditionclause-additions)
+  - [Dexie v12](#dexie-v12)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. New and changed types in `src/types.ts` (below).

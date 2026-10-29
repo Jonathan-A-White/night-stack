@@ -21,6 +21,24 @@ that pick a subset and order of those steps.
 > A routine-only file works with either button, but the full-replace path will
 > erase the user's other data, so prefer Import Routines.
 
+<!-- toc -->
+
+- [Output format](#output-format)
+  - [Recommended shape — routine-only file (version 2)](#recommended-shape--routine-only-file-version-2)
+  - [Legacy shape — version 1 (single routine, no `routines` array)](#legacy-shape--version-1-single-routine-no-routines-array)
+  - [Alternate shape — nested under `config`](#alternate-shape--nested-under-config)
+- [Field reference](#field-reference)
+  - [`Routine`](#routine)
+  - [`RoutineStep`](#routinestep)
+  - [`RoutineVariant`](#routinevariant)
+  - [`RoutineSession`](#routinesession)
+- [Invariants the importer expects](#invariants-the-importer-expects)
+- [Worked example](#worked-example)
+- [Modify an existing export](#modify-an-existing-export)
+- [Questions to ask the user before generating](#questions-to-ask-the-user-before-generating)
+
+<!-- /toc -->
+
 ## Output format
 
 Return **only** a valid JSON object (no markdown fences, no commentary).

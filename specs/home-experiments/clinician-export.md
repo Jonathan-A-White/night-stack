@@ -11,6 +11,18 @@ column). Research: §10 (download pattern), §11 (metric extractors —
 reuse `nightMetrics` if it has merged; otherwise a local copy that
 insights-and-rules dedupes).
 
+<!-- toc -->
+
+- [Scope](#scope)
+- [Non-goals](#non-goals)
+- [Data changes](#data-changes)
+- [UI changes](#ui-changes)
+- [Given / When / Then](#given--when--then)
+- [Acceptance criteria](#acceptance-criteria)
+- [Open questions](#open-questions)
+
+<!-- /toc -->
+
 ## Scope
 
 1. `src/services/clinicianExport.ts` — pure:

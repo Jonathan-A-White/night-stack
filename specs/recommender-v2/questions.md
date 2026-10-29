@@ -9,6 +9,22 @@ questions that are scoped to that workstream alone.
 
 ---
 
+<!-- toc -->
+
+- [Q1. Is the window AC installed yet?](#q1-is-the-window-ac-installed-yet)
+- [Q2. Proxy-derived labels: auto-apply or "review and confirm"?](#q2-proxy-derived-labels-auto-apply-or-review-and-confirm)
+- [Q3. Does the recommender weight `'proxy'` labels the same as `'user'` labels?](#q3-does-the-recommender-weight-proxy-labels-the-same-as-user-labels)
+- [Q4. Forecast-low → starting-room prefill: hardcoded or per-user?](#q4-forecast-low--starting-room-prefill-hardcoded-or-per-user)
+- [Q5. "Mixed" thermalComfort — operational definition?](#q5-mixed-thermalcomfort--operational-definition)
+- [Q6. `plannedAcCurve === 'off'` semantics — inert baseline or discriminating?](#q6-plannedaccurve--off-semantics--inert-baseline-or-discriminating)
+- [Q7. Duplicate-bug root cause (4/15 ≡ 4/16) — what was the user flow?](#q7-duplicate-bug-root-cause-415--416--what-was-the-user-flow)
+- [Q8. Test-coverage bar per workstream?](#q8-test-coverage-bar-per-workstream)
+- [Q9. UI placement for the backfill review flow?](#q9-ui-placement-for-the-backfill-review-flow)
+- [Q10. `thermalProxyDismissed` and other per-row flags — when do they compound?](#q10-thermalproxydismissed-and-other-per-row-flags--when-do-they-compound)
+- [Not in scope for v2](#not-in-scope-for-v2)
+
+<!-- /toc -->
+
 ## Q1. Is the window AC installed yet?
 
 **Affects:** `logging-fixes.md` T4 · `distance-function.md` T3 ·
