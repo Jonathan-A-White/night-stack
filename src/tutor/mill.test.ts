@@ -39,6 +39,22 @@ describe('the mill client', () => {
     expect(sent.attachments).toEqual([]);
   });
 
+  it('starts reading at the grist, not at the start of a long history (mw-026yqg.6)', async () => {
+    const { fake, conn } = connect();
+    // fifty older answers to other grists, then this grist at seq 51, then the mill's answer to it at seq 52
+    for (let i = 0; i < 50; i++) fake.reply({ re: 'direct:' + 'c'.repeat(64), status: 'answered', answer: { answer: 'older' }, grind: FORM_TALK });
+    const older = fake.records[0];
+    fake.records.push({ ...older, seq: 51, txid: TXID, from: older.to, to: older.from, signer: older.to });
+    fake.postResult = { txid: TXID, seq: 51 };
+    fake.reply({ re: TXID, status: 'answered', answer: { answer: 'When did you go to sleep?' }, grind: FORM_TALK });
+    const answer = await askMill(conn, { question: 'x' });
+    expect(answer).toEqual({ answer: 'When did you go to sleep?' });
+    const pages = fake.seen.filter((s) => s.path.startsWith('/messages?since=')).map((s) => s.path);
+    expect(pages.length).toBeGreaterThan(0);
+    expect(pages).not.toContain('/messages?since=0');
+    expect(pages[0]).toBe('/messages?since=51');
+  });
+
   it('refuses with the mill\'s reason when the mill refuses or fails the grist', async () => {
     const { fake, conn } = connect();
     fake.onPoll = () => {
