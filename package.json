@@ -13,7 +13,7 @@
     "test:changed": "vitest run --changed"
   },
   "dependencies": {
-    "bsv-kit": "github:Jonathan-A-White/bsv-kit#fec787f3f9462fa9787e094d3bd236b5362e1511",
+    "bsv-kit": "github:Jonathan-A-White/bsv-kit#24a5e297c48175fafaefa399772a15f316ab365f",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "react": "^19.2.4",
@@ -44,7 +44,7 @@
     "vitest": "^4.1.2"
   },
   "allowScripts": {
-    "github:Jonathan-A-White/bsv-kit#fec787f3f9462fa9787e094d3bd236b5362e1511": true,
+    "github:Jonathan-A-White/bsv-kit#24a5e297c48175fafaefa399772a15f316ab365f": true,
     "github:Jonathan-A-White/voice-kit#d87188227886ec15e7c34f674992f4a63ea69215": true
   }
 }
